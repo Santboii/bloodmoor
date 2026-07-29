@@ -89,58 +89,54 @@ const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 };
 
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@400;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
-.st-overlay{position:fixed;inset:0;background:#0a0704;overflow-y:auto;z-index:150;display:none;}
+.st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .st-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
-.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'Crimson Text',Georgia,serif;color:#c8a870;}
+.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
 .st-header{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:600px;margin-bottom:20px;}
-.st-title{font-family:'Cinzel Decorative',Cinzel,serif;font-size:1.3rem;color:#ddb84a;letter-spacing:0.14em;}
-.st-points{font-family:'Cinzel',serif;font-size:0.62rem;color:#6a5228;letter-spacing:0.2em;text-transform:uppercase;margin-top:2px;}
-.st-points b{color:#90a870;}
-.st-btn{padding:7px 14px;background:#1a1208;border:1px solid #3a2710;color:#c8a870;border-radius:2px;cursor:pointer;font-family:'Cinzel',serif;font-size:0.62rem;letter-spacing:0.1em;transition:all 0.15s;}
-.st-btn:hover{border-color:#c8860a;color:#ddb84a;}
+.st-title{font-size:12px;letter-spacing:0.05em;}
+.st-points{font-size:6px;letter-spacing:0.1em;margin-top:4px;}
+.st-points b{color:var(--px-success);}
+.st-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
 .st-header-buttons{display:flex;gap:10px;}
-.st-tree-label{font-size:0.62rem;letter-spacing:0.2em;text-transform:uppercase;font-weight:700;color:#d86030;text-align:center;margin-bottom:8px;}
+.st-tree-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
 .st-tree-container{position:relative;width:100%;max-width:600px;height:600px;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
 .st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
-.st-node-circle{border-radius:50%;display:flex;align-items:center;justify-content:center;transition:filter 0.14s,transform 0.14s;}
+.st-node-circle{border-radius:0;display:flex;align-items:center;justify-content:center;transition:filter 0.14s,transform 0.14s;}
 .st-node-circle:hover{transform:scale(1.08);}
 .st-node[data-state="locked"] .st-node-circle:hover{transform:none;}
 .st-node-spell{width:58px;height:58px;}
 .st-node-mod{width:44px;height:44px;}
-.st-node-owned .st-node-circle{border:2.5px solid #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
-.st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 12px rgba(232,96,32,0.25);}
+.st-node-owned .st-node-circle{border:0;box-shadow:0 0 0 3px #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
+.st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 0 3px #e86020,0 0 12px rgba(232,96,32,0.25);}
 .st-node-owned .st-node-icon{color:#e87040;}
 .st-node-owned .st-node-name{color:#d86040;}
-.st-node-purchasable .st-node-circle{border:2px dashed #c8860a;background:radial-gradient(circle at 38% 38%,#160800,#0a0400);}
-.st-node-purchasable .st-node-icon{color:#c8860a;}
-.st-node-purchasable .st-node-name{color:#c8860a;}
-.st-node-locked .st-node-circle{border:1.5px solid #444;background:#151515;}
+.st-node-purchasable .st-node-circle{border:0;outline:2px dashed var(--px-accent);outline-offset:-2px;background:radial-gradient(circle at 38% 38%,#160800,#0a0400);}
+.st-node-purchasable .st-node-icon{color:var(--px-accent);}
+.st-node-purchasable .st-node-name{color:var(--px-accent);}
+.st-node-locked .st-node-circle{border:0;box-shadow:0 0 0 1.5px #444;background:#151515;}
 .st-node-locked .st-node-icon{color:#555;}
 .st-node-locked .st-node-name{color:#555;}
-.st-node-name{font-size:0.56rem;text-align:center;max-width:72px;margin-top:4px;line-height:1.2;font-family:'Cinzel',serif;}
-.st-node-cost{font-size:0.48rem;margin-top:2px;letter-spacing:0.08em;}
+.st-node-name{font-family:'Press Start 2P',monospace;font-size:6px;text-align:center;max-width:72px;margin-top:4px;line-height:1.4;}
+.st-node-cost{font-family:'Press Start 2P',monospace;font-size:6px;margin-top:2px;letter-spacing:0.05em;}
 .st-node-owned .st-node-cost{color:#d86040;}
-.st-node-purchasable .st-node-cost{color:#c8860a;}
+.st-node-purchasable .st-node-cost{color:var(--px-accent);}
 .st-node-locked .st-node-cost{color:#444;}
 .st-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:600px;margin:24px 0;}
-.st-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,#5a3a10,transparent);}
-.st-divider-gem{width:10px;height:10px;background:#c8860a;transform:rotate(45deg);box-shadow:0 0 8px rgba(200,130,10,0.6);}
-.st-util-label{font-size:0.58rem;letter-spacing:0.22em;color:#5a4420;text-transform:uppercase;text-align:center;margin-bottom:12px;}
+.st-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
+.st-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
+.st-util-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:12px;}
 .st-util-container{position:relative;width:100%;max-width:600px;height:250px;}
 .st-util-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
-.st-tooltip{display:none;position:fixed;background:#1a1208;border:1px solid #3a2710;padding:14px 18px;border-radius:2px;max-width:300px;font-size:0.88rem;line-height:1.6;color:#c8a870;z-index:300;pointer-events:none;}
+.st-tooltip{display:none;position:fixed;max-width:300px;font-family:'VT323',monospace;font-size:16px;line-height:1.5;z-index:300;pointer-events:none;}
 .st-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
-.st-confirm-panel{background:linear-gradient(160deg,rgba(16,12,6,0.98),rgba(8,6,2,0.99));border:1px solid #5a3010;border-top:2px solid rgba(200,134,10,0.6);border-radius:2px;padding:28px 32px;max-width:340px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.8);}
-.st-confirm-title{font-family:'Cinzel',serif;font-size:1rem;color:#ddb84a;letter-spacing:0.1em;margin-bottom:8px;}
-.st-confirm-text{font-family:'Crimson Text',Georgia,serif;font-size:0.82rem;color:#c8a870;margin-bottom:24px;line-height:1.5;}
+.st-confirm-panel{padding:28px 32px;max-width:340px;text-align:center;}
+.st-confirm-title{margin-bottom:8px;}
+.st-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;}
 .st-confirm-buttons{display:flex;gap:12px;justify-content:center;}
-.st-confirm-yes{padding:9px 24px;background:linear-gradient(180deg,#7a1500 0%,#4a0d00 60%,#3a0800 100%);color:#ffcc88;border:1px solid rgba(140,40,0,0.9);font-family:'Cinzel',serif;font-size:0.68rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;cursor:pointer;border-radius:2px;transition:all 0.15s;}
-.st-confirm-yes:hover{background:linear-gradient(180deg,#9a1a00 0%,#6a1200 60%,#4a0a00 100%);}
-.st-confirm-no{padding:9px 24px;background:#1a1208;border:1px solid #3a2710;color:#c8a870;font-family:'Cinzel',serif;font-size:0.68rem;letter-spacing:0.1em;cursor:pointer;border-radius:2px;transition:all 0.15s;}
-.st-confirm-no:hover{border-color:#c8860a;color:#ddb84a;}
-.st-node-rank{position:absolute;bottom:2px;font-family:'Cinzel',serif;font-size:0.52rem;font-weight:700;color:#ddb84a;text-shadow:0 0 4px rgba(0,0,0,0.8);pointer-events:none;}
+.st-confirm-yes{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+.st-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+.st-node-rank{position:absolute;bottom:2px;font-family:'Press Start 2P',monospace;font-size:6px;color:var(--px-accent);text-shadow:0 0 4px rgba(0,0,0,0.8);pointer-events:none;}
 .st-ring{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
 .st-ring circle{fill:none;stroke-linecap:round;}
 `;
@@ -241,12 +237,12 @@ export class SkillTreeUI {
       <div class="st-ui">
         <div class="st-header">
           <div>
-            <div class="st-title">${esc(this.charName)} — ${esc(this.charClass)} Skills</div>
-            <div class="st-points">Points Available: <b>${pts}</b></div>
+            <div class="st-title px-title">${esc(this.charName)} — ${esc(this.charClass)} Skills</div>
+            <div class="st-points px-label">Points Available: <b>${pts}</b></div>
           </div>
           <div class="st-header-buttons">
-            <button id="st-respec" class="st-btn">Reset Skills</button>
-            <button id="st-close" class="st-btn">Back to Lobby</button>
+            <button id="st-respec" class="st-btn px-btn">Reset Skills</button>
+            <button id="st-close" class="st-btn px-btn">Back to Lobby</button>
           </div>
         </div>
 
@@ -264,7 +260,7 @@ export class SkillTreeUI {
           ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
         </div>
 
-        <div id="st-tooltip" class="st-tooltip"></div>
+        <div id="st-tooltip" class="st-tooltip px-panel"></div>
       </div>
     `;
 
@@ -390,20 +386,19 @@ export class SkillTreeUI {
         let statusLine = '';
         let rankLine = '';
         if (mutuallyLocked) {
-          statusLine = '<span style="color:#884020;font-size:0.6rem">Locked (requires respec to change element)</span>';
+          statusLine = '<span style="color:var(--px-danger)">Locked (requires respec to change element)</span>';
         } else if (isOwned && isStackable(node)) {
           const softCap = node.stackable!.softCap;
           const nextCost = rankUpCost(node, currentRank);
           const pastCap = currentRank >= softCap;
-          rankLine = `<span style="color:#c8a870;font-size:0.6rem">Rank ${currentRank} / ${softCap}</span><br>`;
+          rankLine = `<span style="color:var(--px-text)">Rank ${currentRank} / ${softCap}</span><br>`;
           if (pts >= nextCost) {
-            const costColor = pastCap ? '#ddb84a' : '#c8860a';
-            statusLine = `<span style="color:${costColor};font-size:0.6rem">Next rank: ${nextCost} pt${nextCost > 1 ? 's' : ''}${pastCap ? ' (past cap)' : ''}</span>`;
+            statusLine = `<span style="color:var(--px-accent)">Next rank: ${nextCost} pt${nextCost > 1 ? 's' : ''}${pastCap ? ' (past cap)' : ''}</span>`;
           } else {
-            statusLine = '<span style="color:#884020;font-size:0.6rem">Not enough points for next rank</span>';
+            statusLine = '<span style="color:var(--px-danger)">Not enough points for next rank</span>';
           }
         } else if (isOwned) {
-          statusLine = '<span style="color:#90a870;font-size:0.6rem">Owned</span>';
+          statusLine = '<span style="color:var(--px-success)">Owned</span>';
         } else if (gateBlocked) {
           const missing: string[] = [];
           if (gate?.requiresAll) {
@@ -423,18 +418,18 @@ export class SkillTreeUI {
               missing.push(`one of: ${names.join(', ')}`);
             }
           }
-          statusLine = `<span style="color:#884020;font-size:0.6rem">Requires: ${esc(missing.join(', '))}</span>`;
+          statusLine = `<span style="color:var(--px-danger)">Requires: ${esc(missing.join(', '))}</span>`;
         } else if (canBuyFirst) {
-          statusLine = '<span style="color:#60a840;font-size:0.6rem">Click to unlock</span>';
+          statusLine = '<span style="color:var(--px-success)">Click to unlock</span>';
         } else {
-          statusLine = '<span style="color:#884020;font-size:0.6rem">Not enough points</span>';
+          statusLine = '<span style="color:var(--px-danger)">Not enough points</span>';
         }
 
-        const costDisplay = isOwned ? '' : `<span style="color:#7a6030;font-size:0.6rem">Cost: ${node.cost} pt${node.cost > 1 ? 's' : ''}</span><br>`;
+        const costDisplay = isOwned ? '' : `<span style="color:var(--px-border-light)">Cost: ${node.cost} pt${node.cost > 1 ? 's' : ''}</span><br>`;
 
         tooltip.innerHTML = `
-          <strong style="color:#ddb84a">${esc(node.name)}</strong><br>
-          <span style="color:#c8a870">${esc(node.description)}</span><br>
+          <strong style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--px-accent)">${esc(node.name)}</strong><br>
+          <span style="color:var(--px-text)">${esc(node.description)}</span><br>
           ${rankLine}${costDisplay}${statusLine}
         `;
         tooltip.style.display = 'block';
@@ -509,12 +504,12 @@ export class SkillTreeUI {
     const overlay = document.createElement('div');
     overlay.className = 'st-confirm-overlay';
     overlay.innerHTML = `
-      <div class="st-confirm-panel">
-        <div class="st-confirm-title">${esc(title)}</div>
+      <div class="st-confirm-panel px-panel">
+        <div class="st-confirm-title px-title">${esc(title)}</div>
         <div class="st-confirm-text">${esc(text)}</div>
         <div class="st-confirm-buttons">
-          <button class="st-confirm-yes">Confirm</button>
-          <button class="st-confirm-no">Cancel</button>
+          <button class="st-confirm-yes px-btn px-btn-primary">Confirm</button>
+          <button class="st-confirm-no px-btn">Cancel</button>
         </div>
       </div>
     `;
