@@ -78,7 +78,10 @@ export class SpriteCharacter {
       } else {
         next = 'idle';
       }
-      if (isCasting && !this.casting) this.animElapsed = 0; // restart cast
+      // The server sets castingSpell for exactly one tick per successful cast
+      // (cooldown-gated), so an isCasting frame always means a NEW cast —
+      // restart the animation even if the previous one is still playing.
+      if (isCasting) this.animElapsed = 0;
       this.casting = next === this.castAnim && (isCasting || this.casting);
       if (next !== this.anim && !(this.casting && this.anim === this.castAnim)) {
         this.anim = next;
