@@ -48,4 +48,10 @@ describe('posterizePixels', () => {
     posterizePixels(data, 8);
     expect(Array.from(data)).toEqual([0, 0, 0, 255, 255, 255, 255, 255]);
   });
+
+  it('clamps degenerate level counts instead of corrupting pixels', () => {
+    const data = new Uint8ClampedArray([200, 100, 30, 128]);
+    posterizePixels(data, 1); // clamped to 2 levels: 0 or 255
+    expect(Array.from(data)).toEqual([255, 0, 0, 128]);
+  });
 });

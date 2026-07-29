@@ -36,6 +36,7 @@ export const PALETTE_LEVELS = 32; // per-channel levels; lower = crunchier
 
 /** In-place posterization of RGBA pixel data (RGB only; alpha untouched). */
 export function posterizePixels(data: Uint8ClampedArray, levels: number): void {
+  levels = Math.max(2, Math.floor(levels));
   const step = 255 / (levels - 1);
   for (let i = 0; i < data.length; i += 4) {
     data[i] = Math.round(data[i] / step) * step;
