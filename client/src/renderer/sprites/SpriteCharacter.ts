@@ -90,12 +90,16 @@ export class SpriteCharacter {
 
   private applyFrame(force: boolean): void {
     if (!this.textures) return;
-    const tex = this.textures[this.anim] ?? this.textures.idle ?? this.textures.walk;
+    const usedAnim: LpcAnimation =
+      this.textures[this.anim] ? this.anim :
+      this.textures.idle ? 'idle' :
+      'walk';
+    const tex = this.textures[usedAnim];
     if (!tex) return;
-    const meta = LPC_ANIMATIONS[this.anim];
-    const loop = this.anim !== 'hurt' && this.anim !== this.castAnim;
-    const frame = animationFrame(this.anim, this.animElapsed, loop);
-    const key = `${this.anim}:${this.direction}:${frame}`;
+    const meta = LPC_ANIMATIONS[usedAnim];
+    const loop = usedAnim !== 'hurt' && usedAnim !== this.castAnim;
+    const frame = animationFrame(usedAnim, this.animElapsed, loop);
+    const key = `${usedAnim}:${this.direction}:${frame}`;
     if (!force && key === this.lastFrameKey) return;
     this.lastFrameKey = key;
 
@@ -103,7 +107,7 @@ export class SpriteCharacter {
       this.material.map = tex;
       this.material.needsUpdate = true;
     }
-    const { sx, sy } = frameRect(this.anim, this.direction, frame);
+    const { sx, sy } = frameRect(usedAnim, this.direction, frame);
     const rows = meta.singleRow ? 1 : 4;
     tex.repeat.set(FRAME / (meta.frames * FRAME), FRAME / (rows * FRAME));
     tex.offset.set(sx / (meta.frames * FRAME), 1 - (sy + FRAME) / (rows * FRAME));
