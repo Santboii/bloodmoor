@@ -14,16 +14,16 @@ const LAYERS = [
   // mage
   'body/bodies/male',
   'head/heads/human/male',
-  'torso/clothes/longsleeve/longsleeve/male/purple',
-  'legs/pants/male/black',
-  'hat/magic/wizard/base/adult/base_black',
+  'torso/clothes/longsleeve/longsleeve/male',
+  'legs/pants/male',
+  'hat/magic/wizard/base/adult/base_black',   // hat: per-color files upstream
   // ranger
-  'hair/ponytail/adult/bg/red',
+  'hair/ponytail/adult/bg',
   'body/bodies/female',
   'head/heads/human/female',
-  'hair/ponytail/adult/fg/red',
-  'torso/clothes/longsleeve/longsleeve/female/green',
-  'legs/pants/female/brown',
+  'hair/ponytail/adult/fg',
+  'torso/clothes/longsleeve/longsleeve/female',
+  'legs/pants/thin',
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)
