@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { CharacterAnimator } from './CharacterAnimator';
+import { snapToTexel, worldUnitsPerTexel } from './pixelation';
 
 const TARGET_HEIGHT = 50; // world units tall
 
@@ -100,7 +101,9 @@ export class CharacterMesh {
     }
     this.prevX = x;
     this.prevZ = y;
-    this.group.position.set(x, 0, y);
+    // Render on the texel grid; raw x/y stay in prevX/prevZ for velocity.
+    const texel = worldUnitsPerTexel();
+    this.group.position.set(snapToTexel(x, texel), 0, snapToTexel(y, texel));
   }
 
   update(delta: number, isCasting: boolean): void {
