@@ -40,20 +40,22 @@ function candidates(layer, anim) {
 }
 
 let ok = 0, missing = [];
+const saved = new Set(); // `${layer}/${anim}` for every sheet actually written to disk
 for (const layer of [...new Set(LAYERS)]) {
   for (const anim of ANIMS) {
     const dest = join(OUT, layer, `${anim}.png`);
-    let saved = false;
+    let wasSaved = false;
     for (const url of candidates(layer, anim)) {
       const res = await fetch(url);
       if (res.ok) {
         await mkdir(dirname(dest), { recursive: true });
         await writeFile(dest, Buffer.from(await res.arrayBuffer()));
-        ok++; saved = true;
+        ok++; wasSaved = true;
+        saved.add(`${layer}/${anim}`);
         break;
       }
     }
-    if (!saved) missing.push(`${layer}/${anim}`);
+    if (!wasSaved) missing.push(`${layer}/${anim}`);
   }
 }
 console.log(`saved ${ok} sheets`);
@@ -66,7 +68,10 @@ if (missing.length) {
 // (~3.9MB, ~13.8k rows) — far too large to fetch wholesale from the credits
 // screen at runtime. Filter it down at vendor time to only the rows for
 // sheets we actually ship, and write that as CREDITS.filtered.csv.
-await filterCredits();
+// This is a licensing requirement (CC-BY-SA/OGA-BY/GPL), so filterCredits()
+// exits non-zero if any saved sheet has no matching credits row — silently
+// shipping unattributed art must fail the vendor run, not just log a diff.
+await filterCredits(saved);
 
 /** Minimal RFC-4180 CSV line parser: handles quoted fields, embedded commas,
  * and doubled-quote escapes ("" -> "). Good enough for this generator's CSV. */
@@ -105,7 +110,7 @@ function csvField(s) {
   return `"${String(s).replace(/"/g, '""')}"`;
 }
 
-async function filterCredits() {
+async function filterCredits(savedSheets) {
   const creditsPath = join(OUT, 'CREDITS.csv');
   let text;
   try {
@@ -117,18 +122,37 @@ async function filterCredits() {
 
   const rows = parseCsv(text);
   const [header, ...body] = rows;
+  const csvFilenames = new Set(body.map(r => r[0]));
 
   // Every vendored file lives at <layer>/<anim>.png locally. The upstream
   // CSV sometimes keys plain-layout entries one directory up (no color
   // subfolder), so match both the exact path and that parent-dir fallback.
-  const wanted = new Set();
-  for (const layer of new Set(LAYERS)) {
+  const candidatesFor = (layer, anim) => {
     const parts = layer.split('/');
     const parentDir = parts.slice(0, -1).join('/');
-    for (const anim of ANIMS) {
-      wanted.add(`${layer}/${anim}.png`);
-      if (parentDir) wanted.add(`${parentDir}/${anim}.png`);
-    }
+    const out = [`${layer}/${anim}.png`];
+    if (parentDir) out.push(`${parentDir}/${anim}.png`);
+    return out;
+  };
+
+  const wanted = new Set();
+  const unattributed = [];
+  for (const sheet of savedSheets) {
+    const [layer, anim] = [sheet.slice(0, sheet.lastIndexOf('/')), sheet.slice(sheet.lastIndexOf('/') + 1)];
+    const options = candidatesFor(layer, anim);
+    const match = options.find(p => csvFilenames.has(p));
+    if (match) wanted.add(match);
+    else unattributed.push(sheet);
+  }
+
+  // A saved sheet with zero matching credits rows means we'd ship CC-BY-SA/
+  // OGA-BY/GPL art with no attribution — a licensing violation, not a mere
+  // warning. Fail the vendor run loudly instead of relying on a human to
+  // notice a mismatched row count in the console output.
+  if (unattributed.length > 0) {
+    console.error(`filterCredits: ${unattributed.length} vendored sheet(s) have NO matching CREDITS.csv row:`);
+    for (const s of unattributed) console.error('  ' + s);
+    process.exit(1);
   }
 
   const filtered = body.filter(r => wanted.has(r[0]));
@@ -137,5 +161,5 @@ async function filterCredits() {
 
   const dest = join(OUT, 'CREDITS.filtered.csv');
   await writeFile(dest, outText);
-  console.log(`filterCredits: wrote ${filtered.length} rows to ${dest}`);
+  console.log(`filterCredits: wrote ${filtered.length} rows to ${dest} (${savedSheets.size} sheets, all attributed)`);
 }

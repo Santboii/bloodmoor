@@ -28,13 +28,40 @@ export class CreditsScreen {
     const body = this.el.querySelector('#credits-body')!;
     if (!body.textContent) {
       try {
-        const csv = await fetch('/assets/lpc/CREDITS.filtered.csv').then(r => r.text());
-        body.textContent = csv;
+        const res = await fetch('/assets/lpc/CREDITS.filtered.csv');
+        if (!res.ok) throw new Error(`credits fetch failed: ${res.status}`);
+        body.textContent = formatCredits(await res.text());
       } catch {
-        body.textContent = 'See client/public/assets/lpc/CREDITS.csv';
+        body.textContent = 'Credits file missing — see client/public/assets/lpc/CREDITS.csv';
       }
     }
   }
 
   hide(): void { this.el.style.display = 'none'; }
+}
+
+// One CSV field, handling quotes/embedded commas ("" -> escaped quote).
+function parseCsvRow(line: string): string[] {
+  const fields: string[] = [];
+  let field = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') { if (line[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { fields.push(field); field = ''; }
+    else field += c;
+  }
+  fields.push(field);
+  return fields;
+}
+
+// filename,notes,authors,licenses,urls -> "filename — authors (licenses)" per row.
+function formatCredits(csv: string): string {
+  const lines = csv.split('\n').filter(l => l.trim().length > 0).slice(1);
+  return lines
+    .map(parseCsvRow)
+    .map(([filename, , authors, licenses]) => `${filename} — ${authors?.trim()} (${licenses?.trim()})`)
+    .join('\n\n');
 }
