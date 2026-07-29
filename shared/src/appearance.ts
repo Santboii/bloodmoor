@@ -26,7 +26,13 @@ export type Appearance = {
   hatColor: string;
 };
 
-export type LpcLayer = { path: string; z: number };
+export type LpcLayer = { path: string; z: number; tint?: string };
+
+/** Color names → tint hex for base-color LPC sheets (multiply tinting). */
+export const LPC_TINTS: Record<string, string> = {
+  purple: '#8a5fc4', green: '#4d8f4d', black: '#4a4a52', brown: '#7d5a38',
+  red: '#c0503a', blue: '#4a6fc4', white: '#f0f0f0',
+};
 
 export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
   mage: {
@@ -44,12 +50,12 @@ export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
 /** Resolve an appearance to concrete layer paths in draw order (low z first). */
 export function layersFor(a: Appearance): LpcLayer[] {
   const layers: LpcLayer[] = [];
-  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/bg/${a.hairColor}`, z: 0 });
+  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/bg`, z: 0, tint: LPC_TINTS[a.hairColor] });
   layers.push({ path: `body/bodies/${a.body}`, z: 10 });
   layers.push({ path: `head/heads/human/${a.body}`, z: 20 });
-  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/fg/${a.hairColor}`, z: 30 });
-  layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}/${a.torsoColor}`, z: 40 });
-  layers.push({ path: `legs/pants/${a.body}/${a.legsColor}`, z: 50 });
+  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: LPC_TINTS[a.hairColor] });
+  layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}`, z: 40, tint: LPC_TINTS[a.torsoColor] });
+  layers.push({ path: `legs/pants/${a.body}`, z: 50, tint: LPC_TINTS[a.legsColor] });
   if (a.hat) layers.push({ path: `hat/magic/${a.hat}/base/adult/${a.hatColor}`, z: 60 });
   return layers.sort((x, y) => x.z - y.z);
 }

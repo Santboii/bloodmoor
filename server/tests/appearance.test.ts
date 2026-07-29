@@ -8,25 +8,29 @@ describe('layersFor', () => {
     expect(paths).toEqual([
       'body/bodies/male',
       'head/heads/human/male',
-      'torso/clothes/longsleeve/longsleeve/male/purple',
-      'legs/pants/male/black',
+      'torso/clothes/longsleeve/longsleeve/male',
+      'legs/pants/male',
       'hat/magic/wizard/base/adult/base_black',
     ]);
     const zs = layers.map(l => l.z);
     expect([...zs].sort((a, b) => a - b)).toEqual(zs); // already sorted
+    expect(layers[2].tint).toBe('#8a5fc4');
+    expect(layers[4].tint).toBeUndefined();
   });
 
   it('resolves the ranger default with hair bg behind the body and fg above the head', () => {
     const layers = layersFor(CLASS_DEFAULT_APPEARANCE.amazon);
     const paths = layers.map(l => l.path);
     expect(paths).toEqual([
-      'hair/ponytail/adult/bg/red',
+      'hair/ponytail/adult/bg',
       'body/bodies/female',
       'head/heads/human/female',
-      'hair/ponytail/adult/fg/red',
-      'torso/clothes/longsleeve/longsleeve/female/green',
-      'legs/pants/female/brown',
+      'hair/ponytail/adult/fg',
+      'torso/clothes/longsleeve/longsleeve/female',
+      'legs/pants/female',
     ]);
+    expect(layers[0].tint).toBe('#c0503a');
+    expect(layers[4].tint).toBe('#4d8f4d');
   });
 
   it('animation table matches the LPC universal layout', () => {
