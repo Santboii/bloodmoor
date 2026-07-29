@@ -25,6 +25,16 @@ export type PlayerState = {
   evadeTarget?: Vec2;
   evadeEndTick?: number;
   teamId?: string;
+  // Elemental arrow status effects (ticks are absolute server ticks)
+  burnUntil?: number;
+  burnDps?: number;
+  slowUntil?: number;
+  slowFactor?: number; // movement speed multiplier while slowed (e.g. 0.7)
+  poisonUntil?: number;
+  poisonDps?: number;
+  poisonManaReduction?: number; // fraction of mana regen removed
+  // Shadowstep
+  invisibleUntil?: number;
 };
 
 export type Projectile = {
@@ -41,6 +51,10 @@ export type Projectile = {
   homingRedirects?: number;
   homingInterval?: number;
   split?: number;
+  // Split children ignore pillar overlap and player hits until this tick so
+  // they fly clear of the obstacle/target they spawned on instead of
+  // detonating immediately and stacking blasts.
+  noHitUntil?: number;
 };
 
 export type FireWallState = {

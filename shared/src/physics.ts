@@ -1,4 +1,4 @@
-import { Vec2, PLAYER_SPEED, PLAYER_HALF_SIZE, ARENA_SIZE, PILLARS, DELTA, Pillar } from './types.js';
+import { Vec2, PLAYER_SPEED, PLAYER_HALF_SIZE, ARENA_SIZE, PILLARS, DELTA, Pillar, TELEPORT_MAX_RANGE } from './types.js';
 
 export function circleHitsAABB(center: Vec2, radius: number, pillar: Pillar): boolean {
   const closestX = Math.max(pillar.x - pillar.halfSize, Math.min(center.x, pillar.x + pillar.halfSize));
@@ -37,14 +37,29 @@ export function resolvePlayerPillarCollisions(pos: Vec2): Vec2 {
   return p;
 }
 
-export function movePlayer(position: Vec2, input: Vec2): Vec2 {
+/**
+ * Resolve a teleport cast: clamp the aim point to range, then to the arena,
+ * then out of pillars. Shared so client prediction and the authoritative
+ * server can never disagree on the landing spot.
+ */
+export function clampTeleport(position: Vec2, target: Vec2, maxRange = TELEPORT_MAX_RANGE): Vec2 {
+  const dx = target.x - position.x;
+  const dy = target.y - position.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const clamped = dist > maxRange
+    ? { x: position.x + (dx / dist) * maxRange, y: position.y + (dy / dist) * maxRange }
+    : { x: target.x, y: target.y };
+  return resolvePlayerPillarCollisions(clampToArena(clamped));
+}
+
+export function movePlayer(position: Vec2, input: Vec2, speedMultiplier = 1): Vec2 {
   const len = Math.sqrt(input.x * input.x + input.y * input.y);
   if (len === 0) return position;
   const nx = input.x / len;
   const ny = input.y / len;
   const moved = {
-    x: position.x + nx * PLAYER_SPEED * DELTA,
-    y: position.y + ny * PLAYER_SPEED * DELTA,
+    x: position.x + nx * PLAYER_SPEED * DELTA * speedMultiplier,
+    y: position.y + ny * PLAYER_SPEED * DELTA * speedMultiplier,
   };
   return resolvePlayerPillarCollisions(clampToArena(moved));
 }

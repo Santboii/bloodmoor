@@ -1,3 +1,6 @@
+import type { SpellId, CharacterClass } from './types.js';
+import { TELEPORT_MAX_RANGE } from './types.js';
+
 export type NodeId =
   | 'fire.fireball' | 'fire.volatile_ember' | 'fire.seeking_flame'
   | 'fire.hellfire' | 'fire.pyroclasm' | 'fire.fire_wall'
@@ -112,6 +115,39 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'archer_utility.shadowstep',   name: 'Shadowstep',   tree: 'archer_utility', tier: 2, cost: 2, isSpell: false, description: 'Become invisible for 0.5s after evading.' },
   { id: 'archer_utility.acrobatics',   name: 'Acrobatics',   tree: 'archer_utility', tier: 3, cost: 3, isSpell: false, description: 'Evade cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 } },
 ];
+
+// ── Spell bindings ──────────────────────────────────────────────────────────
+// Single source of truth for spell id ↔ unlock node ↔ keybind ↔ class.
+// Consumed by the server cast gate, the client HUD, input handling, and the
+// skill-unlock → owned-spells derivation. Add new classes/spells here only.
+
+export type SpellBinding = { spell: SpellId; node: NodeId; key: 1 | 2 | 3 | 4; charClass: CharacterClass };
+
+export const SPELL_BINDINGS: SpellBinding[] = [
+  { spell: 1, node: 'fire.fireball',          key: 1, charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         key: 2, charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            key: 3, charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       key: 4, charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'amazon' },
+  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'amazon' },
+  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'amazon' },
+  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'amazon' },
+];
+
+/** The free starter node every character of a class begins with. */
+export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {
+  mage: 'fire.fireball',
+  amazon: 'archer.power_shot',
+};
+
+export function classOfSpell(spell: SpellId): CharacterClass | undefined {
+  return SPELL_BINDINGS.find(b => b.spell === spell)?.charClass;
+}
+
+/** Effective teleport range for a given Phase Shift rank (0 = unskilled). */
+export function teleportMaxRange(phaseShiftRank: number): number {
+  return TELEPORT_MAX_RANGE * (phaseShiftRank > 0 ? 1 + effectAtRank(0.08, phaseShiftRank) : 1);
+}
 
 export const HELLFIRE_RADIUS_RATIO = 0.5;
 export const HELLFIRE_DAMAGE_RATIO = 0.3;
