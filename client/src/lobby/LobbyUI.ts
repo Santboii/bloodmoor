@@ -12,6 +12,7 @@ export type LobbyCallbacks = {
   onOpenSkills: () => void;
   onSwitchCharacter: () => void;
   onLogout: () => void;
+  onShowCredits: () => void;
 };
 
 interface OpenRoom {
@@ -154,6 +155,8 @@ const STYLES = `
 .bm-char-actions{display:flex;gap:8px;align-items:center;}
 .bm-btn-ghost{background:transparent;font-size:7px;letter-spacing:1px;}
 .bm-btn-ghost:hover{color:var(--px-accent);}
+.bm-credits-btn{position:fixed;right:16px;bottom:16px;font-size:6px;padding:8px 10px;opacity:0.6;z-index:2;}
+.bm-credits-btn:hover{opacity:1;}
 .bm-pause-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;}
 .bm-pause-title{font-size:20px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;text-shadow:0 0 20px rgba(224,91,91,0.6);}
 .bm-pause-countdown{font-size:48px;color:var(--px-accent);letter-spacing:2px;margin-bottom:24px;text-shadow:0 0 30px rgba(255,179,71,0.4);}
@@ -302,13 +305,17 @@ export class LobbyUI {
           </div>
           <div id="bm-rooms"></div>
         </div>
-      </div>`;
+      </div>
+      <button id="bm-credits" class="bm-btn-ghost px-btn bm-credits-btn">Credits</button>`;
 
     const skillsBtn = this.ui.querySelector('#bm-skills');
     if (skillsBtn) skillsBtn.addEventListener('click', () => this.cb.onOpenSkills());
 
     const switchCharBtn = this.ui.querySelector('#bm-switch-char');
     if (switchCharBtn) switchCharBtn.addEventListener('click', () => this.cb.onSwitchCharacter());
+
+    const creditsBtn = this.ui.querySelector('#bm-credits');
+    if (creditsBtn) creditsBtn.addEventListener('click', () => this.cb.onShowCredits());
 
     const logoutBtn = this.ui.querySelector('#bm-logout');
     if (logoutBtn) logoutBtn.addEventListener('click', () => this.cb.onLogout());

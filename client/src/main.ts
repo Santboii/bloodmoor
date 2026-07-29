@@ -18,6 +18,7 @@ import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
 import { injectPixelTheme } from './ui/pixelTheme';
+import { CreditsScreen } from './ui/CreditsScreen';
 
 injectPixelTheme();
 
@@ -25,6 +26,7 @@ const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
 
 const loadingScreen = new LoadingScreen(uiOverlay);
+const creditsScreen = new CreditsScreen(uiOverlay);
 
 const scene = new Scene(container);
 
@@ -297,6 +299,9 @@ const lobby = new LobbyUI(uiOverlay, {
   onSwitchCharacter: async () => {
     lobby.hide();
     await charSelect.show();
+  },
+  onShowCredits: () => {
+    void creditsScreen.show();
   },
 });
 lobby.hide();

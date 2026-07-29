@@ -1,7 +1,8 @@
 // scripts/vendor-lpc.mjs
-// Downloads the LPC layer sheets needed for the two default appearances.
+// Downloads the LPC layer sheets needed for the two default appearances, and
+// writes a filtered attribution CSV alongside them (see filterCredits below).
 // Usage: node scripts/vendor-lpc.mjs
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const BASE = 'https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/spritesheets';
@@ -59,4 +60,82 @@ console.log(`saved ${ok} sheets`);
 if (missing.length) {
   console.log('MISSING (needs investigation, not necessarily fatal):');
   for (const m of missing) console.log('  ' + m);
+}
+
+// --- Attribution: CREDITS.csv upstream is the generator's FULL collection
+// (~3.9MB, ~13.8k rows) — far too large to fetch wholesale from the credits
+// screen at runtime. Filter it down at vendor time to only the rows for
+// sheets we actually ship, and write that as CREDITS.filtered.csv.
+await filterCredits();
+
+/** Minimal RFC-4180 CSV line parser: handles quoted fields, embedded commas,
+ * and doubled-quote escapes ("" -> "). Good enough for this generator's CSV. */
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else if (c === '\r') {
+      // skip; \n handles the row break
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function csvField(s) {
+  return `"${String(s).replace(/"/g, '""')}"`;
+}
+
+async function filterCredits() {
+  const creditsPath = join(OUT, 'CREDITS.csv');
+  let text;
+  try {
+    text = await readFile(creditsPath, 'utf8');
+  } catch {
+    console.log(`filterCredits: no ${creditsPath} found, skipping`);
+    return;
+  }
+
+  const rows = parseCsv(text);
+  const [header, ...body] = rows;
+
+  // Every vendored file lives at <layer>/<anim>.png locally. The upstream
+  // CSV sometimes keys plain-layout entries one directory up (no color
+  // subfolder), so match both the exact path and that parent-dir fallback.
+  const wanted = new Set();
+  for (const layer of new Set(LAYERS)) {
+    const parts = layer.split('/');
+    const parentDir = parts.slice(0, -1).join('/');
+    for (const anim of ANIMS) {
+      wanted.add(`${layer}/${anim}.png`);
+      if (parentDir) wanted.add(`${parentDir}/${anim}.png`);
+    }
+  }
+
+  const filtered = body.filter(r => wanted.has(r[0]));
+  const outRows = [header, ...filtered];
+  const outText = outRows.map(r => r.map(csvField).join(',')).join('\n') + '\n';
+
+  const dest = join(OUT, 'CREDITS.filtered.csv');
+  await writeFile(dest, outText);
+  console.log(`filterCredits: wrote ${filtered.length} rows to ${dest}`);
 }

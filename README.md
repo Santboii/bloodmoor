@@ -58,6 +58,16 @@ The server is the single source of truth — all physics, collision, and damage 
 
 ---
 
+## Art credits
+
+Character sprites are composited from the [Liberated Pixel Cup](https://lpc.opengameart.org)
+collection, licensed CC-BY-SA 3.0 / OGA-BY 3.0 / GPL 3.0. Per-file authors and
+license details are vendored at `client/public/assets/lpc/CREDITS.csv` (the
+generator's full collection) and `CREDITS.filtered.csv` (just the sheets this
+game ships, served in-app via the "Credits" button on the lobby home screen).
+
+---
+
 ## Project Structure
 
 ```
