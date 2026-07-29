@@ -32,6 +32,12 @@ const hud = new HUD(uiOverlay);
 hud.hide();
 
 const stateBuffer = new StateBuffer();
+// Cast-animation triggers latched at snapshot arrival. The server sets
+// castingSpell for exactly one tick, so sampling it from the interpolated
+// state can miss the one-tick window entirely on a 60Hz display with frame
+// jitter — the spell fires with no cast animation. Latching on arrival is
+// immune to render-frame timing; the render loop consumes and clears it.
+const pendingCastAnim = new Set<string>();
 const socket = new SocketClient();
 
 let myId = '';
@@ -325,11 +331,15 @@ function setupSocketHandlers(_myDisplayName: string): void {
   socket.onGameState((state: GameState) => {
     if (!spellRenderer) {
       stateBuffer.clear();
+      pendingCastAnim.clear();
       startGame();
       lobby.hide();
     }
     const now = performance.now();
     stateBuffer.push(state, now);
+    for (const [id, p] of Object.entries(state.players)) {
+      if (p.castingSpell !== null) pendingCastAnim.add(id);
+    }
 
     if (!predictor && state.players[myId]) {
       predictor = new Predictor(state.players[myId].position);
@@ -580,13 +590,14 @@ scene.startRenderLoop(() => {
       mesh.setPosition(player.position.x, player.position.y, player.facing);
     }
 
-    mesh.update(delta, player.castingSpell !== null);
+    mesh.update(delta, pendingCastAnim.has(id));
     if (player.hp <= 0) mesh.die();
     // Shadowstep: invisible to enemies; you still see yourself.
     const invisible = (player.invisibleUntil ?? 0) > state.tick && id !== myId;
     mesh.setVisible(!invisible);
     mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }
+  pendingCastAnim.clear();
 
   if (predictor && state.players[myId]) {
     const predicted = predictor.getRenderPosition(stepAlpha, now);
