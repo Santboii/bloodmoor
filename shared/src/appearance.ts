@@ -55,7 +55,8 @@ export function layersFor(a: Appearance): LpcLayer[] {
   layers.push({ path: `head/heads/human/${a.body}`, z: 20 });
   if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: LPC_TINTS[a.hairColor] });
   layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}`, z: 40, tint: LPC_TINTS[a.torsoColor] });
-  layers.push({ path: `legs/pants/${a.body}`, z: 50, tint: LPC_TINTS[a.legsColor] });
+  // Female-fit pants live under 'thin' upstream, not 'female'.
+  layers.push({ path: `legs/pants/${a.body === 'female' ? 'thin' : 'male'}`, z: 50, tint: LPC_TINTS[a.legsColor] });
   if (a.hat) layers.push({ path: `hat/magic/${a.hat}/base/adult/${a.hatColor}`, z: 60 });
   return layers.sort((x, y) => x.z - y.z);
 }

@@ -27,7 +27,7 @@ describe('layersFor', () => {
       'head/heads/human/female',
       'hair/ponytail/adult/fg',
       'torso/clothes/longsleeve/longsleeve/female',
-      'legs/pants/female',
+      'legs/pants/thin',
     ]);
     expect(layers[0].tint).toBe('#c0503a');
     expect(layers[4].tint).toBe('#4d8f4d');
