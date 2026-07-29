@@ -6,7 +6,7 @@ import { worldUnitsPerTexel } from '../src/renderer/pixelation';
 describe('CameraController texel snapping', () => {
   it('camera position lands on the texel grid (minus the fixed iso offset)', () => {
     const cam = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 1000);
-    const ctl = new CameraController(cam, 1234.567, 987.654);
+    const ctl = new CameraController(cam, 1000, 1000);
     // Converge most of the way toward an off-grid target
     for (let i = 0; i < 200; i++) ctl.update(1234.567, 987.654, 1 / 60);
     const texel = worldUnitsPerTexel();
