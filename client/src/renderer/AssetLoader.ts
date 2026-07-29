@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { posterizePixels } from './pixelation';
 
 export interface TextureSet {
@@ -10,7 +8,6 @@ export interface TextureSet {
 }
 
 export interface LoadedAssets {
-  characters: { mage: GLTF; amazon: GLTF };
   textures: { floor: TextureSet; stone: TextureSet };
 }
 
@@ -48,11 +45,7 @@ function nearestFilter(tex: THREE.Texture): THREE.Texture {
 
 export class AssetLoader {
   static async load(): Promise<LoadedAssets> {
-    const gltfLoader = new GLTFLoader();
     const texLoader = new THREE.TextureLoader();
-
-    const loadGLTF = (url: string): Promise<GLTF> =>
-      new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej));
 
     const loadTex = (url: string, colorSpace: THREE.ColorSpace): Promise<THREE.Texture> =>
       new Promise((res, rej) =>
@@ -62,12 +55,8 @@ export class AssetLoader {
     const sRGB = THREE.SRGBColorSpace;
     const linear = THREE.LinearSRGBColorSpace;
 
-    // Character models are cloned per player at spawn (SkeletonUtils.clone),
-    // so each class only needs to be fetched and parsed once.
-    const [mage, amazon, floorDiff, floorNorm, floorRough, stoneDiff, stoneNorm, stoneRough] =
+    const [floorDiff, floorNorm, floorRough, stoneDiff, stoneNorm, stoneRough] =
       await Promise.all([
-        loadGLTF('/assets/characters/mage.glb'),
-        loadGLTF('/assets/characters/amazon.glb'),
         loadTex('/assets/textures/cobblestone/diffuse.jpg', sRGB),
         loadTex('/assets/textures/cobblestone/normal.jpg', linear),
         loadTex('/assets/textures/cobblestone/roughness.jpg', linear),
@@ -76,21 +65,7 @@ export class AssetLoader {
         loadTex('/assets/textures/castle_stone/roughness.jpg', linear),
       ]);
 
-    // Character textures must not smear under the pixel pipeline either.
-    for (const gltf of [mage, amazon]) {
-      gltf.scene.traverse(obj => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const m of mats) {
-          const mat = m as THREE.MeshStandardMaterial;
-          if (mat.map) { mat.map.magFilter = THREE.NearestFilter; mat.map.minFilter = THREE.NearestMipmapNearestFilter; mat.map.needsUpdate = true; }
-        }
-      });
-    }
-
     return {
-      characters: { mage, amazon },
       textures: {
         floor: {
           map: chunkifyTexture(floorDiff),
