@@ -17,6 +17,9 @@ import type { CharacterRecord, CharacterClass } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
+import { injectPixelTheme } from './ui/pixelTheme';
+
+injectPixelTheme();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
