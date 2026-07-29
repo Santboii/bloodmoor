@@ -49,7 +49,7 @@ Open [http://localhost:5173](http://localhost:5173), enter a name, click **Creat
 | Layer | Technology |
 |-------|------------|
 | Client | Vite + TypeScript + Three.js |
-| Rendering | Orthographic isometric camera |
+| Rendering | Pixelated 3D — 360p internal render, nearest-neighbor upscale, orthographic isometric camera |
 | Server | Node.js + Express + Socket.io |
 | Networking | WebSockets, 60-tick authoritative server loop |
 | Tests | Vitest (server-side) |

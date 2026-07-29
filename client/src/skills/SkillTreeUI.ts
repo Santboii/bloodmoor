@@ -98,7 +98,7 @@ const STYLES = `
 .st-points b{color:var(--px-success);}
 .st-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
 .st-header-buttons{display:flex;gap:10px;}
-.st-tree-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
+.st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
 .st-tree-container{position:relative;width:100%;max-width:600px;height:600px;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
 .st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
@@ -125,7 +125,7 @@ const STYLES = `
 .st-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:600px;margin:24px 0;}
 .st-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
 .st-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
-.st-util-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:12px;}
+.st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:12px;}
 .st-util-container{position:relative;width:100%;max-width:600px;height:250px;}
 .st-util-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
 .st-tooltip{display:none;position:fixed;max-width:300px;font-family:'VT323',monospace;font-size:16px;line-height:1.5;z-index:300;pointer-events:none;}

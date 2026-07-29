@@ -53,7 +53,7 @@ const STYLES = `
 .bm-mode.locked{opacity:0.4;cursor:not-allowed;position:relative;}
 .bm-mode.locked::after{content:'Soon';position:absolute;top:3px;right:4px;font-size:6px;color:var(--px-border-light);letter-spacing:0.5px;}
 .bm-mode-label{font-size:10px;display:block;margin-bottom:3px;}
-.bm-mode-desc{font-size:8px;opacity:0.7;font-family:'VT323',monospace;letter-spacing:0.5px;}
+.bm-mode-desc{font-size:7px;opacity:0.7;font-family:'Press Start 2P',monospace;letter-spacing:0.5px;}
 .bm-btn-red{width:100%;margin-bottom:10px;}
 .bm-sep{display:flex;align-items:center;gap:10px;margin:14px 0;}
 .bm-sep-line{flex:1;height:1px;background:var(--px-border-dark);}
@@ -142,7 +142,7 @@ const STYLES = `
 .bm-btn-return:hover{color:var(--px-accent);}
 .bm-disc-panel{text-align:center;max-width:360px;}
 .bm-disc-title{font-family:'Press Start 2P',monospace;font-size:16px;color:var(--px-danger);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;}
-.bm-disc-sub{font-family:'VT323',monospace;font-size:16px;color:var(--px-border-light);letter-spacing:1px;}
+.bm-disc-sub{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-border-light);letter-spacing:1px;}
 .bm-btn-logout{background:transparent;font-size:7px;letter-spacing:1px;}
 .bm-btn-logout:hover{color:var(--px-danger);}
 .bm-char-card{display:flex;align-items:center;gap:16px;padding:10px 20px;margin:-8px 0 20px;font-family:'Press Start 2P',monospace;max-width:600px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-border-dark);}
