@@ -6,8 +6,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CameraController } from './CameraController';
+import { internalRenderSize, FRUSTUM_HALF_HEIGHT } from './pixelation';
 
-const FRUSTUM = 380;
 const INITIAL_CENTER_X = 200;
 const INITIAL_CENTER_Z = 1000;
 
@@ -38,14 +38,9 @@ const VignetteShader = {
 };
 
 export class Scene {
-  private static readonly MAX_DPR = 1.5;
-
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
   readonly camera: THREE.OrthographicCamera;
-  private qualityDpr = Math.min(window.devicePixelRatio, Scene.MAX_DPR);
-  private frameTimeAvg = 16.7;
-  private lastQualityDrop = 0;
   private cameraController: CameraController;
   private composer!: EffectComposer;
   private animFrameId = 0;
@@ -56,18 +51,18 @@ export class Scene {
   private _canvasRect: DOMRect | null = null;
 
   constructor(container: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    // Cap DPR: full retina (2x) pushes ~6M pixels through the bloom chain
-    // per frame — the single biggest source of dropped frames. 1.5x is
-    // visually near-identical on a fast-moving isometric scene at ~1/2 the
-    // fill cost; adaptive quality below can lower it further if needed.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, Scene.MAX_DPR));
+    // Pixel look: the scene renders at INTERNAL_HEIGHT and is upscaled with
+    // nearest-neighbor sampling, so AA and HiDPI supersampling are disabled —
+    // they would only blur the pixels (and waste fill rate).
+    this.renderer = new THREE.WebGLRenderer({ antialias: false });
+    this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // Without tone mapping, bloom + additive particles + emissives clip to
-    // flat white; ACES rolls highlights off filmically.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // The canvas buffer is CSS-sized; the browser upscales it to device
+    // pixels on HiDPI — keep that upscale crisp too.
+    this.renderer.domElement.style.imageRendering = 'pixelated';
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -75,8 +70,8 @@ export class Scene {
 
     const aspect = window.innerWidth / window.innerHeight;
     this.camera = new THREE.OrthographicCamera(
-      -FRUSTUM * aspect, FRUSTUM * aspect,
-      FRUSTUM, -FRUSTUM,
+      -FRUSTUM_HALF_HEIGHT * aspect, FRUSTUM_HALF_HEIGHT * aspect,
+      FRUSTUM_HALF_HEIGHT, -FRUSTUM_HALF_HEIGHT,
       0.1, 3000,
     );
     this.cameraController = new CameraController(this.camera, INITIAL_CENTER_X, INITIAL_CENTER_Z);
@@ -115,21 +110,20 @@ export class Scene {
 
   /** Call after scene objects are added. Creates EffectComposer pipeline. */
   initPostProcessing(): void {
-    // EffectComposer's default render target has no MSAA — pass one with
-    // samples so geometry edges stay antialiased under post-processing.
-    // 2 samples: at >=1.5 DPR the supersampling already softens edges, and
-    // 4x MSAA on a half-float buffer at retina res is a fill-rate killer.
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+    const internal = internalRenderSize(window.innerWidth, window.innerHeight);
+    // NearestFilter on the composer buffers is what makes the final
+    // to-screen pass an unsmoothed pixel upscale.
+    const target = new THREE.WebGLRenderTarget(internal.width, internal.height, {
       type: THREE.HalfFloatType,
-      samples: 2,
+      magFilter: THREE.NearestFilter,
+      minFilter: THREE.NearestFilter,
     });
     this.composer = new EffectComposer(this.renderer, target);
+    this.composer.setSize(internal.width, internal.height);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(
       new UnrealBloomPass(
-        // Half-resolution bloom: it's a blur — invisible difference, big saving.
-        new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+        new THREE.Vector2(internal.width / 2, internal.height / 2),
         0.5,  // strength
         0.4,  // radius
         0.3,  // threshold
@@ -147,16 +141,14 @@ export class Scene {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const aspect = w / h;
-    this.camera.left = -FRUSTUM * aspect;
-    this.camera.right = FRUSTUM * aspect;
-    this.camera.top = FRUSTUM;
-    this.camera.bottom = -FRUSTUM;
+    this.camera.left = -FRUSTUM_HALF_HEIGHT * aspect;
+    this.camera.right = FRUSTUM_HALF_HEIGHT * aspect;
+    this.camera.top = FRUSTUM_HALF_HEIGHT;
+    this.camera.bottom = -FRUSTUM_HALF_HEIGHT;
     this.camera.updateProjectionMatrix();
-    // Re-read DPR (monitor may have changed), respecting any adaptive drop.
-    this.qualityDpr = Math.min(this.qualityDpr, window.devicePixelRatio, Scene.MAX_DPR);
-    this.renderer.setPixelRatio(this.qualityDpr);
     this.renderer.setSize(w, h);
-    this.composer?.setSize(w, h);
+    const internal = internalRenderSize(w, h);
+    this.composer?.setSize(internal.width, internal.height);
     this._canvasRect = null;
   };
 
@@ -168,12 +160,8 @@ export class Scene {
 
   startRenderLoop(onFrame: () => void): void {
     if (this.animFrameId !== 0) return;
-    let lastTime = performance.now();
     const loop = () => {
       this.animFrameId = requestAnimationFrame(loop);
-      const now = performance.now();
-      this.trackQuality(now - lastTime, now);
-      lastTime = now;
       onFrame();
       // Fall back to bare render before initPostProcessing() is called
       if (this.composer) {
@@ -183,30 +171,6 @@ export class Scene {
       }
     };
     loop();
-  }
-
-  /**
-   * Adaptive quality: if frame times stay poor, step the render resolution
-   * down (never back up — upscaling oscillates). 1.5 → 1.25 → 1.0 keeps the
-   * game smooth on weaker GPUs instead of stuttering at full resolution.
-   */
-  private trackQuality(frameMs: number, now: number): void {
-    // Ignore hitches from tab switches / breakpoints.
-    if (frameMs > 500) return;
-    this.frameTimeAvg = this.frameTimeAvg * 0.98 + frameMs * 0.02;
-    if (
-      this.frameTimeAvg > 22 &&
-      this.qualityDpr > 1 &&
-      now - this.lastQualityDrop > 3000
-    ) {
-      this.qualityDpr = Math.max(1, this.qualityDpr - 0.25);
-      this.lastQualityDrop = now;
-      this.frameTimeAvg = 16.7; // re-measure at the new resolution
-      this.renderer.setPixelRatio(this.qualityDpr);
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.composer?.setSize(window.innerWidth, window.innerHeight);
-      this._canvasRect = null;
-    }
   }
 
   stopRenderLoop(): void {
