@@ -6,10 +6,10 @@ import { worldUnitsPerTexel } from '../pixelation';
 import { FRAME, LpcDirection, frameRect, directionFromWorldAngle, animationFrame } from './lpc';
 import { compositeAppearance, disposeComposite } from './SpriteCompositor';
 
-// One sprite pixel = one internal render pixel: the billboard is FRAME
-// texels tall in world units. LPC bodies occupy ~48px of the 64px frame,
-// giving an on-screen character close to the old 50-world-unit models.
-const SPRITE_SCALE = 1;
+// Exact 2:1 sprite-pixel to internal-pixel ratio: deterministic nearest
+// downsampling (no shimmer), and the visible LPC body (~48 of 64 frame px)
+// lands at ~50 world units — matching the old model height.
+const SPRITE_SCALE = 0.5;
 
 const SHADOW_GEO = new THREE.CircleGeometry(11, 16);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
