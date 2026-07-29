@@ -17,56 +17,55 @@ export type CharacterSelectCallbacks = {
 };
 
 const STYLES = `
-.cs-overlay{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at center,#1a0a04 0%,#0a0a12 60%,#050510 100%);}
-.cs-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'Crimson Text',Georgia,serif;color:#ccc;}
-.cs-title{font-family:'Cinzel',serif;font-size:48px;font-weight:900;color:#c8860a;text-shadow:0 0 20px rgba(200,100,0,0.9),0 0 60px rgba(150,60,0,0.5),2px 2px 0 #3a1500;letter-spacing:8px;text-transform:uppercase;margin-bottom:4px;}
-.cs-subtitle{font-family:'Cinzel',serif;font-size:13px;color:#7a5a20;letter-spacing:6px;text-transform:uppercase;margin-bottom:36px;}
+.cs-overlay{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at center,#1a1524 0%,#0e0b16 60%,#0e0b16 100%);}
+.cs-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
+.cs-title{font-size:28px;letter-spacing:2px;margin-bottom:4px;}
+.cs-subtitle{font-size:9px;margin-bottom:36px;}
 .cs-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:700px;margin-bottom:28px;}
-.cs-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,#5a3a10,transparent);}
-.cs-divider-gem{width:10px;height:10px;background:#c8860a;transform:rotate(45deg);box-shadow:0 0 8px rgba(200,130,10,0.6);}
+.cs-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
+.cs-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
 .cs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:700px;margin-bottom:24px;}
-.cs-slot{background:linear-gradient(160deg,rgba(10,8,4,0.92),rgba(6,4,2,0.95));border:1px solid rgba(90,60,16,0.6);border-top:2px solid rgba(120,80,20,0.8);border-radius:2px;padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
-.cs-slot:hover{border-color:#c8860a;box-shadow:0 0 12px rgba(200,130,10,0.2);}
-.cs-slot-empty{align-items:center;justify-content:center;border-style:dashed;border-top-style:dashed;}
-.cs-slot-empty:hover{background:rgba(20,14,4,0.95);}
-.cs-char-name{font-family:'Cinzel',serif;font-size:18px;color:#d4a840;margin-bottom:4px;}
-.cs-char-class{font-family:'Cinzel',serif;font-size:10px;color:#7a5a20;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+.cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
+.cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06);}
+.cs-slot-empty{align-items:center;justify-content:center;box-shadow:none;outline:2px dashed var(--px-border-light);}
+.cs-slot-empty:hover{background:#2c2440;box-shadow:none;outline:2px dashed var(--px-accent);}
+.cs-char-name{margin-bottom:4px;}
+.cs-char-class{margin-bottom:12px;display:flex;align-items:center;gap:6px;}
 .cs-char-class svg{flex-shrink:0;}
-.cs-char-level{font-size:13px;color:#8a7040;margin-bottom:8px;}
-.cs-xp-bar{width:100%;height:6px;background:#1a1208;border:1px solid #3a2710;border-radius:1px;overflow:hidden;margin-bottom:8px;}
-.cs-xp-fill{height:100%;background:linear-gradient(90deg,#c8860a,#e8a020);transition:width 0.3s;}
-.cs-xp-text{font-size:10px;color:#5a4a20;margin-bottom:auto;}
+.cs-char-level{font-size:16px;color:var(--px-text);margin-bottom:8px;}
+.cs-xp-bar{width:100%;height:8px;background:var(--px-border-dark);border-radius:0;overflow:hidden;margin-bottom:8px;box-shadow:0 0 0 2px var(--px-border-dark);}
+.cs-xp-fill{height:100%;background:repeating-linear-gradient(90deg,var(--px-accent) 0 6px,#c97a26 6px 12px);border-radius:0;transition:width 0.3s;}
+.cs-xp-text{font-size:16px;color:var(--px-border-light);margin-bottom:auto;}
 .cs-slot-actions{display:flex;gap:8px;margin-top:12px;}
-.cs-btn-select{flex:1;padding:8px;background:linear-gradient(180deg,#1a4010,#0e2808);color:#88dd44;border:1px solid #2a6010;font-family:'Cinzel',serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:1px;text-transform:uppercase;}
-.cs-btn-delete{padding:8px 12px;background:transparent;color:#884040;border:1px solid #3a1010;font-family:'Cinzel',serif;font-size:11px;cursor:pointer;border-radius:1px;}
-.cs-btn-delete:hover{border-color:#cc2222;color:#cc4444;}
-.cs-empty-text{font-family:'Cinzel',serif;font-size:13px;color:#3a2a08;letter-spacing:2px;}
-.cs-empty-plus{font-size:32px;color:#5a3a10;margin-bottom:8px;}
-.cs-create-panel{background:linear-gradient(160deg,rgba(10,8,4,0.92),rgba(6,4,2,0.95));border:1px solid rgba(90,60,16,0.6);border-top:2px solid rgba(120,80,20,0.8);border-radius:2px;padding:28px;width:100%;max-width:400px;}
-.cs-label{font-family:'Cinzel',serif;font-size:10px;letter-spacing:2px;color:#7a5a20;text-transform:uppercase;margin-bottom:6px;}
-.cs-input{width:100%;background:rgba(2,2,8,0.9);border:1px solid rgba(60,42,8,0.8);border-bottom:1px solid rgba(106,74,16,0.9);color:#e8c060;font-family:'Cinzel',serif;font-size:15px;padding:9px 12px;outline:none;letter-spacing:1px;margin-bottom:16px;border-radius:1px;box-sizing:border-box;}
-.cs-input::placeholder{color:#3a2a08;}
-.cs-input:focus{border-color:#c8860a;box-shadow:0 0 10px rgba(200,130,10,0.25);}
+.cs-btn-select{flex:1;}
+.cs-btn-delete{padding:8px 12px;}
+.cs-btn-delete:hover{color:var(--px-danger);}
+.cs-empty-text{margin-top:4px;}
+.cs-empty-plus{font-size:32px;color:var(--px-border-light);margin-bottom:8px;}
+.cs-create-panel{padding:28px;width:100%;max-width:400px;}
+.cs-label{margin-bottom:6px;}
+.cs-input{width:100%;margin-bottom:16px;}
+.cs-input::placeholder{color:var(--px-border-light);}
 .cs-class-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:20px;}
-.cs-class-option{padding:12px;background:rgba(4,4,12,0.9);border:1px solid rgba(40,28,6,0.8);color:#5a4a20;font-family:'Cinzel',serif;font-size:13px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:1px;text-align:center;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.cs-class-option{padding:12px;background:#33294a;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:10px;cursor:pointer;border:0;border-radius:0;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:8px;}
 .cs-class-option svg{flex-shrink:0;}
-.cs-class-option.active{background:rgba(22,14,0,0.95);border-color:#c8860a;color:#ffcc66;box-shadow:0 0 10px rgba(200,130,10,0.2);}
+.cs-class-option.active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .cs-class-option.disabled{opacity:0.4;cursor:not-allowed;position:relative;}
-.cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:9px;color:#5a4010;}
-.cs-btn-create{width:100%;padding:12px;background:linear-gradient(180deg,#7a1500,#4a0d00,#3a0800);color:#ffcc88;border:1px solid rgba(140,40,0,0.9);font-family:'Cinzel',serif;font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;cursor:pointer;border-radius:1px;}
-.cs-btn-cancel{width:100%;padding:10px;background:transparent;border:1px solid #3a2710;color:#7a5a20;font-family:'Cinzel',serif;font-size:11px;letter-spacing:2px;cursor:pointer;border-radius:1px;margin-top:8px;}
-.cs-error{color:#cc4444;font-size:12px;margin-bottom:12px;text-align:center;}
+.cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:7px;color:var(--px-border-light);}
+.cs-btn-create{width:100%;}
+.cs-btn-cancel{width:100%;margin-top:8px;}
+.cs-error{color:var(--px-danger);font-size:16px;margin-bottom:12px;text-align:center;}
 .cs-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
-.cs-confirm-panel{background:linear-gradient(160deg,rgba(16,12,6,0.98),rgba(8,6,2,0.99));border:1px solid #5a3010;border-top:2px solid rgba(200,134,10,0.6);border-radius:2px;padding:28px 32px;max-width:380px;text-align:center;}
-.cs-confirm-title{font-family:'Cinzel',serif;font-size:18px;color:#cc2222;letter-spacing:2px;margin-bottom:12px;}
-.cs-confirm-text{font-size:14px;color:#c8a870;margin-bottom:16px;line-height:1.6;}
-.cs-confirm-input{width:100%;background:rgba(2,2,8,0.9);border:1px solid rgba(60,42,8,0.8);color:#e8c060;font-family:'Cinzel',serif;font-size:14px;padding:9px 12px;outline:none;margin-bottom:16px;border-radius:1px;box-sizing:border-box;}
+.cs-confirm-panel{padding:28px 32px;max-width:380px;text-align:center;}
+.cs-confirm-title{color:var(--px-danger);font-size:11px;margin-bottom:12px;}
+.cs-confirm-text{font-size:16px;color:var(--px-text);margin-bottom:16px;line-height:1.6;}
+.cs-confirm-input{width:100%;margin-bottom:16px;}
 .cs-confirm-buttons{display:flex;gap:12px;justify-content:center;}
-.cs-confirm-delete{padding:9px 24px;background:linear-gradient(180deg,#7a1500,#4a0d00);color:#ffcc88;border:1px solid rgba(140,40,0,0.9);font-family:'Cinzel',serif;font-size:12px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:1px;text-transform:uppercase;opacity:0.4;pointer-events:none;}
+.cs-confirm-delete{padding:9px 24px;background:var(--px-danger);color:#fff;opacity:0.4;pointer-events:none;}
 .cs-confirm-delete.enabled{opacity:1;pointer-events:auto;}
-.cs-confirm-cancel{padding:9px 24px;background:#1a1208;border:1px solid #3a2710;color:#c8a870;font-family:'Cinzel',serif;font-size:12px;cursor:pointer;border-radius:1px;}
-.cs-btn-logout{position:absolute;top:24px;right:24px;background:transparent;border:1px solid rgba(80,40,10,0.6);color:#5a3a10;font-family:'Cinzel',serif;font-size:10px;letter-spacing:2px;padding:6px 12px;cursor:pointer;border-radius:1px;text-transform:uppercase;}
-.cs-btn-logout:hover{border-color:#cc2222;color:#cc6644;}
+.cs-confirm-cancel{padding:9px 24px;}
+.cs-btn-logout{position:absolute;top:24px;right:24px;padding:6px 12px;}
+.cs-btn-logout:hover{color:var(--px-danger);}
 `;
 
 export class CharacterSelectUI {
@@ -108,30 +107,30 @@ export class CharacterSelectUI {
       const xpNeeded = xpToNextLevel(char.level);
       const xpPercent = xpNeeded > 0 ? Math.min(100, (char.xp / xpNeeded) * 100) : 0;
       return `
-        <div class="cs-slot" data-index="${i}">
-          <div class="cs-char-name">${esc(char.name)}</div>
-          <div class="cs-char-class">${CLASS_ICONS[char.class] ?? ''} ${esc(char.class)}</div>
+        <div class="cs-slot px-panel" data-index="${i}">
+          <div class="cs-char-name px-title" style="font-size:12px">${esc(char.name)}</div>
+          <div class="cs-char-class px-label">${CLASS_ICONS[char.class] ?? ''} ${esc(char.class)}</div>
           <div class="cs-char-level">Level ${char.level}</div>
           <div class="cs-xp-bar"><div class="cs-xp-fill" style="width:${xpPercent}%"></div></div>
           <div class="cs-xp-text">${char.xp} / ${xpNeeded} XP</div>
           <div class="cs-slot-actions">
-            <button class="cs-btn-select" data-index="${i}">Select</button>
-            <button class="cs-btn-delete" data-index="${i}">Delete</button>
+            <button class="cs-btn-select px-btn px-btn-primary" data-index="${i}">Select</button>
+            <button class="cs-btn-delete px-btn" data-index="${i}">Delete</button>
           </div>
         </div>`;
     }).join('');
 
     const emptySlots = Math.max(0, MAX_CHARACTERS_PER_ACCOUNT - this.characters.length);
     const emptySlotsHtml = Array.from({ length: emptySlots }, () => `
-      <div class="cs-slot cs-slot-empty" data-action="create">
+      <div class="cs-slot cs-slot-empty px-panel" data-action="create">
         <div class="cs-empty-plus">+</div>
-        <div class="cs-empty-text">Create Character</div>
+        <div class="cs-empty-text px-label">Create Character</div>
       </div>`).join('');
 
     this.ui.innerHTML = `
-      <button class="cs-btn-logout" id="cs-logout">Sign Out</button>
-      <div class="cs-title">Blood Moor</div>
-      <div class="cs-subtitle">Choose Your Champion</div>
+      <button class="cs-btn-logout px-btn" id="cs-logout">Sign Out</button>
+      <div class="cs-title px-title">Blood Moor</div>
+      <div class="cs-subtitle px-label">Choose Your Champion</div>
       <div class="cs-divider"><div class="cs-divider-line"></div><div class="cs-divider-gem"></div><div class="cs-divider-line"></div></div>
       <div class="cs-grid">
         ${slotsHtml}
@@ -172,17 +171,17 @@ export class CharacterSelectUI {
     }).join('');
 
     this.ui.innerHTML = `
-      <div class="cs-title" style="font-size:36px">Blood Moor</div>
-      <div class="cs-subtitle">Create a New Champion</div>
+      <div class="cs-title px-title" style="font-size:24px">Blood Moor</div>
+      <div class="cs-subtitle px-label">Create a New Champion</div>
       <div class="cs-divider"><div class="cs-divider-line"></div><div class="cs-divider-gem"></div><div class="cs-divider-line"></div></div>
-      <div class="cs-create-panel">
+      <div class="cs-create-panel px-panel">
         ${error ? `<div class="cs-error">${esc(error)}</div>` : ''}
-        <div class="cs-label">Character Name</div>
-        <input id="cs-name" class="cs-input" type="text" placeholder="Name your champion..." maxlength="20">
-        <div class="cs-label">Class</div>
+        <div class="cs-label px-label">Character Name</div>
+        <input id="cs-name" class="cs-input px-input" type="text" placeholder="Name your champion..." maxlength="20">
+        <div class="cs-label px-label">Class</div>
         <div class="cs-class-grid">${classOptions}</div>
-        <button id="cs-create-btn" class="cs-btn-create">Forge Champion</button>
-        <button id="cs-cancel-btn" class="cs-btn-cancel">Cancel</button>
+        <button id="cs-create-btn" class="cs-btn-create px-btn px-btn-primary">Forge Champion</button>
+        <button id="cs-cancel-btn" class="cs-btn-cancel px-btn">Cancel</button>
       </div>`;
 
     let selectedClass = 'mage';
@@ -219,17 +218,17 @@ export class CharacterSelectUI {
     const overlay = document.createElement('div');
     overlay.className = 'cs-confirm-overlay';
     overlay.innerHTML = `
-      <div class="cs-confirm-panel">
-        <div class="cs-confirm-title">Delete Character</div>
+      <div class="cs-confirm-panel px-panel">
+        <div class="cs-confirm-title px-title">Delete Character</div>
         <div class="cs-confirm-text">
-          This will permanently delete <strong style="color:#d4a840">${esc(character.name)}</strong>
+          This will permanently delete <strong style="color:var(--px-accent)">${esc(character.name)}</strong>
           and all their progress.<br><br>
           Type the character's name to confirm:
         </div>
-        <input class="cs-confirm-input" id="cs-delete-input" type="text" placeholder="${esc(character.name)}">
+        <input class="cs-confirm-input px-input" id="cs-delete-input" type="text" placeholder="${esc(character.name)}">
         <div class="cs-confirm-buttons">
-          <button class="cs-confirm-delete" id="cs-delete-confirm">Delete Forever</button>
-          <button class="cs-confirm-cancel" id="cs-delete-cancel">Cancel</button>
+          <button class="cs-confirm-delete px-btn" id="cs-delete-confirm">Delete Forever</button>
+          <button class="cs-confirm-cancel px-btn" id="cs-delete-cancel">Cancel</button>
         </div>
       </div>`;
 
