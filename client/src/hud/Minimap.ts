@@ -23,8 +23,10 @@ export class Minimap {
       top: '12px',
       right: '12px',
       opacity: '0.85',
-      border: '1px solid #b8860b',
-      borderRadius: '3px',
+      border: 'none',
+      borderRadius: '0',
+      boxShadow: '0 0 0 2px var(--px-border-dark),0 0 0 4px var(--px-border-light)',
+      imageRendering: 'pixelated',
       zIndex: '100',
       display: 'none',
     });
