@@ -3,27 +3,168 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './rooms/RoomManager.ts';
+import { Room } from './rooms/Room.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
-import { InputFrame } from '@arena/shared';
+import { InputFrame, GameState } from '@arena/shared';
 import type { GameModeType } from '@arena/shared';
 import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS } from '@arena/shared';
 import { loadSkillsForCharacter, creditMatchResult, loadUserFromToken } from './skills/loadSkills.ts';
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
+// Set CLIENT_ORIGIN (comma-separated for multiple) in production to stop
+// arbitrary sites from opening game connections; defaults open for local dev.
+const allowedOrigins = process.env.CLIENT_ORIGIN?.split(',').map(o => o.trim());
+const corsConfig = { origin: allowedOrigins ?? '*' };
+const io = new Server(httpServer, { cors: corsConfig });
 const roomManager = new RoomManager();
 const loops: Map<string, GameLoop> = new Map();
 const pauseTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const rematchVotes: Map<string, Set<string>> = new Map();
 const rematchTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
-app.use(cors());
+// Never trust client payloads: a malformed input frame (castSpell: 99,
+// missing aimTarget, NaN move) would otherwise throw inside the tick loop.
+const AIM_LIMIT = 100_000;
+function sanitizeInput(raw: unknown): InputFrame | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown };
+
+  const rawMove = r.move as { x?: unknown; y?: unknown } | undefined;
+  const clampAxis = (v: unknown): number =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+  const move = { x: clampAxis(rawMove?.x), y: clampAxis(rawMove?.y) };
+
+  const rawAim = r.aimTarget as { x?: unknown; y?: unknown } | undefined;
+  const finiteCoord = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= AIM_LIMIT;
+  const aimValid = finiteCoord(rawAim?.x) && finiteCoord(rawAim?.y);
+
+  const castValid =
+    r.castSpell === null ||
+    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 8);
+
+  if (!aimValid) return null;
+
+  const input: InputFrame = {
+    move,
+    // A cast without a valid aim point cannot be resolved — drop the cast.
+    castSpell: castValid ? (r.castSpell as InputFrame['castSpell']) : null,
+    aimTarget: { x: rawAim!.x as number, y: rawAim!.y as number },
+  };
+  if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
+  return input;
+}
+
+// Round floats for the wire — full-precision doubles ("1023.3333333333334")
+// dominate snapshot size and 2 decimals is far below gameplay resolution.
+function roundForWire(value: unknown): unknown {
+  if (typeof value === 'number') return Math.round(value * 100) / 100;
+  if (Array.isArray(value)) return value.map(roundForWire);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = roundForWire(v);
+    return out;
+  }
+  return value;
+}
+
+function broadcastState(roomId: string, room: Room, state: GameState): void {
+  const wire = roundForWire(state) as GameState;
+  // volatile: a stalled client skips snapshots instead of buffering them
+  // unboundedly server-side; the next snapshot supersedes anyway. The final
+  // 'ended' snapshot has NO successor and carries the last death (FFA
+  // placement, death visuals) — it must be delivered reliably.
+  const reliable = state.phase === 'ended';
+  // Blind Strike meteors must not be visible to opponents — filter per recipient.
+  if (state.meteors.some(m => m.hidden)) {
+    for (const id of room.players.keys()) {
+      const sock = io.sockets.sockets.get(id);
+      if (!sock) continue;
+      const emitter = reliable ? sock : sock.volatile;
+      emitter.emit('game-state', {
+        ...wire,
+        meteors: wire.meteors.filter(m => !m.hidden || m.ownerId === id),
+      });
+    }
+  } else {
+    const emitter = reliable ? io.to(roomId) : io.to(roomId).volatile;
+    emitter.emit('game-state', wire);
+  }
+}
+
+async function settleMatchEnd(roomId: string, room: Room, state: GameState, endedLoop?: GameLoop): Promise<void> {
+  const matchResults: Record<string, { xpGained: number; levelsGained: number; newLevel: number; newXp: number }> = {};
+  for (const [socketId, userId] of room.userIds.entries()) {
+    const characterId = room.characterIds.get(socketId);
+    if (!characterId) continue;
+    let won: boolean;
+    if (state.gameMode === '2v2') {
+      const playerTeam = room.teamAssignments.get(socketId);
+      won = state.winner === playerTeam;
+    } else {
+      won = state.winner === socketId;
+    }
+    const result = await creditMatchResult(userId, characterId, won);
+    matchResults[socketId] = { xpGained: result.xpGained, levelsGained: result.levelsGained, newLevel: result.newLevel, newXp: result.newXp };
+  }
+  io.to(roomId).emit('duel-ended', { winnerId: state.winner, gameMode: state.gameMode, matchResults });
+
+  // Reclaim resources: the loop is done, and players whose sockets are gone
+  // will never rematch — without this, mid-match FFA/2v2 disconnects leave
+  // ghost entries that keep the room alive forever. The credit awaits above
+  // yield, though, so a rematch may have started meanwhile — never touch a
+  // successor loop's resources.
+  if (!endedLoop || loops.get(roomId) === endedLoop) loops.delete(roomId);
+  if (room.state === null || room.state.phase === 'ended') {
+    for (const id of [...room.players.keys()]) {
+      if (!io.sockets.sockets.get(id)) room.removePlayer(id);
+    }
+    if (room.players.size === 0) roomManager.deleteRoom(roomId);
+  }
+}
+
+/**
+ * End a match by decree (forfeit, pause timeout, concede) rather than combat.
+ * Routes through settleMatchEnd so XP crediting, the duel-ended payload
+ * (including matchResults), and room/loop cleanup stay identical to a normal
+ * win — forfeits previously skipped matchResults and the client showed no XP.
+ */
+function forfeitMatch(roomId: string, room: Room, winnerId: string | null): void {
+  if (!room.state) return;
+  const loop = loops.get(roomId);
+  loop?.stop();
+  room.state.phase = 'ended';
+  room.state.winner = winnerId;
+  settleMatchEnd(roomId, room, room.state, loop)
+    .then(() => {
+      // Every forfeit means the opponent is gone and the room is torn down —
+      // tell remaining clients so the result screen disables Rematch (it
+      // would otherwise be a silent no-op against a deleted room). Must fire
+      // AFTER duel-ended so the client takes its post-match branch.
+      io.to(roomId).emit('opponent-disconnected');
+    })
+    .catch(err => console.error('Match settlement failed:', err));
+}
+
+function startGameLoop(roomId: string, room: Room): void {
+  const loop = new GameLoop();
+  loops.set(roomId, loop);
+  loop.start(room, state => {
+    broadcastState(roomId, room, state);
+    if (state.phase === 'ended') {
+      settleMatchEnd(roomId, room, state, loop).catch(err => console.error('Match settlement failed:', err));
+    }
+  });
+}
+
+app.use(cors(corsConfig));
 app.use(express.json());
 
 app.post('/rooms', (req, res) => {
   const mode = (req.body?.mode as GameModeType) ?? '1v1';
   const room = roomManager.createRoom(mode);
+  if (!room) { res.status(503).json({ error: 'Server at capacity' }); return; }
   res.json({ roomId: room.id, mode });
 });
 
@@ -58,6 +199,7 @@ io.on('connection', socket => {
     const room = roomManager.getRoom(roomId);
     if (!room) { socket.emit('room-not-found'); return; }
 
+    displayName = String(displayName ?? '').trim().slice(0, 24) || 'Anonymous';
     const result = room.addPlayer(socket.id, displayName, teamId);
     if (result === 'full') { socket.emit('room-full'); return; }
     if (result === 'team-full') { socket.emit('team-full'); return; }
@@ -119,36 +261,16 @@ io.on('connection', socket => {
 
     if (room.allReady) {
       room.startMatch();
-      const loop = new GameLoop();
-      const roomId = currentRoomId;
-      loops.set(roomId, loop);
-      loop.start(room, async state => {
-        io.to(roomId).emit('game-state', state);
-        if (state.phase === 'ended') {
-          const matchResults: Record<string, { xpGained: number; levelsGained: number; newLevel: number }> = {};
-          for (const [socketId, userId] of room.userIds.entries()) {
-            const characterId = room.characterIds.get(socketId);
-            if (!characterId) continue;
-            let won: boolean;
-            if (state.gameMode === '2v2') {
-              const playerTeam = room.teamAssignments.get(socketId);
-              won = state.winner === playerTeam;
-            } else {
-              won = state.winner === socketId;
-            }
-            const result = await creditMatchResult(userId, characterId, won);
-            matchResults[socketId] = { xpGained: result.xpGained, levelsGained: result.levelsGained, newLevel: result.newLevel };
-          }
-          io.to(roomId).emit('duel-ended', { winnerId: state.winner, gameMode: state.gameMode, matchResults });
-        }
-      });
+      startGameLoop(currentRoomId, room);
     }
   });
 
-  socket.on('input', (input: InputFrame) => {
+  socket.on('input', (raw: unknown) => {
     if (!currentRoomId) return;
     const room = roomManager.getRoom(currentRoomId);
-    room?.queueInput(socket.id, input);
+    if (!room || !room.players.has(socket.id) || room.state === null) return;
+    const input = sanitizeInput(raw);
+    if (input) room.queueInput(socket.id, input);
   });
 
   socket.on('rematch', () => {
@@ -177,29 +299,7 @@ io.on('connection', socket => {
       room.reset();
       for (const id of room.players.keys()) room.setReady(id);
       room.startMatch();
-
-      const loop = new GameLoop();
-      loops.set(roomId, loop);
-      loop.start(room, async state => {
-        io.to(roomId).emit('game-state', state);
-        if (state.phase === 'ended') {
-          const matchResults: Record<string, { xpGained: number; levelsGained: number; newLevel: number }> = {};
-          for (const [socketId, userId] of room.userIds.entries()) {
-            const characterId = room.characterIds.get(socketId);
-            if (!characterId) continue;
-            let won: boolean;
-            if (state.gameMode === '2v2') {
-              const playerTeam = room.teamAssignments.get(socketId);
-              won = state.winner === playerTeam;
-            } else {
-              won = state.winner === socketId;
-            }
-            const result = await creditMatchResult(userId, characterId, won);
-            matchResults[socketId] = { xpGained: result.xpGained, levelsGained: result.levelsGained, newLevel: result.newLevel };
-          }
-          io.to(roomId).emit('duel-ended', { winnerId: state.winner, gameMode: state.gameMode, matchResults });
-        }
-      });
+      startGameLoop(roomId, room);
 
       io.to(roomId).emit('rematch-ready');
     } else {
@@ -247,10 +347,18 @@ io.on('connection', socket => {
     const isMidMatch = room.state !== null && room.state.phase !== 'ended';
 
     if (isMidMatch) {
-      const userId = room.userIds.get(socket.id);
-      if (!userId) return;
-
       if (room.mode.type === '1v1') {
+        const userId = room.userIds.get(socket.id);
+        if (!userId) {
+          // Guests can't rejoin (rejoin requires an auth token) — treat the
+          // disconnect as an immediate forfeit instead of leaking a zombie
+          // loop that broadcasts to a half-empty room forever.
+          const winnerId = [...room.players.keys()].find(id => id !== socket.id) ?? null;
+          forfeitMatch(currentRoomId, room, winnerId);
+          roomManager.deleteRoom(currentRoomId);
+          return;
+        }
+
         // 1v1 pause logic
         const loop = loops.get(currentRoomId);
         loop?.pause();
@@ -275,20 +383,12 @@ io.on('connection', socket => {
             })?.[0];
 
           if (connectedSocketId) {
-            r.state!.phase = 'ended';
-            r.state!.winner = connectedSocketId;
-            io.to(roomId).emit('duel-ended', { winnerId: connectedSocketId });
-            for (const [sid, uid] of r.userIds.entries()) {
-              const cid = r.characterIds.get(sid);
-              if (!cid) continue;
-              const won = sid === connectedSocketId;
-              creditMatchResult(uid, cid, won).catch(console.error);
-            }
+            forfeitMatch(roomId, r, connectedSocketId);
+          } else {
+            // No connected player = no result (both disconnected)
+            loops.get(roomId)?.stop();
+            loops.delete(roomId);
           }
-          // No connected player = no result (both disconnected)
-
-          loops.get(roomId)?.stop();
-          loops.delete(roomId);
           pauseTimers.delete(roomId);
           roomManager.deleteRoom(roomId);
         }, 60_000);
@@ -408,15 +508,10 @@ io.on('connection', socket => {
       })?.[0];
 
     if (disconnectedSocketId) {
-      room.state.phase = 'ended';
-      room.state.winner = disconnectedSocketId;
-      io.to(currentRoomId).emit('duel-ended', { winnerId: disconnectedSocketId });
-      for (const [sid, uid] of room.userIds.entries()) {
-        const cid = room.characterIds.get(sid);
-        if (!cid) continue;
-        const won = sid === disconnectedSocketId;
-        creditMatchResult(uid, cid, won).catch(console.error);
-      }
+      forfeitMatch(currentRoomId, room, disconnectedSocketId);
+    } else {
+      loops.get(currentRoomId)?.stop();
+      loops.delete(currentRoomId);
     }
 
     // Clean up
@@ -425,11 +520,9 @@ io.on('connection', socket => {
       clearTimeout(timer);
       pauseTimers.delete(currentRoomId);
     }
-    loops.get(currentRoomId)?.stop();
-    loops.delete(currentRoomId);
     roomManager.deleteRoom(currentRoomId);
   });
 });
 
 const PORT = process.env.PORT ?? 3000;
-httpServer.listen(PORT, () => console.log(`Arena server running on :${PORT}`));
+httpServer.listen(Number(PORT), '0.0.0.0', () => console.log(`Arena server running on :${PORT}`));

@@ -13,6 +13,7 @@ type FireballConfig = {
   damageMax?: number;
   homing?: number;
   split?: number;
+  noHitUntil?: number;
 };
 
 export function spawnFireball(
@@ -37,6 +38,7 @@ export function spawnFireball(
     damageMax: cfg.damageMax,
     homing: cfg.homing,
     split: cfg.split,
+    noHitUntil: cfg.noHitUntil,
   };
 }
 
@@ -65,10 +67,13 @@ export function advanceFireball(p: Projectile, enemyPos?: Vec2): Projectile {
   };
 }
 
-export function isFireballExpired(p: Projectile): boolean {
+export function isFireballExpired(p: Projectile, tick = Infinity): boolean {
   const r = p.radius ?? FIREBALL_RADIUS;
   const { x, y } = p.position;
   if (x - r < 0 || x + r > ARENA_SIZE || y - r < 0 || y + r > ARENA_SIZE) return true;
+  // Freshly split children ignore pillar overlap until their grace elapses so
+  // they can fly clear of the obstacle their parent detonated on.
+  if ((p.noHitUntil ?? 0) > tick) return false;
   return PILLARS.some(pillar => circleHitsAABB(p.position, r, pillar));
 }
 

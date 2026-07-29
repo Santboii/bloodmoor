@@ -10,15 +10,29 @@ export interface OpenRoomInfo {
   mode: string;
 }
 
+const MAX_ROOMS = 500;
+const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000;
+
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
 
-  createRoom(modeType: GameModeType = '1v1'): Room {
+  createRoom(modeType: GameModeType = '1v1'): Room | null {
+    this.sweepAbandonedRooms();
+    if (this.rooms.size >= MAX_ROOMS) return null;
     const id = Math.random().toString(36).slice(2, 8);
     const mode = GAME_MODES[modeType] ?? DUEL_MODE;
     const room = new Room(id, mode);
     this.rooms.set(id, room);
     return room;
+  }
+
+  /** Reclaim rooms that were created (or emptied) but never progressed to a match. */
+  sweepAbandonedRooms(now = Date.now()): void {
+    for (const [id, room] of this.rooms) {
+      if (room.players.size === 0 && room.state === null && now - room.createdAt > EMPTY_ROOM_TTL_MS) {
+        this.rooms.delete(id);
+      }
+    }
   }
 
   getRoom(id: string): Room | undefined {

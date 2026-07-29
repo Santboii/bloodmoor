@@ -12,6 +12,7 @@ export type PauseState = {
 export class Room {
   readonly id: string;
   readonly mode: GameModeConfig;
+  readonly createdAt = Date.now();
   creatorName: string = '';
   players: Map<string, RoomPlayer> = new Map(); // socketId -> RoomPlayer
   teamAssignments: Map<string, string> = new Map(); // socketId -> teamId
@@ -23,6 +24,11 @@ export class Room {
   pauseState: PauseState | null = null;
   private pendingInputs: Map<string, InputFrame> = new Map();
   private lastProcessedSeq: Map<string, number> = new Map();
+  private ticksSinceInput: Map<string, number> = new Map();
+
+  // Reuse the last input for a short grace window to absorb network jitter,
+  // then treat the player as idle so a stalled client doesn't run forever.
+  private static readonly INPUT_GRACE_TICKS = 6;
 
   constructor(id: string, mode: GameModeConfig = DUEL_MODE) {
     this.id = id;
@@ -86,6 +92,7 @@ export class Room {
       input = { ...input, castSpell: existing.castSpell, aimTarget: existing.aimTarget };
     }
     this.pendingInputs.set(socketId, input);
+    this.ticksSinceInput.set(socketId, 0);
   }
 
   tick(): GameState {
@@ -93,7 +100,13 @@ export class Room {
     if (this.state.phase === 'ended') return this.state;
     const inputs: Record<string, InputFrame> = {};
     for (const [id] of this.players) {
-      const pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+      let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+      const staleness = this.ticksSinceInput.get(id) ?? 0;
+      this.ticksSinceInput.set(id, staleness + 1);
+      if (staleness > Room.INPUT_GRACE_TICKS && (pending.move.x !== 0 || pending.move.y !== 0)) {
+        pending = { ...pending, move: { x: 0, y: 0 } };
+        this.pendingInputs.set(id, pending);
+      }
       if (pending.seq !== undefined) {
         this.lastProcessedSeq.set(id, pending.seq);
       }
@@ -116,6 +129,7 @@ export class Room {
     this.pauseState = null;
     this.pendingInputs.clear();
     this.lastProcessedSeq.clear();
+    this.ticksSinceInput.clear();
   }
 
   pause(userId: string): void {
@@ -193,6 +207,13 @@ export class Room {
     if (seq !== undefined) {
       this.lastProcessedSeq.delete(oldSocketId);
       this.lastProcessedSeq.set(newSocketId, seq);
+    }
+
+    // Remap input staleness counter
+    const staleness = this.ticksSinceInput.get(oldSocketId);
+    if (staleness !== undefined) {
+      this.ticksSinceInput.delete(oldSocketId);
+      this.ticksSinceInput.set(newSocketId, staleness);
     }
 
     // Remap player ID in GameState

@@ -1,1 +1,1 @@
-export { movePlayer, resolvePlayerPillarCollisions, clampToArena } from '@arena/shared';
+export { movePlayer, resolvePlayerPillarCollisions, clampToArena, clampTeleport } from '@arena/shared';

@@ -28,7 +28,8 @@ export function meteorHitsPlayer(m: MeteorState, playerPos: Vec2, playerId: stri
   if (m.ownerId === playerId) return false;
   const dx = playerPos.x - m.target.x;
   const dy = playerPos.y - m.target.y;
-  return dx * dx + dy * dy <= m.aoeRadius ** 2;
+  // Include the player's hitbox so the hit circle matches the drawn indicator.
+  return dx * dx + dy * dy <= (m.aoeRadius + PLAYER_HALF_SIZE) ** 2;
 }
 
 export function meteorDamage(): number {

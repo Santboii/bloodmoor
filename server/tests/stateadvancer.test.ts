@@ -160,9 +160,22 @@ describe('advanceState — teleport cast (spell 4)', () => {
       p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
     };
     const next = advanceState(state, inputs);
-    // Position is resolved to avoid pillar collision (pillar at 1000,1000)
-    expect(next.players['p1'].position).toEqual({ x: 956, y: 1000 });
+    // Target is 800 units away — clamped to TELEPORT_MAX_RANGE (600) even
+    // without a skill system, so guests can't teleport across the map.
+    expect(next.players['p1'].position).toEqual({ x: 800, y: 1000 });
     expect(next.players['p1'].mana).toBe(MAX_MANA - SPELL_CONFIG[4].manaCost);
+  });
+
+  it('resolves pillar collisions at the teleport destination', () => {
+    const state = twoPlayerState();
+    state.players['p1'].position = { x: 600, y: 1000 };
+    const inputs = {
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 } },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+    };
+    const next = advanceState(state, inputs);
+    // Pillar at (1000,1000) halfSize 28 + player half-size 16 → pushed to 956
+    expect(next.players['p1'].position).toEqual({ x: 956, y: 1000 });
   });
 
   it('clamps teleport target to arena bounds', () => {

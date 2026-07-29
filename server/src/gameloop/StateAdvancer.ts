@@ -1,6 +1,6 @@
 import {
   GameState, PlayerState, InputFrame, Vec2, SpellId, NodeId,
-  SPELL_CONFIG, MAX_HP, MAX_MANA, MANA_REGEN_PER_TICK,
+  SPELL_CONFIG, MAX_HP, MAX_MANA, MANA_REGEN_PER_TICK, TICK_RATE,
   FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
@@ -8,7 +8,9 @@ import {
 } from '@arena/shared';
 import type { CharacterClass } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
-import { movePlayer, clampToArena, resolvePlayerPillarCollisions } from '../physics/Movement.ts';
+import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell } from '@arena/shared';
+import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
+import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
@@ -20,21 +22,12 @@ import { buildAmazonModifiers } from '../skills/AmazonModifiers.ts';
 export type PlayerInit = { id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2 };
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
-  const isAmazon = skills.has('archer.power_shot' as NodeId);
-  if (isAmazon) {
-    return {
-      5: 'archer.power_shot' as NodeId,
-      6: 'archer.multishot' as NodeId,
-      7: 'archer.rain_of_arrows' as NodeId,
-      8: 'archer_utility.evade' as NodeId,
-    };
+  const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.amazon) ? 'amazon' : 'mage';
+  const map: Partial<Record<SpellId, NodeId>> = {};
+  for (const b of SPELL_BINDINGS) {
+    if (b.charClass === cls) map[b.spell] = b.node;
   }
-  return {
-    1: 'fire.fireball' as NodeId,
-    2: 'fire.fire_wall' as NodeId,
-    3: 'fire.meteor' as NodeId,
-    4: 'utility.teleport' as NodeId,
-  };
+  return map;
 }
 
 export function makeInitialState(
@@ -56,7 +49,7 @@ export function makeInitialState(
       id: p.id,
       displayName: p.displayName,
       charClass: p.charClass,
-      position: { ...p.spawnPos },
+      position: resolvePlayerPillarCollisions(clampToArena({ ...p.spawnPos })),
       hp: MAX_HP,
       mana: MAX_MANA,
       facing: 0,
@@ -110,11 +103,27 @@ export function advanceState(
     }
   }
 
+  // 0.5 Status effects: burn/poison damage over time, expire stale effects.
+  // players[] entries are tick-local copies, so in-place mutation is safe.
+  for (const p of Object.values(players)) {
+    if (p.hp > 0) {
+      if ((p.burnUntil ?? 0) > tick && p.burnDps) p.hp = Math.max(0, p.hp - p.burnDps / TICK_RATE);
+      if ((p.poisonUntil ?? 0) > tick && p.poisonDps) p.hp = Math.max(0, p.hp - p.poisonDps / TICK_RATE);
+    }
+    if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
+    if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
+    if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; }
+    if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
+  }
+
   // 1. Move players and apply mana regen
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
-    if (!p) continue;
-    const newMana = Math.min(MAX_MANA, p.mana + MANA_REGEN_PER_TICK);
+    if (!p || p.hp <= 0) continue;
+    const poisonActive = (p.poisonUntil ?? 0) > tick;
+    const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1);
+    const newMana = Math.min(MAX_MANA, p.mana + regen);
+    const speedMult = (p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -126,7 +135,7 @@ export function advanceState(
     const phantomActive = (p.phantomStepUntil ?? 0) > state.tick;
     players[id] = {
       ...p,
-      position: dashing.has(id) ? p.position : movePlayer(p.position, input.move),
+      position: dashing.has(id) ? p.position : movePlayer(p.position, input.move, speedMult),
       mana: newMana,
       facing: newFacing,
       cooldowns: newCooldowns,
@@ -143,10 +152,12 @@ export function advanceState(
 
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
-    if (!p || !input.castSpell) continue;
+    if (!p || p.hp <= 0 || !input.castSpell) continue;
     if (dashing.has(id)) continue;
     const spell = input.castSpell;
     const mods = modifiers[id];
+    // Amazon spells need amazon modifiers — bail before burning mana/cooldown.
+    if (classOfSpell(spell) === 'amazon' && !amazonMods[id]) continue;
 
     // Spell availability gate — only applies when player has a skill set registered
     const hasSkillSystem = skillSets[id] !== undefined;
@@ -162,10 +173,15 @@ export function advanceState(
     if (p.mana < effectiveManaCost) continue;
     if ((p.cooldowns[spell] ?? 0) > 0) continue;
 
+    let cooldownTicks = cfg.cooldownTicks;
+    if (spell === 8 && amazonMods[id]) {
+      cooldownTicks = Math.round(cfg.cooldownTicks * amazonMods[id]!.evade.cooldownMultiplier);
+    }
+
     players[id] = {
       ...p,
       mana: p.mana - effectiveManaCost,
-      cooldowns: phantomActive ? { ...p.cooldowns } : { ...p.cooldowns, [spell]: cfg.cooldownTicks },
+      cooldowns: phantomActive ? { ...p.cooldowns } : { ...p.cooldowns, [spell]: cooldownTicks },
       castingSpell: spell,
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
     };
@@ -199,19 +215,14 @@ export function advanceState(
       })];
     } else if (spell === 4) {
       const tMods = mods.teleport;
-      const dx = input.aimTarget.x - p.position.x;
-      const dy = input.aimTarget.y - p.position.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const clampedTarget = (hasSkillSystem && dist > tMods.maxRange)
-        ? { x: p.position.x + (dx / dist) * tMods.maxRange, y: p.position.y + (dy / dist) * tMods.maxRange }
-        : input.aimTarget;
-      const newPos = resolvePlayerPillarCollisions(clampToArena(clampedTarget));
+      // Always clamp — a guest (no skill system) must not get unlimited range.
+      const newPos = clampTeleport(p.position, input.aimTarget, tMods.maxRange);
       players[id] = {
         ...players[id],
         position: newPos,
         teleported: { ...p.position },
-        invulnUntil: (hasSkillSystem && tMods.etherealForm) ? tick + 30 : players[id].invulnUntil,
-        phantomStepUntil: (hasSkillSystem && tMods.phantomStep) ? tick + 2 * 60 : players[id].phantomStepUntil,
+        invulnUntil: (hasSkillSystem && tMods.etherealForm) ? tick + Math.round(0.5 * TICK_RATE) : players[id].invulnUntil,
+        phantomStepUntil: (hasSkillSystem && tMods.phantomStep) ? tick + 2 * TICK_RATE : players[id].phantomStepUntil,
       };
     } else if (spell === 5) {
       const aMods = amazonMods[id];
@@ -231,17 +242,18 @@ export function advanceState(
       const count = aMods.multishot.arrowCount;
       const spreadPerArrow = Math.PI / (count + 1) * 0.4;
       const baseAngle = Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x);
+      const volley = [];
       for (let i = 0; i < count; i++) {
         const angle = baseAngle + (i - (count - 1) / 2) * spreadPerArrow;
         const target = { x: p.position.x + Math.cos(angle) * 500, y: p.position.y + Math.sin(angle) * 500 };
-        const arrow = spawnArrow(id, p.position, target, {
+        volley.push(spawnArrow(id, p.position, target, {
           speed: aMods.arrow.speed,
           damageMin: aMods.multishot.damageMin,
           damageMax: aMods.multishot.damageMax,
           homing: 0,
-        });
-        projectiles = [...projectiles, arrow];
+        }));
       }
+      projectiles = [...projectiles, ...volley];
     } else if (spell === 7) {
       const aMods = amazonMods[id];
       if (!aMods) continue;
@@ -273,7 +285,33 @@ export function advanceState(
         evadeTarget: clampedTarget,
         evadeEndTick: tick + EVADE_DURATION_TICKS,
         invulnUntil: tick + EVADE_INVULN_TICKS,
+        // Shadowstep: invisible for 0.5s after the dash ends
+        invisibleUntil: aMods.evade.shadowstep
+          ? tick + EVADE_DURATION_TICKS + Math.round(0.5 * TICK_RATE)
+          : players[id].invisibleUntil,
       };
+
+      // Combat Roll: fire an arrow at the nearest enemy during evade
+      if (aMods.evade.combatRoll) {
+        let nearest: PlayerState | undefined;
+        let nearestDist = Infinity;
+        for (const other of Object.values(players)) {
+          if (other.id === id || other.hp <= 0) continue;
+          // Shadowstepped players can't be auto-targeted (would reveal them).
+          if ((other.invisibleUntil ?? 0) > tick) continue;
+          if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[id].teamId) continue;
+          const d = (other.position.x - origin.x) ** 2 + (other.position.y - origin.y) ** 2;
+          if (d < nearestDist) { nearestDist = d; nearest = other; }
+        }
+        if (nearest) {
+          projectiles = [...projectiles, spawnArrow(id, origin, nearest.position, {
+            speed: aMods.arrow.speed,
+            damageMin: aMods.arrow.damageMin,
+            damageMax: aMods.arrow.damageMax,
+            homing: 0,
+          })];
+        }
+      }
     }
   }
 
@@ -281,7 +319,15 @@ export function advanceState(
   const survivingProjectiles = [];
   const newProjectiles: typeof projectiles = [];
   for (const proj of projectiles) {
-    const candidates = Object.entries(players).filter(([pid]) => pid !== proj.ownerId && players[pid].hp > 0);
+    const candidates = Object.entries(players).filter(([pid]) =>
+      pid !== proj.ownerId &&
+      players[pid].hp > 0 &&
+      // Shadowstepped (invisible) players can't be tracked by homing.
+      (players[pid].invisibleUntil ?? 0) <= tick &&
+      // Homing must not steer toward teammates in team modes.
+      !(resolvedMode.teamsEnabled &&
+        players[proj.ownerId]?.teamId !== undefined &&
+        players[pid].teamId === players[proj.ownerId].teamId));
     const enemyEntry = candidates.length > 0
       ? candidates.reduce((closest, curr) => {
           const closestDist = (closest[1].position.x - proj.position.x) ** 2 + (closest[1].position.y - proj.position.y) ** 2;
@@ -294,10 +340,33 @@ export function advanceState(
       if (isArrowExpired(moved)) continue;
       let hit = false;
       for (const [pid, player] of Object.entries(players)) {
+        if (player.hp <= 0) continue;
         if (arrowHitsPlayer(moved, player.position, pid)) {
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
-            players[pid] = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            // Elemental arrows apply the shooter's status effect on hit —
+            // but never full-strength slows/DoTs on teammates (friendly fire
+            // is deliberately reduced; a full 2s slow would undercut that).
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[moved.ownerId]?.teamId !== undefined &&
+              players[moved.ownerId].teamId === player.teamId;
+            const ownerAM = amazonMods[moved.ownerId];
+            if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
+              const el = ownerAM.elemental;
+              if (ownerAM.element === 'burn') {
+                next.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
+                next.burnDps = el.burn.damagePerSecond;
+              } else if (ownerAM.element === 'freeze') {
+                next.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
+                next.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
+              } else if (ownerAM.element === 'poison') {
+                next.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
+                next.poisonDps = el.poison.damagePerSecond;
+                next.poisonManaReduction = el.poison.manaRegenReduction;
+              }
+            }
+            players[pid] = next;
           }
           hit = true;
           break;
@@ -306,11 +375,13 @@ export function advanceState(
       if (!hit) survivingProjectiles.push(moved);
     } else {
       const moved = advanceFireball(proj, enemyEntry?.[1].position);
-      const expired = isFireballExpired(moved);
+      const inGrace = (moved.noHitUntil ?? 0) > tick;
+      const expired = isFireballExpired(moved, tick);
       let directHit = false;
 
-      if (!expired) {
+      if (!expired && !inGrace) {
         for (const [pid, player] of Object.entries(players)) {
+          if (player.hp <= 0) continue;
           if (fireballHitsPlayer(moved, player.position, pid)) {
             directHit = true;
             break;
@@ -327,6 +398,8 @@ export function advanceState(
           const dy = player.position.y - moved.position.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > blastRadius + PLAYER_HALF_SIZE) continue;
+          // The blast is concussive, not magical — pillars block it.
+          if (!hasLineOfSight(moved.position, player.position)) continue;
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const falloff = 1 - Math.min(dist / blastRadius, 1);
@@ -338,10 +411,17 @@ export function advanceState(
           for (const offset of angles) {
             const baseAngle = Math.atan2(moved.velocity.y, moved.velocity.x) + offset;
             const spd = Math.sqrt(moved.velocity.x ** 2 + moved.velocity.y ** 2);
-            newProjectiles.push(spawnFireball(moved.ownerId, moved.position, {
+            const child = spawnFireball(moved.ownerId, moved.position, {
               x: moved.position.x + Math.cos(baseAngle) * 100,
               y: moved.position.y + Math.sin(baseAngle) * 100,
-            }, { speed: spd, radius: moved.radius, damageMin: moved.damageMin, damageMax: moved.damageMax }));
+            }, {
+              speed: spd, radius: moved.radius, damageMin: moved.damageMin, damageMax: moved.damageMax,
+              // Grace: fly clear of the obstacle/target the parent detonated
+              // on instead of instantly re-detonating (stacked ~4x damage).
+              noHitUntil: tick + 6,
+            });
+            // Children born out of bounds are dropped, not detonated.
+            if (!isFireballExpired(child, tick)) newProjectiles.push(child);
           }
         }
       } else {
@@ -382,7 +462,7 @@ export function advanceState(
         }
       }
       if (m.moltenImpact) {
-        const crater = spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 180);
+        const crater = spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 3 * TICK_RATE);
         fireWalls = [...fireWalls, crater];
       }
     } else {

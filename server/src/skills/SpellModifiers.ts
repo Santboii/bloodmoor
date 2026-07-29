@@ -1,7 +1,6 @@
 import {
   FIREBALL_SPEED, FIREBALL_RADIUS,
-  TELEPORT_MAX_RANGE,
-  effectAtRank,
+  effectAtRank, teleportMaxRange,
   HELLFIRE_RADIUS_RATIO, HELLFIRE_DAMAGE_RATIO, HELLFIRE_SPEED_RATIO,
 } from '@arena/shared';
 
@@ -88,7 +87,7 @@ export function buildSpellModifiers(skills: Map<string, number>): SpellModifiers
       radiusMultiplier: rank('fire.cataclysm') > 0 ? 1 + effectAtRank(0.15, rank('fire.cataclysm')) : 1,
     },
     teleport: {
-      maxRange:     TELEPORT_MAX_RANGE * (rank('utility.phase_shift') > 0 ? 1 + effectAtRank(0.08, rank('utility.phase_shift')) : 1),
+      maxRange:     teleportMaxRange(rank('utility.phase_shift')),
       etherealForm: rank('utility.ethereal_form') > 0,
       phantomStep:  rank('utility.phantom_step') > 0,
     },
