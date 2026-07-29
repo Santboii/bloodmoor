@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CameraController } from './CameraController';
-import { internalRenderSize, FRUSTUM_HALF_HEIGHT } from './pixelation';
+import { internalRenderSize, FRUSTUM_HALF_HEIGHT, PALETTE_ENABLED, PALETTE_LEVELS } from './pixelation';
 
 const INITIAL_CENTER_X = 200;
 const INITIAL_CENTER_Z = 1000;
@@ -33,6 +33,43 @@ const VignetteShader = {
       float v = 1.0 - dot(uv * 0.4, uv * 0.4);
       v = clamp(mix(1.0 - intensity, 1.0, v), 0.0, 1.0);
       gl_FragColor = vec4(color.rgb * v, color.a);
+    }
+  `,
+};
+
+// 4x4 Bayer ordered dithering + per-channel quantization. Runs at internal
+// resolution, after bloom (so glow is quantized too) and before vignette.
+const PaletteShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    levels: { value: 32.0 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float levels;
+    varying vec2 vUv;
+
+    const mat4 BAYER = mat4(
+       0.0,  8.0,  2.0, 10.0,
+      12.0,  4.0, 14.0,  6.0,
+       3.0, 11.0,  1.0,  9.0,
+      15.0,  7.0, 13.0,  5.0
+    );
+
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      ivec2 p = ivec2(mod(gl_FragCoord.xy, 4.0));
+      float threshold = (BAYER[p.x][p.y] + 0.5) / 16.0 - 0.5;
+      vec3 dithered = color.rgb + threshold / levels;
+      vec3 quantized = floor(dithered * (levels - 1.0) + 0.5) / (levels - 1.0);
+      gl_FragColor = vec4(quantized, color.a);
     }
   `,
 };
@@ -129,6 +166,11 @@ export class Scene {
         0.3,  // threshold
       ),
     );
+    if (PALETTE_ENABLED) {
+      const palette = new ShaderPass(PaletteShader);
+      palette.uniforms.levels.value = PALETTE_LEVELS;
+      this.composer.addPass(palette);
+    }
     this.composer.addPass(new ShaderPass(VignetteShader));
     this.composer.addPass(new OutputPass());
   }

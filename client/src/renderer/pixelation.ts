@@ -30,6 +30,10 @@ export function snapToTexel(value: number, texel: number): number {
   return Math.round(value / texel) * texel;
 }
 
+/** Color quantization pass. Set PALETTE_ENABLED = false to disable. */
+export const PALETTE_ENABLED = true;
+export const PALETTE_LEVELS = 32; // per-channel levels; lower = crunchier
+
 /** In-place posterization of RGBA pixel data (RGB only; alpha untouched). */
 export function posterizePixels(data: Uint8ClampedArray, levels: number): void {
   const step = 255 / (levels - 1);
