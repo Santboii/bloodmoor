@@ -498,6 +498,9 @@ function stopGame(): void {
   playerMeshes.clear();
   hud.hide();
   stateBuffer.clear();
+  // A killing-blow cast latched on the final tick must not survive into a
+  // rematch, whose startGame() path bypasses onGameState's clear.
+  pendingCastAnim.clear();
   predictor = null;
   predictedTeleportReadyAt = 0;
   deathOrder = [];
