@@ -13,13 +13,15 @@ function tiledPBR(tex: TextureSet, repeatU: number, repeatV: number): THREE.Mesh
     c.needsUpdate = true;
     return c;
   };
-  return new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshStandardMaterial({
     map: apply(tex.map),
     normalMap: apply(tex.normalMap),
     roughnessMap: apply(tex.roughnessMap),
     roughness: 1,
     metalness: 0,
   });
+  mat.normalScale.set(0.4, 0.4);
+  return mat;
 }
 
 export class Arena {
