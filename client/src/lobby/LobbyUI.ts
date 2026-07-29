@@ -542,7 +542,16 @@ export class LobbyUI {
     msgs.scrollTop = msgs.scrollHeight;
   }
 
-  hide(): void { this.stopPolling(); this.el.style.display = 'none'; }
+  hide(): void {
+    this.stopPolling();
+    // The rematch countdown must not keep ticking against a hidden/stale
+    // screen (e.g. after the opponent accepts and the next match starts).
+    if (this.rematchInterval) {
+      clearInterval(this.rematchInterval);
+      this.rematchInterval = null;
+    }
+    this.el.style.display = 'none';
+  }
   show(): void { this.el.style.display = ''; }
 
   showPauseOverlay(countdown: number, onLeave: () => void): void {

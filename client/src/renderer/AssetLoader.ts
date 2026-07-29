@@ -9,7 +9,7 @@ export interface TextureSet {
 }
 
 export interface LoadedAssets {
-  characters: { warrior: GLTF; mage: GLTF; amazon: GLTF; pool: GLTF[] };
+  characters: { mage: GLTF; amazon: GLTF };
   textures: { floor: TextureSet; stone: TextureSet };
 }
 
@@ -29,14 +29,12 @@ export class AssetLoader {
     const sRGB = THREE.SRGBColorSpace;
     const linear = THREE.LinearSRGBColorSpace;
 
-    const [warrior, mage, amazon, mage2, mage3, mage4, floorDiff, floorNorm, floorRough, stoneDiff, stoneNorm, stoneRough] =
+    // Character models are cloned per player at spawn (SkeletonUtils.clone),
+    // so each class only needs to be fetched and parsed once.
+    const [mage, amazon, floorDiff, floorNorm, floorRough, stoneDiff, stoneNorm, stoneRough] =
       await Promise.all([
-        loadGLTF('/assets/characters/warrior.glb'),
         loadGLTF('/assets/characters/mage.glb'),
         loadGLTF('/assets/characters/amazon.glb'),
-        loadGLTF('/assets/characters/mage.glb'),
-        loadGLTF('/assets/characters/mage.glb'),
-        loadGLTF('/assets/characters/mage.glb'),
         loadTex('/assets/textures/cobblestone/diffuse.jpg', sRGB),
         loadTex('/assets/textures/cobblestone/normal.jpg', linear),
         loadTex('/assets/textures/cobblestone/roughness.jpg', linear),
@@ -46,7 +44,7 @@ export class AssetLoader {
       ]);
 
     return {
-      characters: { warrior, mage, amazon, pool: [mage, mage2, mage3, mage4] },
+      characters: { mage, amazon },
       textures: {
         floor: { map: floorDiff, normalMap: floorNorm, roughnessMap: floorRough },
         stone: { map: stoneDiff, normalMap: stoneNorm, roughnessMap: stoneRough },

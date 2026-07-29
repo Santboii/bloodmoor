@@ -96,4 +96,27 @@ describe('StateBuffer time-based interpolation', () => {
     expect(buffer.getInterpolated(1020)).toBeNull();
     expect(buffer.getLatest()).toBeNull();
   });
+
+  it('stays smooth when a delayed packet arrives back-to-back with the next (TCP burst)', () => {
+    buffer.push(makeState(1, 100, 100), 1000);
+    // Tick 2 is delayed and arrives essentially together with tick 3.
+    buffer.push(makeState(2, 200, 200), 1050);
+    buffer.push(makeState(3, 300, 300), 1050.01);
+
+    // Interpolating in tick time, positions must advance without a snap even
+    // though the two snapshots' arrival span is ~0.
+    let prev: number | null = null;
+    for (let now = 1050; now <= 1130; now += 5) {
+      const state = buffer.getInterpolated(now);
+      expect(state).not.toBeNull();
+      const x = state!.players['p1'].position.x;
+      if (prev !== null) {
+        expect(x).toBeGreaterThanOrEqual(prev);
+        // 5ms of render time can cover at most ~30 world units at this
+        // velocity; a receive-time timeline would jump 100 here.
+        expect(x - prev).toBeLessThan(80);
+      }
+      prev = x;
+    }
+  });
 });

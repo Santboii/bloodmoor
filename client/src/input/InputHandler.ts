@@ -1,4 +1,5 @@
-import { InputFrame, SpellId } from '@arena/shared';
+import { InputFrame, SpellId, SPELL_BINDINGS } from '@arena/shared';
+import type { CharacterClass } from '@arena/shared';
 import { Scene } from '../renderer/Scene';
 
 const ISO_ANGLE = -Math.PI / 4;
@@ -8,7 +9,7 @@ const ISO_SIN   =  Math.sin(ISO_ANGLE); // ≈ -0.7071
 export class InputHandler {
   private keys = new Set<string>();
   private activeSpell: SpellId = 1;
-  private spellOffset = 0;
+  private charClass: CharacterClass = 'mage';
   private mouseScreen = { x: 0, y: 0 };
   private mouseWorld = { x: 1000, y: 1000 }; // center of new arena
   private pendingCast: { spell: SpellId; aimTarget: { x: number; y: number } } | null = null;
@@ -23,16 +24,22 @@ export class InputHandler {
     canvas.addEventListener('mouseup', this.onMouseUp);
   }
 
+  private spellForKey(key: 1 | 2 | 3 | 4): SpellId | null {
+    return SPELL_BINDINGS.find(b => b.charClass === this.charClass && b.key === key)?.spell ?? null;
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys.add(e.code);
-    if (e.code === 'Digit1') this.activeSpell = (1 + this.spellOffset) as SpellId;
-    if (e.code === 'Digit2') this.activeSpell = (2 + this.spellOffset) as SpellId;
-    if (e.code === 'Digit3') this.activeSpell = (3 + this.spellOffset) as SpellId;
-    if (e.code === 'Digit4') this.activeSpell = (4 + this.spellOffset) as SpellId;
+    const digit = /^Digit([1-4])$/.exec(e.code);
+    if (digit) {
+      const spell = this.spellForKey(Number(digit[1]) as 1 | 2 | 3 | 4);
+      if (spell) this.activeSpell = spell;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
-      const mobilitySpell = (4 + this.spellOffset) as SpellId;
-      this.pendingCast = { spell: mobilitySpell, aimTarget: this.mouseWorld };
+      // Key 4 is each class's mobility spell (teleport / evade).
+      const mobilitySpell = this.spellForKey(4);
+      if (mobilitySpell) this.pendingCast = { spell: mobilitySpell, aimTarget: this.mouseWorld };
     }
   };
 
@@ -81,8 +88,8 @@ export class InputHandler {
   }
 
   setCharacterClass(cls: string): void {
-    this.spellOffset = cls === 'amazon' ? 4 : 0;
-    this.activeSpell = (1 + this.spellOffset) as SpellId;
+    this.charClass = cls === 'amazon' ? 'amazon' : 'mage';
+    this.activeSpell = this.spellForKey(1) ?? 1;
   }
 
   getActiveSpell(): SpellId { return this.activeSpell; }

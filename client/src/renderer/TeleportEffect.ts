@@ -11,12 +11,43 @@ const LIGHTNING_COUNT_MAX = 6;
 
 const ringGeometry = new THREE.TorusGeometry(1, 0.3, 4, 32);
 
+// Adding/removing a PointLight changes the scene's light count, which
+// invalidates the shader program cache for every standard material in the
+// scene — a visible hitch mid-combat. Instead keep a small fixed pool of
+// lights permanently in the scene at intensity 0 and only animate intensity.
+const LIGHT_POOL_SIZE = 2;
+const lightPool: { light: THREE.PointLight; inUse: boolean }[] = [];
+
+function ensureLightPool(scene: THREE.Scene): void {
+  for (const entry of lightPool) {
+    if (entry.light.parent !== scene) scene.add(entry.light);
+  }
+  while (lightPool.length < LIGHT_POOL_SIZE) {
+    const light = new THREE.PointLight(0xffeebb, 0, 120);
+    scene.add(light);
+    lightPool.push({ light, inUse: false });
+  }
+}
+
+function acquireLight(): THREE.PointLight | null {
+  const entry = lightPool.find(e => !e.inUse);
+  if (!entry) return null; // all busy — the flash just goes lightless
+  entry.inUse = true;
+  return entry.light;
+}
+
+function releaseLight(light: THREE.PointLight): void {
+  light.intensity = 0;
+  const entry = lightPool.find(e => e.light === light);
+  if (entry) entry.inUse = false;
+}
+
 export class TeleportEffect {
   done = false;
   private elapsed = 0;
-  private lightningLines: THREE.LineSegments[] = [];
+  private lightningLines: THREE.Line[] = [];
   private ringMesh: THREE.Mesh;
-  private pointLight: THREE.PointLight;
+  private pointLight: THREE.PointLight | null;
   private lightningDisposed = false;
   private lightDisposed = false;
   private ringDisposed = false;
@@ -58,7 +89,9 @@ export class TeleportEffect {
         transparent: true,
         opacity: 0.6,
       });
-      const line = new THREE.LineSegments(geometry, material);
+      // THREE.Line draws the full polyline; LineSegments would consume the
+      // points pairwise and silently drop the second half of each bolt.
+      const line = new THREE.Line(geometry, material);
       this.scene.add(line);
       this.lightningLines.push(line);
     }
@@ -75,9 +108,12 @@ export class TeleportEffect {
     this.ringMesh.scale.setScalar(0.01);
     this.scene.add(this.ringMesh);
 
-    this.pointLight = new THREE.PointLight(0xffeebb, 1, 120);
-    this.pointLight.position.set(x, 20, z);
-    this.scene.add(this.pointLight);
+    ensureLightPool(scene);
+    this.pointLight = acquireLight();
+    if (this.pointLight) {
+      this.pointLight.position.set(x, 20, z);
+      this.pointLight.intensity = 1;
+    }
   }
 
   update(delta: number): void {
@@ -94,10 +130,10 @@ export class TeleportEffect {
       this.lightningDisposed = true;
     }
 
-    if (!this.lightDisposed) {
+    if (!this.lightDisposed && this.pointLight) {
       if (this.elapsed >= LIGHT_DURATION) {
-        this.scene.remove(this.pointLight);
-        this.pointLight.dispose();
+        releaseLight(this.pointLight);
+        this.pointLight = null;
         this.lightDisposed = true;
       } else {
         this.pointLight.intensity = 1 * (1 - this.elapsed / LIGHT_DURATION);
@@ -130,9 +166,9 @@ export class TeleportEffect {
       }
       this.lightningLines.length = 0;
     }
-    if (!this.lightDisposed) {
-      this.scene.remove(this.pointLight);
-      this.pointLight.dispose();
+    if (!this.lightDisposed && this.pointLight) {
+      releaseLight(this.pointLight);
+      this.pointLight = null;
     }
     if (!this.ringDisposed) {
       this.scene.remove(this.ringMesh);

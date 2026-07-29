@@ -163,13 +163,23 @@ export class SkillTreeUI {
     container.appendChild(this.el);
   }
 
+  private closeResolver: (() => void) | null = null;
+
   async show(characterId?: string): Promise<void> {
     this.characterId = characterId ?? null;
     this.el.style.display = 'block';
     await this.reload();
+    // Resolve only when the user closes the tree — callers refresh the
+    // unlocked-spells set afterwards, so resolving on data-load would run
+    // that refresh before any points were actually spent.
+    await new Promise<void>(resolve => { this.closeResolver = resolve; });
   }
 
-  hide(): void { this.el.style.display = 'none'; }
+  hide(): void {
+    this.el.style.display = 'none';
+    this.closeResolver?.();
+    this.closeResolver = null;
+  }
 
   private async reload(): Promise<void> {
     if (!this.characterId) return;

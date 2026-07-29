@@ -1,13 +1,27 @@
-import { GameState, PlayerState, SpellId, SPELL_CONFIG, MAX_HP, MAX_MANA } from '@arena/shared';
+import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA } from '@arena/shared';
 import { Minimap } from './Minimap';
 
-const SPELL_NAMES: Record<number, string> = { 1: 'FB', 2: 'FW', 3: 'MT', 4: 'TP' };
+// Display abbreviations only — identity/keybinds come from SPELL_BINDINGS.
+const SPELL_NAMES: Record<number, string> = {
+  1: 'FB', 2: 'FW', 3: 'MT', 4: 'TP',
+  5: 'PS', 6: 'MS', 7: 'RA', 8: 'EV',
+};
+
+type EnemyRow = { row: HTMLElement; name: HTMLElement; fill: HTMLElement; lastHp: number; lastName: string };
 
 export class HUD {
   private el: HTMLElement;
   private minimap: Minimap;
   private myId = '';
   private prevHp: Record<string, number> = {};
+  private hpFill: HTMLElement;
+  private mpFill: HTMLElement;
+  private spellsEl: HTMLElement;
+  private enemiesEl: HTMLElement;
+  private slotEls = new Map<SpellId, { slot: HTMLElement; cd: HTMLElement; lastPct: number; lastActive: boolean }>();
+  private enemyRows = new Map<string, EnemyRow>();
+  private lastHpPct = -1;
+  private lastMpPct = -1;
 
   constructor(container: HTMLElement) {
     this.minimap = new Minimap(container);
@@ -39,20 +53,36 @@ export class HUD {
       </div>
     `;
     container.appendChild(this.el);
+    this.hpFill = this.el.querySelector('#hud-hp') as HTMLElement;
+    this.mpFill = this.el.querySelector('#hud-mp') as HTMLElement;
+    this.spellsEl = this.el.querySelector('#hud-spells') as HTMLElement;
+    this.enemiesEl = this.el.querySelector('#hud-enemies') as HTMLElement;
   }
 
-  init(myId: string): void { this.myId = myId; this.prevHp = {}; }
+  init(myId: string): void {
+    this.myId = myId;
+    this.prevHp = {};
+    this.enemiesEl.textContent = '';
+    this.enemyRows.clear();
+    this.lastHpPct = -1;
+    this.lastMpPct = -1;
+  }
 
   buildSpellSlots(ownedSpells: Set<SpellId>): void {
-    const spells = this.el.querySelector('#hud-spells')!;
-    spells.innerHTML = '';
-    for (const key of [1, 2, 3, 4] as SpellId[]) {
-      if (!ownedSpells.has(key)) continue;
+    this.spellsEl.textContent = '';
+    this.slotEls.clear();
+    for (const binding of SPELL_BINDINGS) {
+      if (!ownedSpells.has(binding.spell)) continue;
       const slot = document.createElement('div');
       slot.className = 'spell-slot';
-      slot.id = `spell-slot-${key}`;
-      slot.innerHTML = `<span>${SPELL_NAMES[key]}</span><span style="font-size:9px;color:#888">${key}</span><div class="cd-overlay" id="cd-${key}" style="height:0%"></div>`;
-      spells.appendChild(slot);
+      slot.innerHTML = `<span>${SPELL_NAMES[binding.spell]}</span><span style="font-size:9px;color:#888">${binding.key}</span><div class="cd-overlay" style="height:0%"></div>`;
+      this.spellsEl.appendChild(slot);
+      this.slotEls.set(binding.spell, {
+        slot,
+        cd: slot.querySelector('.cd-overlay') as HTMLElement,
+        lastPct: 0,
+        lastActive: false,
+      });
     }
   }
 
@@ -60,42 +90,78 @@ export class HUD {
     const me = state.players[this.myId];
     if (!me) return;
 
-    (this.el.querySelector('#hud-hp') as HTMLElement).style.transform = `translateY(${(1 - me.hp / MAX_HP) * 100}%)`;
-    (this.el.querySelector('#hud-mp') as HTMLElement).style.transform = `translateY(${(1 - me.mana / MAX_MANA) * 100}%)`;
-
-    for (const key of [1, 2, 3, 4] as SpellId[]) {
-      const slot = this.el.querySelector(`#spell-slot-${key}`) as HTMLElement | null;
-      if (!slot) continue;
-      slot.classList.toggle('active', key === activeSpell);
-      const cd = me.cooldowns[key] ?? 0;
-      const maxCd = SPELL_CONFIG[key].cooldownTicks;
-      const pct = maxCd > 0 ? (cd / maxCd) * 100 : 0;
-      (this.el.querySelector(`#cd-${key}`) as HTMLElement).style.height = `${pct}%`;
+    const hpPct = Math.round((1 - me.hp / MAX_HP) * 1000) / 10;
+    if (hpPct !== this.lastHpPct) {
+      this.hpFill.style.transform = `translateY(${hpPct}%)`;
+      this.lastHpPct = hpPct;
+    }
+    const mpPct = Math.round((1 - me.mana / MAX_MANA) * 1000) / 10;
+    if (mpPct !== this.lastMpPct) {
+      this.mpFill.style.transform = `translateY(${mpPct}%)`;
+      this.lastMpPct = mpPct;
     }
 
-    // Render all enemy HP bars
-    const enemiesContainer = this.el.querySelector('#hud-enemies') as HTMLElement;
-    const others = Object.entries(state.players).filter(([id]) => id !== this.myId);
-    const otherStates: PlayerState[] = [];
+    for (const [key, entry] of this.slotEls) {
+      const active = key === activeSpell;
+      if (active !== entry.lastActive) {
+        entry.slot.classList.toggle('active', active);
+        entry.lastActive = active;
+      }
+      const cd = me.cooldowns[key] ?? 0;
+      const maxCd = SPELL_CONFIG[key].cooldownTicks;
+      const pct = maxCd > 0 ? Math.round((cd / maxCd) * 1000) / 10 : 0;
+      if (pct !== entry.lastPct) {
+        entry.cd.style.height = `${pct}%`;
+        entry.lastPct = pct;
+      }
+    }
 
-    // Build enemy bars HTML
-    let enemyHtml = '';
-    for (const [id, player] of others) {
-      const hpPct = (player.hp / MAX_HP) * 100;
-      const opacity = player.hp <= 0 ? '0.3' : '1';
-      enemyHtml += `<div class="hud-enemy-entry" style="opacity:${opacity}">
-        <div class="enemy-name">${player.displayName}</div>
-        <div class="enemy-hp-track"><div class="enemy-hp-fill" style="width:${hpPct}%"></div></div>
-      </div>`;
+    // Enemy HP bars — persistent rows, mutated only on change. Names come
+    // from other players and must never hit innerHTML (XSS); textContent only.
+    const otherStates: PlayerState[] = [];
+    const seen = new Set<string>();
+    for (const [id, player] of Object.entries(state.players)) {
+      if (id === this.myId) continue;
+      seen.add(id);
       otherStates.push(player);
 
-      // Detect death for elimination notification
+      let entry = this.enemyRows.get(id);
+      if (!entry) {
+        const row = document.createElement('div');
+        row.className = 'hud-enemy-entry';
+        const name = document.createElement('div');
+        name.className = 'enemy-name';
+        const track = document.createElement('div');
+        track.className = 'enemy-hp-track';
+        const fill = document.createElement('div');
+        fill.className = 'enemy-hp-fill';
+        track.appendChild(fill);
+        row.append(name, track);
+        this.enemiesEl.appendChild(row);
+        entry = { row, name, fill, lastHp: -1, lastName: '' };
+        this.enemyRows.set(id, entry);
+      }
+      if (player.displayName !== entry.lastName) {
+        entry.name.textContent = player.displayName;
+        entry.lastName = player.displayName;
+      }
+      if (player.hp !== entry.lastHp) {
+        entry.fill.style.width = `${(player.hp / MAX_HP) * 100}%`;
+        entry.row.style.opacity = player.hp <= 0 ? '0.3' : '1';
+        entry.lastHp = player.hp;
+      }
+
       const prev = this.prevHp[id];
       if (prev !== undefined && prev > 0 && player.hp <= 0) {
         this.showElimination(player.displayName);
       }
     }
-    enemiesContainer.innerHTML = enemyHtml;
+    for (const [id, entry] of this.enemyRows) {
+      if (!seen.has(id)) {
+        entry.row.remove();
+        this.enemyRows.delete(id);
+      }
+    }
 
     // Track HP for next frame
     const newPrevHp: Record<string, number> = {};

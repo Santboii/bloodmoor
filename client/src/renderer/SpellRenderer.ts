@@ -3,7 +3,7 @@ import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } fr
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
 
-type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number };
+type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
@@ -28,6 +28,69 @@ const ELEMENT_COLORS: Record<ArrowElement, number> = {
   poison: 0x44dd44,
 };
 
+// ── Shared GPU resources ────────────────────────────────────────────────────
+// Geometries/materials reused by every instance of an effect. Anything NOT in
+// these sets is per-instance and gets disposed with its object — previously
+// nothing was ever disposed, leaking VRAM on every single cast.
+const FIREBALL_GEO = new THREE.SphereGeometry(1, 8, 8);
+const ARROW_SHAFT_GEO = new THREE.BoxGeometry(18, 4, 4);
+const ARROW_TRAIL_GEO = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(-9, 0, 0),
+  new THREE.Vector3(-15, 0, 0),
+]);
+const FALLING_ARROW_GEO = new THREE.BoxGeometry(2, 14, 2);
+const METEOR_RING_GEO = new THREE.RingGeometry(50, 58, 32);
+const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
+
+const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 });
+const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
+
+const sharedGeometries = new Set<THREE.BufferGeometry>([
+  FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
+]);
+const sharedMaterials = new Set<THREE.Material>([
+  FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
+]);
+
+const arrowShaftMats = new Map<number, THREE.MeshBasicMaterial>();
+const arrowTrailMats = new Map<number, THREE.LineBasicMaterial>();
+
+function shaftMaterial(color: number): THREE.MeshBasicMaterial {
+  let mat = arrowShaftMats.get(color);
+  if (!mat) {
+    mat = new THREE.MeshBasicMaterial({ color });
+    arrowShaftMats.set(color, mat);
+    sharedMaterials.add(mat);
+  }
+  return mat;
+}
+
+function trailMaterial(color: number): THREE.LineBasicMaterial {
+  let mat = arrowTrailMats.get(color);
+  if (!mat) {
+    mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 });
+    arrowTrailMats.set(color, mat);
+    sharedMaterials.add(mat);
+  }
+  return mat;
+}
+
+/** scene.remove + free per-instance GPU resources (skips shared ones). */
+function disposeObject3D(root: THREE.Object3D): void {
+  root.traverse(child => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.geometry && !sharedGeometries.has(mesh.geometry)) mesh.geometry.dispose();
+    if (mesh.material) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        if (!sharedMaterials.has(m)) m.dispose();
+      }
+    }
+  });
+}
+
 export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
   private arrows = new Map<string, ArrowEntry>();
@@ -41,6 +104,11 @@ export class SpellRenderer {
   private elapsedTime = 0;
   private teleportEffects: TeleportEffect[] = [];
   private arrowElement: ArrowElement = 'none';
+  private emitAccumulator = 0;
+  // Continuous emitters (trails, crater embers) run on a fixed 60Hz cadence —
+  // emitting per render frame spawns 2.4x the particles on a 144Hz display
+  // and exhausts the pool during heavy fights.
+  private shouldEmitContinuous = true;
 
   constructor(private scene: THREE.Scene, private myId: string) {
     this.particles = new ParticleSystem(scene);
@@ -48,6 +116,11 @@ export class SpellRenderer {
 
   setArrowElement(element: ArrowElement): void {
     this.arrowElement = element;
+  }
+
+  /** Adopt a new socket id after a mid-game rejoin remaps the player. */
+  setMyId(id: string): void {
+    this.myId = id;
   }
 
   private createFallingArrows(cx: number, cz: number, radius: number, count = 16): RainArrowVisual {
@@ -58,7 +131,7 @@ export class SpellRenderer {
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const r = Math.sqrt(Math.random()) * radius;
-      const shaft = new THREE.Mesh(new THREE.BoxGeometry(2, 14, 2), arrowMaterial);
+      const shaft = new THREE.Mesh(FALLING_ARROW_GEO, arrowMaterial);
       shaft.position.set(Math.cos(theta) * r, 0, Math.sin(theta) * r);
       shaft.rotation.x = (Math.random() - 0.5) * 0.3;
       shaft.rotation.z = (Math.random() - 0.5) * 0.3;
@@ -93,6 +166,9 @@ export class SpellRenderer {
   update(state: GameState): void {
     const delta = this.clock.getDelta();
     this.elapsedTime += delta;
+    this.emitAccumulator += delta;
+    this.shouldEmitContinuous = this.emitAccumulator >= 1 / 60;
+    if (this.shouldEmitContinuous) this.emitAccumulator %= 1 / 60;
     this.detectTeleports(state);
     this.syncFireballs(state);
     this.syncArrows(state);
@@ -117,6 +193,7 @@ export class SpellRenderer {
         const last = this.prevFireballPositions.get(id);
         if (last) this.particles.emitExplosion(last.x, last.y, last.z, last.radius);
         this.scene.remove(mesh);
+        disposeObject3D(mesh);
         this.fireballs.delete(id);
         this.prevFireballPositions.delete(id);
       }
@@ -127,14 +204,10 @@ export class SpellRenderer {
 
       if (!this.fireballs.has(fb.id)) {
         const r = fb.radius ?? 10;
-        const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(r * 0.8, 8, 8),
-          new THREE.MeshBasicMaterial({ color: 0xff6600 }),
-        );
-        const glow = new THREE.Mesh(
-          new THREE.SphereGeometry(r * 1.4, 8, 8),
-          new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 }),
-        );
+        const mesh = new THREE.Mesh(FIREBALL_GEO, FIREBALL_CORE_MAT);
+        mesh.scale.setScalar(r * 0.8);
+        const glow = new THREE.Mesh(FIREBALL_GEO, FIREBALL_GLOW_MAT);
+        glow.scale.setScalar(1.4 / 0.8); // relative to the core's scale
         mesh.add(glow);
         this.scene.add(mesh);
         this.fireballs.set(fb.id, mesh);
@@ -154,7 +227,7 @@ export class SpellRenderer {
         const len = Math.sqrt(dx * dx + dz * dz);
         if (len > 0) { dirX = dx / len; dirZ = dz / len; }
       }
-      this.particles.emitTrail(wx, wy, wz, dirX, dirZ, fb.radius ?? 10);
+      if (this.shouldEmitContinuous) this.particles.emitTrail(wx, wy, wz, dirX, dirZ, fb.radius ?? 10);
       this.prevFireballPositions.set(fb.id, { x: wx, y: wy, z: wz, radius: fb.blastRadius ?? fb.radius ?? 10 });
     }
   }
@@ -165,6 +238,7 @@ export class SpellRenderer {
     for (const [id, entry] of this.arrows) {
       if (!activeArrowIds.has(id)) {
         this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
         this.arrows.delete(id);
       }
     }
@@ -178,20 +252,10 @@ export class SpellRenderer {
           ? ELEMENT_COLORS[this.arrowElement]
           : 0xffffff;
 
-        const shaft = new THREE.Mesh(
-          new THREE.BoxGeometry(18, 4, 4),
-          new THREE.MeshBasicMaterial({ color }),
-        );
+        const shaft = new THREE.Mesh(ARROW_SHAFT_GEO, shaftMaterial(color));
         group.add(shaft);
 
-        const trailPoints = [
-          new THREE.Vector3(-9, 0, 0),
-          new THREE.Vector3(-15, 0, 0),
-        ];
-        const trail = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(trailPoints),
-          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }),
-        );
+        const trail = new THREE.Line(ARROW_TRAIL_GEO, trailMaterial(color));
         group.add(trail);
 
         this.scene.add(group);
@@ -218,10 +282,12 @@ export class SpellRenderer {
     for (const [id, group] of this.fireWalls) {
       if (!activeIds.has(id)) {
         this.scene.remove(group);
+        disposeObject3D(group);
         this.fireWalls.delete(id);
         const rainVisual = this.rainZoneArrows.get(id);
         if (rainVisual) {
           this.scene.remove(rainVisual.arrowGroup);
+          disposeObject3D(rainVisual.arrowGroup);
           this.rainZoneArrows.delete(id);
         }
       }
@@ -256,7 +322,7 @@ export class SpellRenderer {
             ];
             const line = new THREE.Line(
               new THREE.BufferGeometry().setFromPoints(points),
-              new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 }),
+              WALL_SEGMENT_MAT,
             );
             group.add(line);
           }
@@ -269,10 +335,10 @@ export class SpellRenderer {
         if (isRainZone) {
           const visual = this.rainZoneArrows.get(fw.id);
           if (visual) this.updateFallingArrows(visual);
-        } else {
+        } else if (this.shouldEmitContinuous) {
           this.particles.emitCrater(fw.center.x, fw.center.y, fw.radius);
         }
-      } else {
+      } else if (this.shouldEmitContinuous) {
         this.particles.emitWall(fw.segments);
       }
     }
@@ -285,6 +351,8 @@ export class SpellRenderer {
       if (!activeIds.has(id)) {
         this.scene.remove(entry.ring);
         this.scene.remove(entry.rock);
+        disposeObject3D(entry.ring);
+        disposeObject3D(entry.rock);
         this.particles.emitMeteorImpact(entry.target.x, 0, entry.target.y);
         this.meteors.delete(id);
       }
@@ -293,21 +361,20 @@ export class SpellRenderer {
     for (const meteor of state.meteors) {
       if (!this.meteors.has(meteor.id)) {
         const s = meteor.aoeRadius / METEOR_AOE_RADIUS;
+        // Ring material is per-instance (opacity pulses); geometry is shared
+        // and the size multiplier is applied via scale in the update below.
         const ring = new THREE.Mesh(
-          new THREE.RingGeometry(50 * s, 58 * s, 32),
+          METEOR_RING_GEO,
           new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
         );
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(meteor.target.x, 2, meteor.target.y);
 
-        const rock = new THREE.Mesh(
-          new THREE.SphereGeometry(25 * s, 6, 6),
-          new THREE.MeshBasicMaterial({ color: 0xff4400 }),
-        );
+        const rock = new THREE.Mesh(METEOR_ROCK_GEO, METEOR_ROCK_MAT);
 
         this.scene.add(ring);
         this.scene.add(rock);
-        this.meteors.set(meteor.id, { ring, rock, target: { ...meteor.target }, spawnTime: this.elapsedTime });
+        this.meteors.set(meteor.id, { ring, rock, target: { ...meteor.target }, spawnTime: this.elapsedTime, sizeScale: s });
       }
 
       const entry = this.meteors.get(meteor.id)!;
@@ -317,7 +384,7 @@ export class SpellRenderer {
       const t = Math.max(0, Math.min(1, 1 - (meteor.strikeAt - state.tick) / METEOR_DELAY_TICKS));
 
       const scale = 1.0 - t * 0.4;
-      entry.ring.scale.setScalar(scale);
+      entry.ring.scale.setScalar(scale * entry.sizeScale);
       const localTime = this.elapsedTime - entry.spawnTime;
       const pulseFreq = 0.5 + t * 2; // 0.5Hz → 2.5Hz
       (entry.ring.material as THREE.MeshBasicMaterial).opacity =
@@ -327,10 +394,12 @@ export class SpellRenderer {
       const rockY = 500 * (1 - t);
       entry.rock.position.set(meteor.target.x, rockY, meteor.target.y);
       const rockScale = 0.4 + t * 0.6;
-      entry.rock.scale.setScalar(rockScale);
+      entry.rock.scale.setScalar(rockScale * entry.sizeScale);
 
       // Emit trail while falling
-      this.particles.emitMeteorTrail(meteor.target.x, rockY, meteor.target.y);
+      if (this.shouldEmitContinuous && visible) {
+        this.particles.emitMeteorTrail(meteor.target.x, rockY, meteor.target.y);
+      }
     }
   }
 
@@ -341,6 +410,8 @@ export class SpellRenderer {
       if (!activeIds.has(id)) {
         this.scene.remove(entry.circle);
         this.scene.remove(entry.arrowGroup);
+        disposeObject3D(entry.circle);
+        disposeObject3D(entry.arrowGroup);
         this.particles.emitRainImpact(entry.target.x, 0, entry.target.y, entry.radius);
         this.rainOfArrows.delete(id);
       }
@@ -377,18 +448,22 @@ export class SpellRenderer {
   }
 
   dispose(): void {
-    for (const mesh of this.fireballs.values()) this.scene.remove(mesh);
-    for (const entry of this.arrows.values()) this.scene.remove(entry.mesh);
-    for (const group of this.fireWalls.values()) this.scene.remove(group);
-    for (const visual of this.rainZoneArrows.values()) this.scene.remove(visual.arrowGroup);
+    for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
+    for (const entry of this.arrows.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const group of this.fireWalls.values()) { this.scene.remove(group); disposeObject3D(group); }
+    for (const visual of this.rainZoneArrows.values()) { this.scene.remove(visual.arrowGroup); disposeObject3D(visual.arrowGroup); }
     this.rainZoneArrows.clear();
     for (const entry of this.meteors.values()) {
       this.scene.remove(entry.ring);
       this.scene.remove(entry.rock);
+      disposeObject3D(entry.ring);
+      disposeObject3D(entry.rock);
     }
     for (const entry of this.rainOfArrows.values()) {
       this.scene.remove(entry.circle);
       this.scene.remove(entry.arrowGroup);
+      disposeObject3D(entry.circle);
+      disposeObject3D(entry.arrowGroup);
     }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();

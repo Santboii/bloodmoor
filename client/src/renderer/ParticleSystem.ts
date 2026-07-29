@@ -323,9 +323,17 @@ export class ParticleSystem {
     }
 
     this.geometry.setDrawRange(0, this.activeCount);
-    this.posAttr.needsUpdate = true;
-    this.sizeAttr.needsUpdate = true;
-    this.colorAttr.needsUpdate = true;
+    // Upload only the live slice — without a range, every frame re-uploads
+    // all 4096 slots (~112 KB) even when a handful of particles are alive.
+    // Ranges are cleared automatically after each upload.
+    if (this.activeCount > 0) {
+      this.posAttr.addUpdateRange(0, this.activeCount * 3);
+      this.colorAttr.addUpdateRange(0, this.activeCount * 3);
+      this.sizeAttr.addUpdateRange(0, this.activeCount);
+      this.posAttr.needsUpdate = true;
+      this.sizeAttr.needsUpdate = true;
+      this.colorAttr.needsUpdate = true;
+    }
   }
 
   dispose(): void {

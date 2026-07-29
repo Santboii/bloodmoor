@@ -3,7 +3,7 @@ import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
 import { SpellRenderer, ArrowElement } from './renderer/SpellRenderer';
 import { StateBuffer } from './network/StateBuffer';
-import { Predictor } from './network/Predictor';
+import { Predictor, PredictOpts } from './network/Predictor';
 import { SocketClient } from './network/SocketClient';
 import { InputHandler } from './input/InputHandler';
 import { HUD } from './hud/HUD';
@@ -11,9 +11,9 @@ import { LobbyUI } from './lobby/LobbyUI';
 import { AuthUI } from './auth/AuthUI';
 import { SkillTreeUI } from './skills/SkillTreeUI';
 import { supabase, fetchProfile, fetchCharacters } from './supabase';
-import { GameState, NodeId, SpellId } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
-import type { CharacterRecord } from '@arena/shared';
+import type { CharacterRecord, CharacterClass } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
@@ -59,15 +59,26 @@ function elementFromNodes(nodes: Set<NodeId>): ArrowElement {
 }
 
 function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
-  const map: [NodeId, SpellId][] = [
-    ['fire.fireball', 1], ['fire.fire_wall', 2], ['fire.meteor', 3], ['utility.teleport', 4],
-    ['archer.power_shot', 5], ['archer.multishot', 6], ['archer.rain_of_arrows', 7], ['archer_utility.evade', 8],
-  ];
   const result = new Set<SpellId>();
-  for (const [nodeId, spellId] of map) {
-    if (nodes.has(nodeId)) result.add(spellId);
+  for (const b of SPELL_BINDINGS) {
+    if (nodes.has(b.node)) result.add(b.spell);
   }
   return result;
+}
+
+let phaseShiftRank = 0;
+
+/** Re-derive owned spells, arrow element, and modifier ranks from the DB. */
+async function refreshLoadout(characterId: string, charClass: string): Promise<void> {
+  const { data } = await supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId);
+  const rows = (data ?? []) as { node_id: string; rank: number | null }[];
+  const nodeSet = new Set<NodeId>(rows.map(r => r.node_id as NodeId));
+  const defaultNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
+  if (defaultNode) nodeSet.add(defaultNode);
+  ownedSpells = spellsFromNodes(nodeSet);
+  playerElement = elementFromNodes(nodeSet);
+  phaseShiftRank = rows.find(r => r.node_id === 'utility.phase_shift')?.rank ?? 0;
+  hud.buildSpellSlots(ownedSpells);
 }
 
 const PLAYER_COLORS: Record<number, number> = {
@@ -86,13 +97,7 @@ const skillTreeUI = new SkillTreeUI(uiOverlay);
 const charSelect = new CharacterSelectUI(uiOverlay, {
   onSelectCharacter: async (character) => {
     activeCharacter = character;
-    const { data } = await supabase.from('skill_unlocks').select('node_id').eq('character_id', character.id);
-    const nodeSet = new Set<NodeId>((data ?? []).map((r: { node_id: string }) => r.node_id as NodeId));
-    if (character.class === 'mage') nodeSet.add('fire.fireball');
-    else if (character.class === 'amazon') nodeSet.add('archer.power_shot' as NodeId);
-    ownedSpells = spellsFromNodes(nodeSet);
-    playerElement = elementFromNodes(nodeSet);
-    hud.buildSpellSlots(ownedSpells);
+    await refreshLoadout(character.id, character.class);
     charSelect.hide();
     lobby.show();
     lobby.showHome(character.name, character.skill_points_available, character.class, character.level);
@@ -273,12 +278,7 @@ const lobby = new LobbyUI(uiOverlay, {
     if (updated) activeCharacter = updated;
     const { data: { user } } = await supabase.auth.getUser();
     if (user && activeCharacter) {
-      const { data } = await supabase.from('skill_unlocks').select('node_id').eq('character_id', activeCharacter.id);
-      const nodeSet = new Set<NodeId>((data ?? []).map((r: { node_id: string }) => r.node_id as NodeId));
-      if (activeCharacter.class === 'mage') nodeSet.add('fire.fireball');
-      ownedSpells = spellsFromNodes(nodeSet);
-      playerElement = elementFromNodes(nodeSet);
-      hud.buildSpellSlots(ownedSpells);
+      await refreshLoadout(activeCharacter.id, activeCharacter.class);
     }
     lobby.show();
     if (activeCharacter) {
@@ -427,8 +427,20 @@ function setupSocketHandlers(_myDisplayName: string): void {
 
   socket.onReconnect(() => {
     if (!pendingRejoin) return;
-    socket.onRejoinAccepted(() => {
+    socket.onRejoinAccepted(payload => {
       pendingRejoin = null;
+      // The server remapped us to a new socket id — without adopting it,
+      // every subsequent snapshot keys our player under an id we don't know:
+      // prediction stops, the camera loses us, and our mesh renders as remote.
+      myId = payload.yourId;
+      myColorIndex = payload.colorIndex;
+      currentPlayers = payload.players;
+      allPlayerNames = { ...allPlayerNames, ...payload.players };
+      hud.init(myId);
+      // The renderer keys own-spell visuals (Blind Strike indicator, arrow
+      // element tint) off the socket id — adopt the new one.
+      spellRenderer?.setMyId(myId);
+      predictor = null; // re-seeded from the next snapshot under the new id
     });
     socket.onRejoinFailed(() => {
       pendingRejoin = null;
@@ -440,7 +452,11 @@ function setupSocketHandlers(_myDisplayName: string): void {
   });
 
   socket.onRoomNotFound(() => {
-    lobby.showHome();
+    if (activeCharacter) {
+      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+    } else {
+      lobby.showHome(myDisplayName);
+    }
   });
 }
 
@@ -470,11 +486,22 @@ function stopGame(): void {
   hud.hide();
   stateBuffer.clear();
   predictor = null;
+  predictedTeleportReadyAt = 0;
   deathOrder = [];
   readyPlayers = new Set();
 }
 
 let lastFrameTime = performance.now();
+
+// Input/prediction run on a fixed 60Hz step (matching the server tick) so
+// simulation speed is independent of display refresh rate; rendering
+// interpolates between steps.
+const INPUT_STEP_MS = 1000 / 60;
+let inputAccumulator = 0;
+// Local cooldown gate for predicted teleports: the snapshot's cooldown lags
+// one RTT behind, so Space auto-repeat would otherwise predict a second
+// teleport the server rejects — a full-length rubber-band on reconcile.
+let predictedTeleportReadyAt = 0;
 
 scene.startRenderLoop(() => {
   const now = performance.now();
@@ -483,14 +510,42 @@ scene.startRenderLoop(() => {
 
   if (!inputHandler || !spellRenderer) return;
 
-  const frame = inputHandler.buildInputFrame();
-
-  if (predictor) {
-    const seq = predictor.applyInput(frame.move, now);
-    frame.seq = seq;
+  inputAccumulator = Math.min(inputAccumulator + delta * 1000, 100);
+  while (inputAccumulator >= INPUT_STEP_MS) {
+    inputAccumulator -= INPUT_STEP_MS;
+    const frame = inputHandler.buildInputFrame();
+    if (predictor) {
+      const latest = stateBuffer.getLatest();
+      const me = latest?.players[myId];
+      const opts: PredictOpts = {};
+      if (latest && me) {
+        if ((me.slowUntil ?? 0) > latest.tick && me.slowFactor !== undefined) {
+          opts.speedMult = me.slowFactor;
+        }
+        // Predict teleport locally so it feels instant instead of arriving a
+        // round-trip later as a slide. Only when the latest snapshot says the
+        // server will actually accept the cast — a mispredicted teleport
+        // would rubber-band across the map.
+        if (frame.castSpell === 4 && ownedSpells.has(4) && now >= predictedTeleportReadyAt) {
+          const phantom = (me.phantomStepUntil ?? 0) > latest.tick;
+          const affordable = phantom || me.mana >= SPELL_CONFIG[4].manaCost;
+          if ((me.cooldowns[4] ?? 0) <= 0 && affordable && me.hp > 0) {
+            opts.teleportTarget = { ...frame.aimTarget };
+            // Match the server's Phase-Shift-scaled range or every max-range
+            // teleport mispredicts short.
+            opts.teleportRange = teleportMaxRange(phaseShiftRank);
+            // Phantom Step casts skip the server cooldown too.
+            if (!phantom) {
+              predictedTeleportReadyAt = now + (SPELL_CONFIG[4].cooldownTicks / TICK_RATE) * 1000;
+            }
+          }
+        }
+      }
+      frame.seq = predictor.applyInput(frame.move, now, opts);
+    }
+    socket.sendInput(frame);
   }
-
-  socket.sendInput(frame);
+  const stepAlpha = inputAccumulator / INPUT_STEP_MS;
 
   const state = stateBuffer.getInterpolated(now);
   if (!state) return;
@@ -519,7 +574,7 @@ scene.startRenderLoop(() => {
     const mesh = playerMeshes.get(id)!;
 
     if (id === myId && predictor) {
-      const predicted = predictor.getPosition(now);
+      const predicted = predictor.getRenderPosition(stepAlpha, now);
       mesh.setPosition(predicted.x, predicted.y, player.facing);
     } else {
       mesh.setPosition(player.position.x, player.position.y, player.facing);
@@ -527,11 +582,14 @@ scene.startRenderLoop(() => {
 
     mesh.update(delta, player.castingSpell !== null);
     if (player.hp <= 0) mesh.die();
-    mesh.updateLabel(scene.camera, scene.renderer);
+    // Shadowstep: invisible to enemies; you still see yourself.
+    const invisible = (player.invisibleUntil ?? 0) > state.tick && id !== myId;
+    mesh.setVisible(!invisible);
+    mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }
 
   if (predictor && state.players[myId]) {
-    const predicted = predictor.getPosition(now);
+    const predicted = predictor.getRenderPosition(stepAlpha, now);
     scene.updateCamera(predicted.x, predicted.y, delta);
   } else {
     const myPlayer = state.players[myId];

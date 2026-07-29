@@ -10,7 +10,10 @@ export class SocketClient {
 
   constructor() {
     const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
-    this.socket = io(serverUrl ?? '', { autoConnect: false });
+    // websocket-only: skip the HTTP long-polling handshake/upgrade phase,
+    // which adds hundreds of ms of latency at match start and jittery
+    // burst delivery that confuses the interpolation buffer.
+    this.socket = io(serverUrl ?? '', { autoConnect: false, transports: ['websocket'] });
   }
 
   connect(): void { this.socket.connect(); }
@@ -65,7 +68,10 @@ export class SocketClient {
   onPlayerLeft(cb: (data: { playerId: string }) => void): void {
     this.socket.on('player-left', cb);
   }
-  onRoomNotFound(cb: () => void): void { this.socket.once('room-not-found', cb); }
+  onRoomNotFound(cb: () => void): void {
+    this.socket.off('room-not-found');
+    this.socket.on('room-not-found', cb);
+  }
   onChatMessage(cb: (payload: ChatMessagePayload) => void): void {
     this.socket.off('chat-message');
     this.socket.on('chat-message', cb);
@@ -85,9 +91,13 @@ export class SocketClient {
   onRejoinAccepted(
     cb: (payload: { yourId: string; colorIndex: number; players: Record<string, string> }) => void
   ): void {
+    // off() first: repeated reconnect cycles otherwise pile up stale
+    // once-listeners that all fire on the next rejoin response.
+    this.socket.off('rejoin-accepted');
     this.socket.once('rejoin-accepted', cb);
   }
   onRejoinFailed(cb: (payload: { reason: string }) => void): void {
+    this.socket.off('rejoin-failed');
     this.socket.once('rejoin-failed', cb);
   }
   onReconnect(cb: () => void): void {

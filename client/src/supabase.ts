@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import type { CharacterRecord } from '@arena/shared';
+import { CLASS_DEFAULT_NODE } from '@arena/shared';
+import type { CharacterRecord, CharacterClass } from '@arena/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -45,11 +46,8 @@ export async function createCharacter(name: string, charClass: string): Promise<
   if (error) { console.error('create_character failed:', error.message); return null; }
   const characterId = data as string;
 
-  const starterSkills: Record<string, string[]> = {
-    mage: ['fire.fireball'],
-    amazon: ['archer.power_shot'],
-  };
-  for (const nodeId of starterSkills[charClass] ?? []) {
+  const starterNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
+  for (const nodeId of starterNode ? [starterNode] : []) {
     const { error: skillErr } = await supabase.rpc('unlock_skill_node', {
       p_character_id: characterId,
       p_node_id: nodeId,

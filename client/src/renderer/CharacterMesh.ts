@@ -1,14 +1,20 @@
 // client/src/renderer/CharacterMesh.ts
 import * as THREE from 'three';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { CharacterAnimator } from './CharacterAnimator';
 
 const TARGET_HEIGHT = 50; // world units tall
 
+// Shared across all characters — never disposed per instance.
+const RING_GEOMETRY = new THREE.RingGeometry(14, 18, 32);
+const LABEL_POS = new THREE.Vector3();
+
 export class CharacterMesh {
   readonly group = new THREE.Group();
   private animator: CharacterAnimator;
   private nameLabel: HTMLDivElement;
+  private ownedMaterials: THREE.Material[] = [];
   private prevX = 0;
   private prevZ = 0;
   private velocityMag = 0;
@@ -17,11 +23,17 @@ export class CharacterMesh {
   private smoothVelZ = 0;
 
   constructor(gltf: GLTF, color: number, displayName: string, labelContainer: HTMLElement) {
-    const model = gltf.scene;
-    model.scale.setScalar(1);
+    // Clone per player: adding the shared gltf.scene directly would reparent
+    // it, so a second same-class player steals the first player's model.
+    // SkeletonUtils.clone is required for skinned meshes (plain .clone()
+    // leaves bones pointing at the original skeleton).
+    const model = cloneSkeleton(gltf.scene);
 
-    // Auto-scale to TARGET_HEIGHT
-    const box = new THREE.Box3().setFromObject(model);
+    // Auto-scale to TARGET_HEIGHT. Measure the ORIGINAL scene, never the
+    // clone: Box3.setFromObject on a fresh clone reads garbage bounds from
+    // its never-updated skeleton (zeroed bone matrices) — ~40x too tall for
+    // this rig — which shrank models to a sub-pixel speck in game.
+    const box = new THREE.Box3().setFromObject(gltf.scene);
     const height = box.max.y - box.min.y;
     const scale = TARGET_HEIGHT / Math.max(height, 0.001);
     model.scale.setScalar(scale);
@@ -32,24 +44,26 @@ export class CharacterMesh {
       const mesh = child as THREE.Mesh;
       // SkinnedMesh deforms beyond its rest-pose bounding sphere at runtime.
       mesh.frustumCulled = false;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const src of mats) {
-        const mat = src as THREE.MeshStandardMaterial;
+      // Clone materials before tinting — mutating the shared GLTF materials
+      // compounds the lerp on every rematch and bleeds across players.
+      const tint = (src: THREE.Material): THREE.Material => {
+        const mat = src.clone() as THREE.MeshStandardMaterial;
         mat.color.lerp(new THREE.Color(color), 0.3);
         mat.emissive.setHex(color);
         mat.emissiveIntensity = 0.12;
-        mat.needsUpdate = true;
-      }
+        this.ownedMaterials.push(mat);
+        return mat;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(tint) : tint(mesh.material);
       mesh.castShadow = true;
     });
 
     this.group.add(model);
 
     // Glow ring on ground
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(14, 18, 32),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
-    );
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+    this.ownedMaterials.push(ringMat);
+    const ring = new THREE.Mesh(RING_GEOMETRY, ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 1;
     this.group.add(ring);
@@ -57,7 +71,7 @@ export class CharacterMesh {
     // DOM name label
     this.nameLabel = document.createElement('div');
     this.nameLabel.style.cssText = `
-      position:absolute; pointer-events:none; font-size:12px; color:#fff;
+      position:absolute; left:0; top:0; pointer-events:none; font-size:12px; color:#fff;
       text-shadow:0 0 4px #000; white-space:nowrap; transform:translateX(-50%);
     `;
     this.nameLabel.textContent = displayName;
@@ -93,24 +107,30 @@ export class CharacterMesh {
     this.animator.update(delta, this.velocityMag, isCasting);
   }
 
+  /** Hide/show the whole character including its DOM name label. */
+  setVisible(visible: boolean): void {
+    this.group.visible = visible;
+    this.nameLabel.style.display = visible ? '' : 'none';
+  }
+
   die(): void {
     this.animator.die();
   }
 
-  updateLabel(camera: THREE.Camera, renderer: THREE.WebGLRenderer): void {
-    const pos = new THREE.Vector3();
-    this.group.getWorldPosition(pos);
-    pos.y += TARGET_HEIGHT + 10;
-    pos.project(camera);
-    const rect = renderer.domElement.getBoundingClientRect();
-    const sx = (pos.x * 0.5 + 0.5) * rect.width + rect.left;
-    const sy = (-pos.y * 0.5 + 0.5) * rect.height + rect.top - 10;
-    this.nameLabel.style.left = `${sx}px`;
-    this.nameLabel.style.top = `${sy}px`;
+  updateLabel(camera: THREE.Camera, canvasRect: DOMRect): void {
+    this.group.getWorldPosition(LABEL_POS);
+    LABEL_POS.y += TARGET_HEIGHT + 10;
+    LABEL_POS.project(camera);
+    const sx = (LABEL_POS.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
+    const sy = (-LABEL_POS.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top - 10;
+    // translate() instead of left/top: avoids layout, stays on the compositor.
+    this.nameLabel.style.transform = `translate(${sx}px, ${sy}px) translateX(-50%)`;
   }
 
   dispose(labelContainer: HTMLElement): void {
     labelContainer.removeChild(this.nameLabel);
     this.group.removeFromParent();
+    for (const mat of this.ownedMaterials) mat.dispose();
+    this.ownedMaterials = [];
   }
 }
