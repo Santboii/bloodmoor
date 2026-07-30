@@ -234,3 +234,44 @@ export async function adminFetchCharacterNames(characterIds: string[]): Promise<
   if (error) { console.error('adminFetchCharacterNames failed:', error.message); return new Map(); }
   return new Map((data ?? []).map((r: { id: string; name: string }) => [r.id, r.name]));
 }
+
+/** Current gold balance for the signed-in account, read directly from
+ * profiles.gold (owner-read RLS covers it already; no RPC needed for a
+ * plain read). Returns 0 if signed out or the row can't be read, so
+ * callers can render a gold pill without a null-check. */
+export async function fetchGold(): Promise<number> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('gold')
+    .eq('user_id', user.id)
+    .single();
+  if (error) { console.error('fetchGold failed:', error.message); return 0; }
+  return data?.gold ?? 0;
+}
+
+/** Sells an owned, unequipped, non-starter item via the sell_item RPC
+ * (server-side rejects starter gear, equipped items, and items owned by
+ * someone else). Returns the gold price credited, or null if the sell was
+ * rejected or failed. */
+export async function sellItem(itemId: string): Promise<number | null> {
+  const { data, error } = await supabase.rpc('sell_item', { p_item_id: itemId });
+  if (error) { console.error('sell_item failed:', error.message); return null; }
+  return data as number;
+}
+
+/** Slot indices of the signed-in account's already-purchased vendor slots
+ * for a given UTC day (matching vendorStockFor's slot ordering) — used to
+ * render SOLD overlays on the Shop screen. */
+export async function fetchVendorPurchases(utcDay: string): Promise<number[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await supabase
+    .from('vendor_purchases')
+    .select('slot_index')
+    .eq('user_id', user.id)
+    .eq('utc_day', utcDay);
+  if (error) { console.error('fetchVendorPurchases failed:', error.message); return []; }
+  return (data ?? []).map((r: { slot_index: number }) => r.slot_index);
+}

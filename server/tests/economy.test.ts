@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   GOLD_PER_MATCH, GOLD_WIN_BONUS, LOOTBOX_WIN_CHANCE, LOOTBOX_PRICES,
@@ -178,5 +179,31 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     const b = mulberry32(fnv1aHash('user1:2026-07-28'));
     expect(a()).toBe(b());
     expect(a()).toBe(b());
+  });
+});
+
+describe('sell_price SQL / SELL_PRICES shape-guard contract', () => {
+  it('matches the migration\'s CASE table exactly, so the two can never silently drift', () => {
+    const migrationUrl = new URL(
+      '../../supabase/migrations/20260731040000_economy.sql',
+      import.meta.url,
+    );
+    const sql = readFileSync(migrationUrl, 'utf8');
+
+    // Each rarity's WHEN clause is a fixed-shape nested CASE over the four
+    // bands, band10 down to band1(else), in that literal source order.
+    const clauseRe =
+      /when '(\w+)'\s+then case when p_level_req >= 10 then (\d+)\s+when p_level_req >= 7 then (\d+)\s+when p_level_req >= 4 then (\d+)\s+else (\d+)\s+end/g;
+
+    const sqlPrices: Record<string, [number, number, number, number]> = {};
+    for (const m of sql.matchAll(clauseRe)) {
+      const [, rarity, band10, band7, band4, band1] = m;
+      sqlPrices[rarity] = [Number(band1), Number(band4), Number(band7), Number(band10)];
+    }
+
+    expect(Object.keys(sqlPrices).sort(), 'expected one WHEN clause per rarity in sell_price')
+      .toEqual(Object.keys(SELL_PRICES).sort());
+
+    expect(sqlPrices).toEqual(SELL_PRICES);
   });
 });
