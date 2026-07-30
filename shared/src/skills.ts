@@ -160,6 +160,26 @@ export function effectAtRank(baseEffect: number, rank: number): number {
   return baseEffect * Math.pow(rank, DIMINISHING_POWER);
 }
 
+export type ArrowElement = 'none' | 'burn' | 'freeze' | 'poison';
+
+/**
+ * Highest-effective-rank element among the three arrow status nodes — ranks
+ * passed in should already be the MERGED (talent tree + item talent affix)
+ * ranks for the character. Ties, including all-zero, break burn > freeze >
+ * poison. Used by the server (RangerModifiers) to pick the live arrow
+ * element and, per Task 4, by the client HUD for the same prediction.
+ */
+export function deriveElement(effRanks: Map<NodeId, number>): ArrowElement {
+  const burn = effRanks.get('archer.burn') ?? 0;
+  const freeze = effRanks.get('archer.freeze') ?? 0;
+  const poison = effRanks.get('archer.poison') ?? 0;
+  const max = Math.max(burn, freeze, poison);
+  if (max <= 0) return 'none';
+  if (burn === max) return 'burn';
+  if (freeze === max) return 'freeze';
+  return 'poison';
+}
+
 export function isStackable(node: SkillNode): boolean {
   return node.stackable !== undefined;
 }

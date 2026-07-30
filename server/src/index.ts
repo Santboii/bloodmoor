@@ -212,6 +212,7 @@ io.on('connection', socket => {
         room.appearances.set(socket.id, skillResult.appearance);
         room.userIds.set(socket.id, skillResult.userId);
         room.characterIds.set(socket.id, characterId);
+        room.loadouts.set(socket.id, skillResult.items);
       }
     }
 

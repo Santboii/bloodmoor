@@ -1,9 +1,9 @@
 import { supabase } from '../supabase.ts';
-import type { NodeId, CharacterClass, Appearance } from '@arena/shared';
-import { XP_PER_MATCH_BASE, XP_PER_MATCH_WIN_BONUS, CLASS_DEFAULT_NODE, appearanceFromRow, normalizeCharacterClass } from '@arena/shared';
+import type { NodeId, CharacterClass, Appearance, ItemRow } from '@arena/shared';
+import { XP_PER_MATCH_BASE, XP_PER_MATCH_WIN_BONUS, CLASS_DEFAULT_NODE, appearanceFromRow, normalizeCharacterClass, validateItemRow } from '@arena/shared';
 
 export type SkillLoadResult =
-  | { ok: true; userId: string; skills: Map<NodeId, number>; charClass: CharacterClass; appearance: Appearance }
+  | { ok: true; userId: string; skills: Map<NodeId, number>; charClass: CharacterClass; appearance: Appearance; items: ItemRow[] }
   | { ok: false; error: string };
 
 export async function loadSkillsForCharacter(
@@ -36,7 +36,22 @@ export async function loadSkillsForCharacter(
   const defaultSkill: NodeId = CLASS_DEFAULT_NODE[charClass];
   if (!skills.has(defaultSkill)) skills.set(defaultSkill, 1);
   const appearance = appearanceFromRow(charData.appearance, charClass);
-  return { ok: true, userId: user.id, skills, charClass, appearance };
+
+  const { data: itemRows, error: itemsErr } = await supabase
+    .from('items')
+    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot')
+    .eq('equipped_by', characterId);
+
+  if (itemsErr) return { ok: false, error: itemsErr.message };
+
+  const items: ItemRow[] = [];
+  for (const row of itemRows ?? []) {
+    const validated = validateItemRow(row);
+    if (validated) items.push(validated);
+    else console.warn(`Dropped invalid item row for character ${characterId}:`, row);
+  }
+
+  return { ok: true, userId: user.id, skills, charClass, appearance, items };
 }
 
 export type MatchCreditResult = {

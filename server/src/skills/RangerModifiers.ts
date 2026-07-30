@@ -1,6 +1,7 @@
-import { ARROW_SPEED, EVADE_RANGE, effectAtRank } from '@arena/shared';
+import { ARROW_SPEED, EVADE_RANGE, effectAtRank, deriveElement } from '@arena/shared';
+import type { NodeId, ArrowElement } from '@arena/shared';
 
-export type ElementType = 'none' | 'burn' | 'freeze' | 'poison';
+export type ElementType = ArrowElement;
 
 export type ArrowModifiers = {
   speed: number;
@@ -63,9 +64,9 @@ export type RangerSpellModifiers = {
   elemental: ElementalModifiers;
 };
 
-export function buildRangerModifiers(skills: Map<string, number>): RangerSpellModifiers {
-  const rank = (id: string) => skills.get(id) ?? 0;
-  const has = (id: string) => rank(id) > 0;
+export function buildRangerModifiers(skills: Map<NodeId, number>): RangerSpellModifiers {
+  const rank = (id: NodeId) => skills.get(id) ?? 0;
+  const has = (id: NodeId) => rank(id) > 0;
 
   let homing = 0;
   if (has('archer.guided')) homing = 1;
@@ -78,10 +79,10 @@ export function buildRangerModifiers(skills: Map<string, number>): RangerSpellMo
   const wideRank = rank('archer.wide_rain');
   const acrobaticsRank = rank('archer_utility.acrobatics');
 
-  let element: ElementType = 'none';
-  if (has('archer.burn')) element = 'burn';
-  else if (has('archer.freeze')) element = 'freeze';
-  else if (has('archer.poison')) element = 'poison';
+  // Highest-effective-rank wins (burn > freeze > poison tiebreak) — skills
+  // here is the match's merged tree + item talent ranks, so an item's
+  // higher-ranked off-tree element can outrank a lower tree rank.
+  const element = deriveElement(skills);
 
   const burnRank = rank('archer.burn');
   const freezeRank = rank('archer.freeze');

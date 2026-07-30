@@ -1,12 +1,13 @@
 import {
   GameState, PlayerState, InputFrame, Vec2, SpellId, NodeId,
-  SPELL_CONFIG, MAX_HP, MAX_MANA, MANA_REGEN_PER_TICK, TICK_RATE,
+  SPELL_CONFIG, MANA_REGEN_PER_TICK, TICK_RATE,
   FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK,
+  computeLoadout,
 } from '@arena/shared';
-import type { CharacterClass, Appearance } from '@arena/shared';
+import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
@@ -19,7 +20,11 @@ import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage 
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 
-export type PlayerInit = { id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2; appearance?: Appearance };
+export type PlayerInit = {
+  id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
+  appearance?: Appearance;
+  items?: ItemRow[]; // equipped gear — computeLoadout folds these into the StatBlock below
+};
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
   const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
@@ -45,13 +50,22 @@ export function makeInitialState(
     }
   }
   for (const p of players) {
+    const { statBlock } = computeLoadout(p.items ?? [], p.charClass);
     playerMap[p.id] = {
       id: p.id,
       displayName: p.displayName,
       charClass: p.charClass,
       position: resolvePlayerPillarCollisions(clampToArena({ ...p.spawnPos })),
-      hp: MAX_HP,
-      mana: MAX_MANA,
+      hp: statBlock.maxHp,
+      mana: statBlock.maxMana,
+      maxHp: statBlock.maxHp,
+      maxMana: statBlock.maxMana,
+      statMults: {
+        damage: statBlock.damageMult,
+        cooldown: statBlock.cooldownMult,
+        moveSpeed: statBlock.moveSpeedMult,
+        manaRegen: statBlock.manaRegenMult,
+      },
       facing: 0,
       castingSpell: null,
       cooldowns: {},
@@ -122,9 +136,9 @@ export function advanceState(
     const p = players[id];
     if (!p || p.hp <= 0) continue;
     const poisonActive = (p.poisonUntil ?? 0) > tick;
-    const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1);
-    const newMana = Math.min(MAX_MANA, p.mana + regen);
-    const speedMult = (p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1;
+    const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1) * p.statMults.manaRegen;
+    const newMana = Math.min(p.maxMana, p.mana + regen);
+    const speedMult = ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -174,10 +188,11 @@ export function advanceState(
     if (p.mana < effectiveManaCost) continue;
     if ((p.cooldowns[spell] ?? 0) > 0) continue;
 
-    let cooldownTicks = cfg.cooldownTicks;
+    let cooldownMultiplier = 1;
     if (spell === 8 && rangerMods[id]) {
-      cooldownTicks = Math.round(cfg.cooldownTicks * rangerMods[id]!.evade.cooldownMultiplier);
+      cooldownMultiplier = rangerMods[id]!.evade.cooldownMultiplier;
     }
+    const cooldownTicks = Math.round(cfg.cooldownTicks * cooldownMultiplier * p.statMults.cooldown);
 
     players[id] = {
       ...p,
@@ -355,15 +370,21 @@ export function advanceState(
             const ownerAM = rangerMods[moved.ownerId];
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
               const el = ownerAM.elemental;
+              // The attacker's gear damageMult is baked into the DoT's
+              // dps HERE (at application) rather than multiplied per tick —
+              // the tick loop (0.5 above) has no attacker id to look up once
+              // the effect is just fields on the target, so this is simpler
+              // and numerically equivalent to scaling every tick.
+              const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;
               if (ownerAM.element === 'burn') {
                 next.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
-                next.burnDps = el.burn.damagePerSecond;
+                next.burnDps = el.burn.damagePerSecond * atkDamageMult;
               } else if (ownerAM.element === 'freeze') {
                 next.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
                 next.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
               } else if (ownerAM.element === 'poison') {
                 next.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
-                next.poisonDps = el.poison.damagePerSecond;
+                next.poisonDps = el.poison.damagePerSecond * atkDamageMult;
                 next.poisonManaReduction = el.poison.manaRegenReduction;
               }
             }
@@ -519,17 +540,26 @@ function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, P
   return copy;
 }
 
+/**
+ * Combined damage scalar for a hit: the attacker's gear damageMult (folded
+ * in here so every direct-hit call site — arrow, fireball, fire wall/rain
+ * zone tick, meteor — gets it for free) times the friendly-fire multiplier
+ * when applicable. Burn/poison DoTs don't call this — see the elemental
+ * status-effect application below, which bakes the attacker's mult directly
+ * into burnDps/poisonDps at apply time instead.
+ */
 function getDamageMultiplier(
   ownerId: string,
   targetId: string,
   players: Record<string, PlayerState>,
   mode: GameModeConfig,
 ): number {
-  if (!mode.teamsEnabled) return 1;
+  const atkMult = players[ownerId]?.statMults.damage ?? 1;
+  if (!mode.teamsEnabled) return atkMult;
   const ownerTeam = players[ownerId]?.teamId;
   const targetTeam = players[targetId]?.teamId;
   if (ownerTeam && targetTeam && ownerTeam === targetTeam) {
-    return mode.friendlyFireMultiplier;
+    return atkMult * mode.friendlyFireMultiplier;
   }
-  return 1;
+  return atkMult;
 }

@@ -26,6 +26,11 @@ export type PlayerState = {
   position: Vec2;
   hp: number;
   mana: number;
+  maxHp: number;
+  maxMana: number;
+  // Static per match — folded from equipped items via computeLoadout at
+  // startMatch. Always stamped (BASE_STAT_BLOCK values for guests/no items).
+  statMults: { damage: number; cooldown: number; moveSpeed: number; manaRegen: number };
   facing: number;
   castingSpell: SpellId | null;
   cooldowns: Partial<Record<SpellId, number>>;

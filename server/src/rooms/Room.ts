@@ -1,5 +1,5 @@
-import { GameState, InputFrame, SPAWN_POSITIONS, NodeId, DUEL_MODE } from '@arena/shared';
-import type { GameModeConfig, CharacterClass, Appearance } from '@arena/shared';
+import { GameState, InputFrame, SPAWN_POSITIONS, NodeId, DUEL_MODE, computeLoadout } from '@arena/shared';
+import type { GameModeConfig, CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import { makeInitialState, advanceState, PlayerInit } from '../gameloop/StateAdvancer.ts';
 
 export type RoomPlayer = { socketId: string; displayName: string; ready: boolean; colorIndex: number };
@@ -21,6 +21,12 @@ export class Room {
   appearances: Map<string, Appearance> = new Map();
   userIds: Map<string, string> = new Map();
   characterIds: Map<string, string> = new Map();
+  loadouts: Map<string, ItemRow[]> = new Map();
+  // Match-scoped merge of tree ranks (skillSets) + item talent ranks, built
+  // fresh at startMatch — never mutates the persistent skillSets map. Only
+  // populated for players with a real skill set (guests stay absent here
+  // too, preserving the tick loop's hasSkillSystem === false gate for them).
+  effectiveSkillSets: Map<string, Map<NodeId, number>> = new Map();
   state: GameState | null = null;
   pauseState: PauseState | null = null;
   private pendingInputs: Map<string, InputFrame> = new Map();
@@ -61,6 +67,8 @@ export class Room {
     this.appearances.delete(socketId);
     this.userIds.delete(socketId);
     this.characterIds.delete(socketId);
+    this.loadouts.delete(socketId);
+    this.effectiveSkillSets.delete(socketId);
   }
 
   setReady(socketId: string): void {
@@ -70,13 +78,28 @@ export class Room {
 
   startMatch(): void {
     const entries = [...this.players.entries()];
-    const inits: PlayerInit[] = entries.map(([id, p], i) => ({
-      id,
-      displayName: p.displayName,
-      charClass: this.charClasses.get(id) ?? 'mage',
-      spawnPos: this.mode.spawnPositions[i],
-      appearance: this.appearances.get(id),
-    }));
+    this.effectiveSkillSets = new Map();
+    const inits: PlayerInit[] = entries.map(([id, p], i) => {
+      const charClass = this.charClasses.get(id) ?? 'mage';
+      const items = this.loadouts.get(id) ?? [];
+      const treeRanks = this.skillSets.get(id);
+      if (treeRanks) {
+        const { talentRanks } = computeLoadout(items, charClass);
+        const merged = new Map<NodeId, number>(treeRanks);
+        for (const [node, addedRank] of talentRanks) {
+          merged.set(node, (merged.get(node) ?? 0) + addedRank);
+        }
+        this.effectiveSkillSets.set(id, merged);
+      }
+      return {
+        id,
+        displayName: p.displayName,
+        charClass,
+        spawnPos: this.mode.spawnPositions[i],
+        appearance: this.appearances.get(id),
+        items,
+      };
+    });
     let teams: Record<string, string[]> | undefined;
     if (this.mode.teamsEnabled) {
       teams = {};
@@ -115,7 +138,7 @@ export class Room {
       }
       inputs[id] = pending;
     }
-    const skillSetsObj: Record<string, Map<NodeId, number>> = Object.fromEntries(this.skillSets.entries());
+    const skillSetsObj: Record<string, Map<NodeId, number>> = Object.fromEntries(this.effectiveSkillSets.entries());
     this.state = advanceState(this.state, inputs, skillSetsObj, this.mode);
     this.state.ack = Object.fromEntries(this.lastProcessedSeq);
     for (const [id, pending] of this.pendingInputs) {
@@ -182,6 +205,20 @@ export class Room {
     if (skills) {
       this.skillSets.delete(oldSocketId);
       this.skillSets.set(newSocketId, skills);
+    }
+
+    // Remap loadouts
+    const loadout = this.loadouts.get(oldSocketId);
+    if (loadout) {
+      this.loadouts.delete(oldSocketId);
+      this.loadouts.set(newSocketId, loadout);
+    }
+
+    // Remap effectiveSkillSets (match-scoped merged ranks)
+    const effSkills = this.effectiveSkillSets.get(oldSocketId);
+    if (effSkills) {
+      this.effectiveSkillSets.delete(oldSocketId);
+      this.effectiveSkillSets.set(newSocketId, effSkills);
     }
 
     // Remap charClasses
