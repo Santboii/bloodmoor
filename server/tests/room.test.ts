@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Room } from '../src/rooms/Room.ts';
-import { DUEL_MODE, FFA_MODE, TEAM_DUEL_MODE } from '@arena/shared';
+import { DUEL_MODE, FFA_MODE, TEAM_DUEL_MODE, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 
 describe('Room.creatorName', () => {
   it('stores the first player added as creator', () => {
@@ -120,6 +120,17 @@ describe('Room.remapPlayer', () => {
 
     expect(room.skillSets.has('s1')).toBe(false);
     expect(room.skillSets.get('s1-new')).toBe(skills);
+  });
+
+  it('remaps appearances entry to new socket ID', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.appearances.set('s1', CLASS_DEFAULT_APPEARANCE.amazon);
+
+    room.remapPlayer('s1', 's1-new');
+
+    expect(room.appearances.has('s1')).toBe(false);
+    expect(room.appearances.get('s1-new')).toBe(CLASS_DEFAULT_APPEARANCE.amazon);
   });
 
   it('remaps pendingInputs entry to new socket ID', () => {
