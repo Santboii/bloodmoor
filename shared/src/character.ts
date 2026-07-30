@@ -17,7 +17,7 @@ export const MAX_CHARACTERS_PER_ACCOUNT = 6;
 
 export const CHARACTER_CLASSES: { id: CharacterClass; label: string; enabled: boolean }[] = [
   { id: 'mage', label: 'Mage', enabled: true },
-  { id: 'amazon', label: 'Amazon', enabled: true },
+  { id: 'ranger', label: 'Ranger', enabled: true },
 ];
 
 export const XP_PER_MATCH_BASE = 50;

@@ -13,9 +13,9 @@ describe('appearance stamping', () => {
   });
   it('defaults to class appearance when omitted (guests)', () => {
     const state = makeInitialState(
-      [{ id: 'a', displayName: 'A', charClass: 'amazon', spawnPos: { x: 200, y: 1000 } }],
+      [{ id: 'a', displayName: 'A', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } }],
       undefined, undefined,
     );
-    expect(state.players.a.appearance).toEqual(CLASS_DEFAULT_APPEARANCE.amazon);
+    expect(state.players.a.appearance).toEqual(CLASS_DEFAULT_APPEARANCE.ranger);
   });
 });

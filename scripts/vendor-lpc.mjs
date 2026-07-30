@@ -22,6 +22,9 @@ const LAYERS = [
   'hair/ponytail/adult/bg',
   'body/bodies/female',
   'head/heads/human/female',
+  // Slimmer female head — the standard 'female' head reads bulky/ogre-ish at
+  // our render scale; layersFor uses this for female bodies instead.
+  'head/heads/human/female_small',
   'hair/ponytail/adult/fg',
   'torso/clothes/longsleeve/longsleeve/female',
   'legs/pants/thin',

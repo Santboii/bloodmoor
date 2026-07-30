@@ -37,8 +37,18 @@ export function formatOptionLabel(value: string | null): string {
   return value.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
+/**
+ * Display label for a row value. Skin tones are numbered ("Tone 3") — the
+ * palette names are internal ids, not something to put in front of players.
+ * Pure for unit testing.
+ */
+export function rowValueLabel(key: FieldKey, value: string | null, options: readonly (string | null)[]): string {
+  if (key === 'skin') return `Tone ${options.indexOf(value) + 1}`;
+  return formatOptionLabel(value);
+}
+
 const STYLES = `
-.ap-picker{display:flex;gap:20px;align-items:flex-start;}
+.ap-picker{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;}
 .ap-left{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0;}
 .ap-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .ap-row-label{flex:0 0 auto;white-space:nowrap;}
@@ -46,7 +56,7 @@ const STYLES = `
 .ap-btn{padding:4px 8px;font-size:10px;}
 .ap-value{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);min-width:96px;text-align:center;}
 .ap-randomize{margin-top:4px;}
-.ap-right{flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+.ap-right{flex:0 0 auto;display:flex;align-items:center;justify-content:center;margin:0 auto;}
 .ap-canvas{width:128px;height:128px;image-rendering:pixelated;background:#120e1c;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);}
 `;
 
@@ -93,7 +103,7 @@ export class AppearancePicker {
         <div class="ap-row-label px-label">${row.label}</div>
         <div class="ap-row-control">
           <button type="button" class="ap-btn px-btn ap-prev">◀</button>
-          <span class="ap-value">${formatOptionLabel(this.appearance[row.key] as string | null)}</span>
+          <span class="ap-value">${rowValueLabel(row.key, this.appearance[row.key] as string | null, row.options)}</span>
           <button type="button" class="ap-btn px-btn ap-next">▶</button>
         </div>`;
       const prevBtn = rowEl.querySelector('.ap-prev')!;
@@ -149,7 +159,7 @@ export class AppearancePicker {
     const nextIdx = cycleIndex(row.options.length, currentIdx === -1 ? 0 : currentIdx, dir);
     const nextValue = row.options[nextIdx];
     this.appearance = { ...this.appearance, [key]: nextValue } as Appearance;
-    this.valueEls.get(key)!.textContent = formatOptionLabel(nextValue);
+    this.valueEls.get(key)!.textContent = rowValueLabel(key, nextValue, row.options);
     this.recomposite();
     this.onChange?.(this.getAppearance());
   }
@@ -157,7 +167,7 @@ export class AppearancePicker {
   private randomize(): void {
     this.appearance = randomAppearance(this.charClass);
     for (const row of ROWS) {
-      this.valueEls.get(row.key)!.textContent = formatOptionLabel(this.appearance[row.key] as string | null);
+      this.valueEls.get(row.key)!.textContent = rowValueLabel(row.key, this.appearance[row.key] as string | null, row.options);
     }
     this.recomposite();
     this.onChange?.(this.getAppearance());

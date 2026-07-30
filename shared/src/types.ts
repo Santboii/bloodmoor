@@ -8,7 +8,16 @@ export type ProjectileType = 'fireball' | 'arrow';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
-export type CharacterClass = 'mage' | 'amazon';
+export type CharacterClass = 'mage' | 'ranger';
+
+/**
+ * Clamp a raw class value (DB rows, wire payloads) to the current class set.
+ * 'amazon' is the class's pre-rename name — rows are migrated, but any stale
+ * value from an unmigrated environment must still resolve, never crash.
+ */
+export function normalizeCharacterClass(v: unknown): CharacterClass {
+  return v === 'ranger' || v === 'amazon' ? 'ranger' : 'mage';
+}
 
 export type PlayerState = {
   id: string;

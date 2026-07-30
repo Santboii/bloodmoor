@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { CHARACTER_CLASSES } from '@arena/shared';
 
-describe('Amazon character class', () => {
-  it('includes amazon in CHARACTER_CLASSES', () => {
-    const amazon = CHARACTER_CLASSES.find(c => c.id === 'amazon');
-    expect(amazon).toBeDefined();
-    expect(amazon!.label).toBe('Amazon');
-    expect(amazon!.enabled).toBe(true);
+describe('Ranger character class', () => {
+  it('includes ranger in CHARACTER_CLASSES', () => {
+    const ranger = CHARACTER_CLASSES.find(c => c.id === 'ranger');
+    expect(ranger).toBeDefined();
+    expect(ranger!.label).toBe('Ranger');
+    expect(ranger!.enabled).toBe(true);
   });
 });
 

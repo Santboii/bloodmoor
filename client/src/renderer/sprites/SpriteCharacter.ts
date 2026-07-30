@@ -41,7 +41,7 @@ export class SpriteCharacter {
   private scratchTex: THREE.CanvasTexture | null = null;
 
   constructor(appearance: Appearance, charClass: CharacterClass) {
-    this.castAnim = charClass === 'amazon' ? 'shoot' : 'spellcast';
+    this.castAnim = charClass === 'ranger' ? 'shoot' : 'spellcast';
 
     const size = FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
     this.material = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.01 });

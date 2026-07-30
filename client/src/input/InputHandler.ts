@@ -88,7 +88,7 @@ export class InputHandler {
   }
 
   setCharacterClass(cls: string): void {
-    this.charClass = cls === 'amazon' ? 'amazon' : 'mage';
+    this.charClass = cls === 'ranger' ? 'ranger' : 'mage';
     this.activeSpell = this.spellForKey(1) ?? 1;
   }
 

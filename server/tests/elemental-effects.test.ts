@@ -5,17 +5,17 @@ import { MAX_HP, PLAYER_SPEED, DELTA, TICK_RATE } from '@arena/shared';
 
 const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim });
 
-function amazonSkillsWith(extra: [string, number][]): Map<NodeId, number> {
+function rangerSkillsWith(extra: [string, number][]): Map<NodeId, number> {
   return new Map<NodeId, number>([
     ['archer.power_shot' as NodeId, 1],
     ...extra.map(([id, rank]) => [id as NodeId, rank] as [NodeId, number]),
   ]);
 }
 
-/** Two players, p1 amazon at (200,1000), p2 mage at (1600,1000). */
+/** Two players, p1 ranger at (200,1000), p2 mage at (1600,1000). */
 function baseState(): GameState {
   return makeInitialState([
-    { id: 'p1', displayName: 'Amazon', charClass: 'amazon', spawnPos: { x: 200, y: 1000 } },
+    { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
     { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
   ]);
 }
@@ -36,7 +36,7 @@ function stateWithArrowAboutToHit(state: GameState): GameState {
 
 describe('elemental arrow effects', () => {
   it('burn arrows apply a damage-over-time effect', () => {
-    const skills = { p1: amazonSkillsWith([['archer.burn', 2]]), p2: new Map<NodeId, number>() };
+    const skills = { p1: rangerSkillsWith([['archer.burn', 2]]), p2: new Map<NodeId, number>() };
     let state = stateWithArrowAboutToHit(baseState());
 
     // Arrow travels ~9.3/tick from 30 units out; run a few ticks to connect.
@@ -53,7 +53,7 @@ describe('elemental arrow effects', () => {
   });
 
   it('burn expires after its duration', () => {
-    const skills = { p1: amazonSkillsWith([['archer.burn', 1]]), p2: new Map<NodeId, number>() };
+    const skills = { p1: rangerSkillsWith([['archer.burn', 1]]), p2: new Map<NodeId, number>() };
     let state = stateWithArrowAboutToHit(baseState());
     for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
     expect(state.players['p2'].burnUntil).toBeDefined();
@@ -64,7 +64,7 @@ describe('elemental arrow effects', () => {
   });
 
   it('freeze arrows slow movement', () => {
-    const skills = { p1: amazonSkillsWith([['archer.freeze', 1]]), p2: new Map<NodeId, number>() };
+    const skills = { p1: rangerSkillsWith([['archer.freeze', 1]]), p2: new Map<NodeId, number>() };
     let state = stateWithArrowAboutToHit(baseState());
     for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
 
@@ -80,7 +80,7 @@ describe('elemental arrow effects', () => {
   });
 
   it('poison arrows drain hp and reduce mana regen', () => {
-    const skills = { p1: amazonSkillsWith([['archer.poison', 1]]), p2: new Map<NodeId, number>() };
+    const skills = { p1: rangerSkillsWith([['archer.poison', 1]]), p2: new Map<NodeId, number>() };
     let state = stateWithArrowAboutToHit(baseState());
     state.players['p2'].mana = 100; // below cap so regen is observable
     for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
@@ -105,7 +105,7 @@ describe('evade utility skills', () => {
 
   it('Combat Roll fires an arrow at the nearest enemy during evade', () => {
     const skills = {
-      p1: amazonSkillsWith([['archer_utility.evade', 1], ['archer_utility.combat_roll', 1]]),
+      p1: rangerSkillsWith([['archer_utility.evade', 1], ['archer_utility.combat_roll', 1]]),
       p2: new Map<NodeId, number>(),
     };
     const next = advanceState(baseState(), { p1: evadeCast, p2: idle() }, skills);
@@ -118,7 +118,7 @@ describe('evade utility skills', () => {
 
   it('Shadowstep grants invisibility after evading and blocks homing targeting', () => {
     const skills = {
-      p1: amazonSkillsWith([['archer_utility.evade', 1], ['archer_utility.shadowstep', 1]]),
+      p1: rangerSkillsWith([['archer_utility.evade', 1], ['archer_utility.shadowstep', 1]]),
       p2: new Map<NodeId, number>(),
     };
     const next = advanceState(baseState(), { p1: evadeCast, p2: idle() }, skills);
@@ -126,7 +126,7 @@ describe('evade utility skills', () => {
   });
 
   it('without the skills, evade fires no arrow and grants no invisibility', () => {
-    const skills = { p1: amazonSkillsWith([['archer_utility.evade', 1]]), p2: new Map<NodeId, number>() };
+    const skills = { p1: rangerSkillsWith([['archer_utility.evade', 1]]), p2: new Map<NodeId, number>() };
     const next = advanceState(baseState(), { p1: evadeCast, p2: idle() }, skills);
     expect(next.projectiles).toHaveLength(0);
     expect(next.players['p1'].invisibleUntil).toBeUndefined();

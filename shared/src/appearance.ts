@@ -28,7 +28,13 @@ export type Appearance = {
   hatColor: string;
 };
 
-export type LpcLayer = { path: string; z: number; tint?: string };
+/**
+ * tintMode 'skin' is a pure multiply — the skin tint hexes were tuned for it.
+ * 'fabric' is multiply plus a highlight-restoring screen pass: pure multiply
+ * crushes the garment shading that conveys body shape (fitted tops read as
+ * flat blobs), while the screen pass keeps the sculpted look of the base art.
+ */
+export type LpcLayer = { path: string; z: number; tint?: string; tintMode?: 'skin' | 'fabric' };
 
 /** Color names → tint hex for base-color LPC sheets (multiply tinting). */
 export const LPC_TINTS: Record<string, string> = {
@@ -59,7 +65,7 @@ export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
     eyes: null, torso: 'longsleeve', torsoColor: 'purple', legsColor: 'black',
     hat: 'wizard', hatColor: 'base_black',
   },
-  amazon: {
+  ranger: {
     body: 'female', skin: 'light', hairStyle: 'ponytail', hairColor: 'red',
     eyes: null, torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
     hat: null, hatColor: 'base_black',
@@ -92,10 +98,12 @@ export function layersFor(a: Appearance): LpcLayer[] {
   const hairTint = LPC_TINTS[a.hairColor];
   const split = a.hairStyle != null && SPLIT_HAIR_STYLES.has(a.hairStyle);
   if (a.hairStyle && split) {
-    layers.push({ path: `hair/${a.hairStyle}/adult/bg`, z: 0, tint: hairTint });
+    layers.push({ path: `hair/${a.hairStyle}/adult/bg`, z: 0, tint: hairTint, tintMode: 'fabric' });
   }
-  layers.push({ path: `body/bodies/${a.body}`, z: 10, tint: skinTint });
-  layers.push({ path: `head/heads/human/${a.body}`, z: 20, tint: skinTint });
+  layers.push({ path: `body/bodies/${a.body}`, z: 10, tint: skinTint, tintMode: 'skin' });
+  // female_small: the standard female head reads bulky/ogre-ish at our
+  // render scale; the small variant restores feminine proportions.
+  layers.push({ path: `head/heads/human/${a.body === 'female' ? 'female_small' : 'male'}`, z: 20, tint: skinTint, tintMode: 'skin' });
   // Eye color: upstream's current generator only offers eye color as a
   // palette recolor baked into the head sheet itself, not a standalone
   // overlay — the standalone 'eyes/human/...' sheets that do exist upstream
@@ -105,12 +113,12 @@ export function layersFor(a: Appearance): LpcLayer[] {
   // layer) makes this a silent no-op rather than a broken render.
   if (a.eyes) layers.push({ path: `eyes/human/adult/default/${a.eyes}`, z: 25 });
   if (a.hairStyle) {
-    if (split) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: hairTint });
-    else layers.push({ path: `hair/${a.hairStyle}/adult`, z: 30, tint: hairTint });
+    if (split) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: hairTint, tintMode: 'fabric' });
+    else layers.push({ path: `hair/${a.hairStyle}/adult`, z: 30, tint: hairTint, tintMode: 'fabric' });
   }
-  layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}`, z: 40, tint: LPC_TINTS[a.torsoColor] });
+  layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}`, z: 40, tint: LPC_TINTS[a.torsoColor], tintMode: 'fabric' });
   // Female-fit pants live under 'thin' upstream, not 'female'.
-  layers.push({ path: `legs/pants/${a.body === 'female' ? 'thin' : 'male'}`, z: 50, tint: LPC_TINTS[a.legsColor] });
+  layers.push({ path: `legs/pants/${a.body === 'female' ? 'thin' : 'male'}`, z: 50, tint: LPC_TINTS[a.legsColor], tintMode: 'fabric' });
   if (a.hat) layers.push({ path: `hat/magic/${a.hat}/base/adult/${a.hatColor}`, z: 60 });
   return layers.sort((x, y) => x.z - y.z);
 }

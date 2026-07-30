@@ -125,12 +125,12 @@ describe('Room.remapPlayer', () => {
   it('remaps appearances entry to new socket ID', () => {
     const room = new Room('r1');
     room.addPlayer('s1', 'Alice');
-    room.appearances.set('s1', CLASS_DEFAULT_APPEARANCE.amazon);
+    room.appearances.set('s1', CLASS_DEFAULT_APPEARANCE.ranger);
 
     room.remapPlayer('s1', 's1-new');
 
     expect(room.appearances.has('s1')).toBe(false);
-    expect(room.appearances.get('s1-new')).toBe(CLASS_DEFAULT_APPEARANCE.amazon);
+    expect(room.appearances.get('s1-new')).toBe(CLASS_DEFAULT_APPEARANCE.ranger);
   });
 
   it('remaps pendingInputs entry to new socket ID', () => {

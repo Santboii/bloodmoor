@@ -128,16 +128,16 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 2, node: 'fire.fire_wall',         key: 2, charClass: 'mage' },
   { spell: 3, node: 'fire.meteor',            key: 3, charClass: 'mage' },
   { spell: 4, node: 'utility.teleport',       key: 4, charClass: 'mage' },
-  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'amazon' },
-  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'amazon' },
-  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'amazon' },
-  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'amazon' },
+  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'ranger' },
 ];
 
 /** The free starter node every character of a class begins with. */
 export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {
   mage: 'fire.fireball',
-  amazon: 'archer.power_shot',
+  ranger: 'archer.power_shot',
 };
 
 export function classOfSpell(spell: SpellId): CharacterClass | undefined {

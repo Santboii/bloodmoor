@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cycleIndex, formatOptionLabel } from '../src/character/AppearancePicker';
+import { cycleIndex, formatOptionLabel, rowValueLabel } from '../src/character/AppearancePicker';
 
 describe('cycleIndex', () => {
   it('advances forward and wraps past the end', () => {
@@ -30,5 +30,17 @@ describe('formatOptionLabel', () => {
   it('splits and title-cases snake_case values', () => {
     expect(formatOptionLabel('curly_short')).toBe('Curly Short');
     expect(formatOptionLabel('base_black')).toBe('Base Black');
+  });
+});
+
+describe('rowValueLabel', () => {
+  it('numbers skin tones by catalog position', () => {
+    expect(rowValueLabel('skin', 'light', ['light', 'olive', 'bronze'])).toBe('Tone 1');
+    expect(rowValueLabel('skin', 'bronze', ['light', 'olive', 'bronze'])).toBe('Tone 3');
+  });
+
+  it('passes non-skin rows through the name formatter', () => {
+    expect(rowValueLabel('hairStyle', 'curly_short', [null, 'curly_short'])).toBe('Curly Short');
+    expect(rowValueLabel('hairStyle', null, [null, 'curly_short'])).toBe('None');
   });
 });

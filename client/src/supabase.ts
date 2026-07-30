@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { CLASS_DEFAULT_NODE } from '@arena/shared';
+import { CLASS_DEFAULT_NODE, normalizeCharacterClass } from '@arena/shared';
 import type { CharacterRecord, CharacterClass } from '@arena/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string;
@@ -32,7 +32,7 @@ export async function fetchCharacters(): Promise<CharacterRecord[]> {
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: true });
-  return (data ?? []) as CharacterRecord[];
+  return (data ?? []).map((r: Record<string, unknown>) => ({ ...r, class: normalizeCharacterClass(r.class) })) as CharacterRecord[];
 }
 
 export async function createCharacter(
@@ -58,7 +58,7 @@ export async function createCharacter(
     }
   }
 
-  const starterNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
+  const starterNode = CLASS_DEFAULT_NODE[normalizeCharacterClass(charClass)];
   for (const nodeId of starterNode ? [starterNode] : []) {
     const { error: skillErr } = await supabase.rpc('unlock_skill_node', {
       p_character_id: characterId,

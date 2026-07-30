@@ -54,7 +54,7 @@ export type ElementalModifiers = {
   poison: PoisonModifiers;
 };
 
-export type AmazonSpellModifiers = {
+export type RangerSpellModifiers = {
   arrow: ArrowModifiers;
   multishot: MultishotModifiers;
   rain: RainModifiers;
@@ -63,7 +63,7 @@ export type AmazonSpellModifiers = {
   elemental: ElementalModifiers;
 };
 
-export function buildAmazonModifiers(skills: Map<string, number>): AmazonSpellModifiers {
+export function buildRangerModifiers(skills: Map<string, number>): RangerSpellModifiers {
   const rank = (id: string) => skills.get(id) ?? 0;
   const has = (id: string) => rank(id) > 0;
 

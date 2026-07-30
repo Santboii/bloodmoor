@@ -44,7 +44,10 @@ export async function compositeAppearance(
       if (!img) return;
       const tint = layers[i].tint;
       if (!tint) { ctx.drawImage(img, 0, 0); return; }
-      // Multiply-tint the base-gray LPC sheet, preserving its alpha.
+      // Tint the base LPC sheet, preserving its alpha. Skin is a pure
+      // multiply (tint hexes tuned for it); fabric/hair adds a screen pass
+      // that restores the highlight ramp multiply crushes — without it,
+      // fitted clothes lose the shading that conveys body shape.
       const tmp = document.createElement('canvas');
       tmp.width = canvas.width; tmp.height = canvas.height;
       const t = tmp.getContext('2d')!;
@@ -52,6 +55,11 @@ export async function compositeAppearance(
       t.globalCompositeOperation = 'multiply';
       t.fillStyle = tint;
       t.fillRect(0, 0, tmp.width, tmp.height);
+      if (layers[i].tintMode === 'fabric') {
+        t.globalCompositeOperation = 'screen';
+        t.fillStyle = '#464646';
+        t.fillRect(0, 0, tmp.width, tmp.height);
+      }
       t.globalCompositeOperation = 'destination-in';
       t.drawImage(img, 0, 0);
       ctx.drawImage(tmp, 0, 0);

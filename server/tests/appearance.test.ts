@@ -23,12 +23,12 @@ describe('layersFor', () => {
   });
 
   it('resolves the ranger default with hair bg behind the body and fg above the head', () => {
-    const layers = layersFor(CLASS_DEFAULT_APPEARANCE.amazon);
+    const layers = layersFor(CLASS_DEFAULT_APPEARANCE.ranger);
     const paths = layers.map(l => l.path);
     expect(paths).toEqual([
       'hair/ponytail/adult/bg',
       'body/bodies/female',
-      'head/heads/human/female',
+      'head/heads/human/female_small',
       'hair/ponytail/adult/fg',
       'torso/clothes/longsleeve/longsleeve/female',
       'legs/pants/thin',
@@ -59,15 +59,15 @@ describe('validateAppearance', () => {
     expect(v.hairColor).toBe(CLASS_DEFAULT_APPEARANCE.mage.hairColor);
   });
   it('returns the class default wholesale for non-object input', () => {
-    expect(validateAppearance(null, 'amazon')).toEqual(CLASS_DEFAULT_APPEARANCE.amazon);
+    expect(validateAppearance(null, 'ranger')).toEqual(CLASS_DEFAULT_APPEARANCE.ranger);
     expect(validateAppearance('x', 'mage')).toEqual(CLASS_DEFAULT_APPEARANCE.mage);
   });
 });
 
 describe('appearance row round-trip', () => {
   it('camelCase ↔ snake_case survives a round trip', () => {
-    const a = randomAppearance('amazon', () => 0.42);
-    expect(appearanceFromRow(appearanceToRow(a), 'amazon')).toEqual(a);
+    const a = randomAppearance('ranger', () => 0.42);
+    expect(appearanceFromRow(appearanceToRow(a), 'ranger')).toEqual(a);
   });
 });
 
@@ -104,7 +104,7 @@ describe('layersFor v2', () => {
     // eyes defaults to null (not renderable yet — see APPEARANCE_OPTIONS.eyes),
     // so this must set an explicit non-null color to exercise the layer at all.
     const eyeColor = APPEARANCE_OPTIONS.eyes.find((e): e is string => e !== null)!;
-    const a = { ...CLASS_DEFAULT_APPEARANCE.amazon, eyes: eyeColor };
+    const a = { ...CLASS_DEFAULT_APPEARANCE.ranger, eyes: eyeColor };
     const zs = Object.fromEntries(layersFor(a).map(l => [l.path.split('/')[0], l.z]));
     expect(zs['eyes']).toBeGreaterThan(zs['head']);
     expect(zs['eyes']).toBeLessThan(40);

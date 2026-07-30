@@ -17,12 +17,12 @@ import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '..
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
 import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage } from '../spells/Arrow.ts';
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
-import { buildAmazonModifiers } from '../skills/AmazonModifiers.ts';
+import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 
 export type PlayerInit = { id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2; appearance?: Appearance };
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
-  const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.amazon) ? 'amazon' : 'mage';
+  const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
   const map: Partial<Record<SpellId, NodeId>> = {};
   for (const b of SPELL_BINDINGS) {
     if (b.charClass === cls) map[b.spell] = b.node;
@@ -73,11 +73,11 @@ export function advanceState(
   const modifiers = Object.fromEntries(
     Object.keys(players).map(id => [id, buildSpellModifiers(skillSets[id] ?? new Map())])
   );
-  const amazonMods = Object.fromEntries(
+  const rangerMods = Object.fromEntries(
     Object.keys(players).map(id => {
       const skills = skillSets[id] ?? new Map();
-      const isAmazon = skills.has('archer.power_shot' as NodeId);
-      return [id, isAmazon ? buildAmazonModifiers(skills) : null];
+      const isRanger = skills.has('archer.power_shot' as NodeId);
+      return [id, isRanger ? buildRangerModifiers(skills) : null];
     })
   );
 
@@ -157,8 +157,8 @@ export function advanceState(
     if (dashing.has(id)) continue;
     const spell = input.castSpell;
     const mods = modifiers[id];
-    // Amazon spells need amazon modifiers — bail before burning mana/cooldown.
-    if (classOfSpell(spell) === 'amazon' && !amazonMods[id]) continue;
+    // Ranger spells need ranger modifiers — bail before burning mana/cooldown.
+    if (classOfSpell(spell) === 'ranger' && !rangerMods[id]) continue;
 
     // Spell availability gate — only applies when player has a skill set registered
     const hasSkillSystem = skillSets[id] !== undefined;
@@ -175,8 +175,8 @@ export function advanceState(
     if ((p.cooldowns[spell] ?? 0) > 0) continue;
 
     let cooldownTicks = cfg.cooldownTicks;
-    if (spell === 8 && amazonMods[id]) {
-      cooldownTicks = Math.round(cfg.cooldownTicks * amazonMods[id]!.evade.cooldownMultiplier);
+    if (spell === 8 && rangerMods[id]) {
+      cooldownTicks = Math.round(cfg.cooldownTicks * rangerMods[id]!.evade.cooldownMultiplier);
     }
 
     players[id] = {
@@ -226,7 +226,7 @@ export function advanceState(
         phantomStepUntil: (hasSkillSystem && tMods.phantomStep) ? tick + 2 * TICK_RATE : players[id].phantomStepUntil,
       };
     } else if (spell === 5) {
-      const aMods = amazonMods[id];
+      const aMods = rangerMods[id];
       if (!aMods) continue;
       const arrow = spawnArrow(id, p.position, input.aimTarget, {
         speed: aMods.arrow.speed,
@@ -238,7 +238,7 @@ export function advanceState(
       });
       projectiles = [...projectiles, arrow];
     } else if (spell === 6) {
-      const aMods = amazonMods[id];
+      const aMods = rangerMods[id];
       if (!aMods) continue;
       const count = aMods.multishot.arrowCount;
       const spreadPerArrow = Math.PI / (count + 1) * 0.4;
@@ -256,7 +256,7 @@ export function advanceState(
       }
       projectiles = [...projectiles, ...volley];
     } else if (spell === 7) {
-      const aMods = amazonMods[id];
+      const aMods = rangerMods[id];
       if (!aMods) continue;
       rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, input.aimTarget, tick, {
         sustained: aMods.rain.sustained,
@@ -264,7 +264,7 @@ export function advanceState(
         radiusMultiplier: aMods.rain.radiusMultiplier,
       })];
     } else if (spell === 8) {
-      const aMods = amazonMods[id];
+      const aMods = rangerMods[id];
       if (!aMods) continue;
       const dx = input.aimTarget.x - p.position.x;
       const dy = input.aimTarget.y - p.position.y;
@@ -352,7 +352,7 @@ export function advanceState(
             const sameTeam = resolvedMode.teamsEnabled &&
               players[moved.ownerId]?.teamId !== undefined &&
               players[moved.ownerId].teamId === player.teamId;
-            const ownerAM = amazonMods[moved.ownerId];
+            const ownerAM = rangerMods[moved.ownerId];
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
               const el = ownerAM.elemental;
               if (ownerAM.element === 'burn') {
@@ -442,7 +442,7 @@ export function advanceState(
         const invuln = (players[pid].invulnUntil ?? 0) > tick;
         if (!invuln) {
           const dmg = isRainZone
-            ? RAIN_DAMAGE_PER_TICK * (amazonMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
+            ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
         }
@@ -475,7 +475,7 @@ export function advanceState(
   const survivingRain: RainOfArrowsState[] = [];
   for (const rain of rainOfArrows) {
     if (rainDetonates(rain, tick)) {
-      const ownerAMods = amazonMods[rain.ownerId];
+      const ownerAMods = rangerMods[rain.ownerId];
       const rainDurMult = ownerAMods?.rain.durationMultiplier ?? 1;
       fireWalls = [...fireWalls, {
         id: `rain_zone_${rain.id}`,
