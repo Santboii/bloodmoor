@@ -533,6 +533,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
     } else {
       lobby.showHome(myDisplayName);
     }
+    void refreshGold();
   });
 }
 
