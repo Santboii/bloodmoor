@@ -10,6 +10,7 @@ export type LobbyCallbacks = {
   onReturnToLobby: () => void;
   onSendChatMessage: (text: string) => void;
   onOpenSkills: () => void;
+  onOpenGear: () => void;
   onSwitchCharacter: () => void;
   onLogout: () => void;
   onShowCredits: () => void;
@@ -269,6 +270,7 @@ export class LobbyUI {
            </div>
            <div class="bm-char-actions">
              <button id="bm-skills" class="bm-btn-ghost px-btn">✦ Skills</button>
+             <button id="bm-gear" class="bm-btn-ghost px-btn">⚔ Gear</button>
              <button id="bm-switch-char" class="bm-btn-ghost px-btn">⇄ Switch</button>
              <button id="bm-logout" class="bm-btn-logout px-btn">Sign Out</button>
            </div>
@@ -310,6 +312,9 @@ export class LobbyUI {
 
     const skillsBtn = this.ui.querySelector('#bm-skills');
     if (skillsBtn) skillsBtn.addEventListener('click', () => this.cb.onOpenSkills());
+
+    const gearBtn = this.ui.querySelector('#bm-gear');
+    if (gearBtn) gearBtn.addEventListener('click', () => this.cb.onOpenGear());
 
     const switchCharBtn = this.ui.querySelector('#bm-switch-char');
     if (switchCharBtn) switchCharBtn.addEventListener('click', () => this.cb.onSwitchCharacter());

@@ -100,7 +100,8 @@ export async function fetchItems(): Promise<ItemRow[]> {
   const { data, error } = await supabase
     .from('items')
     .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
   if (error) { console.error('fetchItems failed:', error.message); return []; }
 
   const items: ItemRow[] = [];

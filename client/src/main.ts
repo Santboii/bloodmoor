@@ -10,6 +10,7 @@ import { HUD } from './hud/HUD';
 import { LobbyUI } from './lobby/LobbyUI';
 import { AuthUI } from './auth/AuthUI';
 import { SkillTreeUI } from './skills/SkillTreeUI';
+import { GearScreen } from './items/GearScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems } from './supabase';
 import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
@@ -110,6 +111,7 @@ let assets: LoadedAssets;
 let myDisplayName = '';
 
 const skillTreeUI = new SkillTreeUI(uiOverlay);
+const gearScreen = new GearScreen(uiOverlay);
 
 const charSelect = new CharacterSelectUI(uiOverlay, {
   onSelectCharacter: async (character) => {
@@ -297,6 +299,16 @@ const lobby = new LobbyUI(uiOverlay, {
     if (user && activeCharacter) {
       await refreshLoadout(activeCharacter.id, activeCharacter.class);
     }
+    lobby.show();
+    if (activeCharacter) {
+      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+    }
+  },
+  onOpenGear: async () => {
+    if (!activeCharacter) return;
+    lobby.hide();
+    await gearScreen.show(activeCharacter.id, activeCharacter.class, activeCharacter.level);
+    await refreshLoadout(activeCharacter.id, activeCharacter.class);
     lobby.show();
     if (activeCharacter) {
       lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
