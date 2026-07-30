@@ -35,7 +35,11 @@ export async function fetchCharacters(): Promise<CharacterRecord[]> {
   return (data ?? []) as CharacterRecord[];
 }
 
-export async function createCharacter(name: string, charClass: string): Promise<string | null> {
+export async function createCharacter(
+  name: string,
+  charClass: string,
+  appearance?: Record<string, string | null>,
+): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
   const { data, error } = await supabase.rpc('create_character', {
@@ -45,6 +49,14 @@ export async function createCharacter(name: string, charClass: string): Promise<
   });
   if (error) { console.error('create_character failed:', error.message); return null; }
   const characterId = data as string;
+
+  if (appearance) {
+    try {
+      await updateAppearance(characterId, appearance);
+    } catch (err) {
+      console.error('set initial appearance failed:', err);
+    }
+  }
 
   const starterNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
   for (const nodeId of starterNode ? [starterNode] : []) {
@@ -68,4 +80,12 @@ export async function deleteCharacter(characterId: string): Promise<boolean> {
   });
   if (error) { console.error('delete_character failed:', error.message); return false; }
   return true;
+}
+
+export async function updateAppearance(characterId: string, appearance: Record<string, string | null>): Promise<void> {
+  const { error } = await supabase.rpc('update_appearance', {
+    p_character_id: characterId,
+    p_appearance: appearance,
+  });
+  if (error) throw error;
 }

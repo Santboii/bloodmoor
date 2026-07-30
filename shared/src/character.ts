@@ -10,6 +10,7 @@ export type CharacterRecord = {
   skill_points_available: number;
   skill_points_total: number;
   created_at: string;
+  appearance: Record<string, string | null> | null;
 };
 
 export const MAX_CHARACTERS_PER_ACCOUNT = 6;
