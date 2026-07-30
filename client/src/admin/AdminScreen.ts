@@ -69,6 +69,22 @@ export function normalizeWeights(weights: DropTableWeights): DropTableWeights {
   return { basic: pct(weights.basic), magic: pct(weights.magic), rare: pct(weights.rare), unique: pct(weights.unique) };
 }
 
+/** Mirrors `admin_update_drop_table`'s own validation (non-negative, at
+ * least one positive) so the drop-rate editor can name which rule failed
+ * before Save fires, instead of only surfacing the RPC's generic rejection
+ * after a round trip. Returns null when the weights are valid. Exported and
+ * tested directly for the same reason as `normalizeWeights`. */
+export function validateDropWeights(weights: DropTableWeights): string | null {
+  const { basic, magic, rare, unique } = weights;
+  if (basic < 0 || magic < 0 || rare < 0 || unique < 0) {
+    return 'Weights must be non-negative.';
+  }
+  if (basic + magic + rare + unique <= 0) {
+    return 'At least one weight must be positive.';
+  }
+  return null;
+}
+
 const ITEM_ROW_CAP = 200;
 
 type Tab = 'items' | 'manifests' | 'grant' | 'droprates';
@@ -132,6 +148,7 @@ const STYLES = `
 .ad-drop-pct{font-size:14px;color:var(--px-accent);text-align:center;}
 .ad-drop-buttons{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
 .ad-drop-status{font-size:14px;color:var(--px-success);}
+.ad-drop-error{font-size:14px;margin-bottom:10px;}
 .ad-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
 .ad-confirm-panel{padding:28px 32px;max-width:380px;text-align:center;}
 .ad-confirm-title{margin-bottom:8px;}
@@ -168,6 +185,7 @@ export class AdminScreen {
   // Drop-rates tab
   private dropWeights = new Map<string, DropTableWeights>();
   private dropStatus = new Map<string, string>();
+  private dropErrors = new Map<string, string>();
 
   constructor(container: HTMLElement) {
     const style = document.createElement('style');
@@ -569,7 +587,15 @@ export class AdminScreen {
       this.render();
     });
 
-    this.el.querySelector('#ad-grant-btn')?.addEventListener('click', () => void this.handleGrant());
+    // Double-submit guard: disable immediately so a fast re-click can't fire
+    // a second grant before the first RPC resolves; the next render() (which
+    // handleGrant always triggers) rebuilds the button from fresh state.
+    const grantBtn = this.el.querySelector('#ad-grant-btn') as HTMLButtonElement | null;
+    grantBtn?.addEventListener('click', () => {
+      if (grantBtn.disabled) return;
+      grantBtn.disabled = true;
+      void this.handleGrant();
+    });
   }
 
   private async handleFindTarget(): Promise<void> {
@@ -649,6 +675,7 @@ export class AdminScreen {
     const weights = this.dropWeights.get(key) ?? SEED_WEIGHTS[key];
     const pct = normalizeWeights(weights);
     const status = this.dropStatus.get(key);
+    const error = this.dropErrors.get(key);
     const fieldsHtml = (['basic', 'magic', 'rare', 'unique'] as const).map(r => `
       <div class="ad-drop-field">
         <label class="ad-label px-label">${r}</label>
@@ -660,6 +687,7 @@ export class AdminScreen {
       <div class="ad-drop-card px-panel">
         <div class="ad-drop-title">${esc(label)} <span class="ad-drop-key">(${esc(key)})</span></div>
         <div class="ad-drop-grid">${fieldsHtml}</div>
+        ${error ? `<div class="ad-drop-error ad-bad">${esc(error)}</div>` : ''}
         <div class="ad-drop-buttons">
           <button class="px-btn px-btn-primary" data-save="${key}">Save</button>
           <button class="px-btn" data-reset="${key}">Reset to Seed</button>
@@ -692,17 +720,42 @@ export class AdminScreen {
       });
     });
 
+    // Double-submit guard: the clicked button disables itself immediately
+    // (blocking a fast re-click before the RPC resolves) and stays disabled
+    // until the next full render(), which always follows either handler.
     this.el.querySelectorAll('[data-save]').forEach(btn => {
-      btn.addEventListener('click', () => void this.handleDropSave((btn as HTMLElement).dataset.save!));
+      const button = btn as HTMLButtonElement;
+      button.addEventListener('click', () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        void this.handleDropSave(button.dataset.save!);
+      });
     });
     this.el.querySelectorAll('[data-reset]').forEach(btn => {
-      btn.addEventListener('click', () => void this.handleDropReset((btn as HTMLElement).dataset.reset!));
+      const button = btn as HTMLButtonElement;
+      button.addEventListener('click', () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        void this.handleDropReset(button.dataset.reset!);
+      });
     });
   }
 
   private async handleDropSave(key: string): Promise<void> {
     const weights = this.dropWeights.get(key);
     if (!weights) return;
+
+    // Mirrors admin_update_drop_table's own validation — name the failed
+    // rule client-side instead of round-tripping to get a generic rejection.
+    const error = validateDropWeights(weights);
+    if (error) {
+      this.dropErrors.set(key, error);
+      this.dropStatus.delete(key);
+      this.render();
+      return;
+    }
+
+    this.dropErrors.delete(key);
     const ok = await adminUpdateDropTable(key, weights);
     this.dropStatus.set(key, ok ? 'Saved.' : 'Save failed — see console.');
     this.render();
@@ -712,6 +765,7 @@ export class AdminScreen {
     const seed = SEED_WEIGHTS[key];
     if (!seed) return;
     this.dropWeights.set(key, { ...seed });
+    this.dropErrors.delete(key); // the seed values are always valid
     const ok = await adminUpdateDropTable(key, seed);
     this.dropStatus.set(key, ok ? 'Reset to seed.' : 'Reset failed — see console.');
     this.render();

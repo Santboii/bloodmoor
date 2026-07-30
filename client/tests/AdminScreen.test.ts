@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeWeights } from '../src/admin/AdminScreen';
+import { normalizeWeights, validateDropWeights } from '../src/admin/AdminScreen';
 
 describe('normalizeWeights', () => {
   it('leaves already-100 seed weights effectively unchanged', () => {
@@ -45,5 +45,39 @@ describe('normalizeWeights', () => {
   it('handles a single non-zero weight as 100%', () => {
     expect(normalizeWeights({ basic: 0, magic: 0, rare: 0, unique: 5 }))
       .toEqual({ basic: 0, magic: 0, rare: 0, unique: 100 });
+  });
+});
+
+describe('validateDropWeights', () => {
+  it('accepts the seed weights for every context', () => {
+    expect(validateDropWeights({ basic: 70, magic: 24, rare: 5.5, unique: 0.5 })).toBeNull();
+    expect(validateDropWeights({ basic: 60, magic: 32, rare: 7.5, unique: 0.5 })).toBeNull();
+    expect(validateDropWeights({ basic: 25, magic: 50, rare: 21, unique: 4 })).toBeNull();
+  });
+
+  it('accepts any set of weights with at least one positive and none negative', () => {
+    expect(validateDropWeights({ basic: 1, magic: 0, rare: 0, unique: 0 })).toBeNull();
+  });
+
+  it('rejects a single negative weight, naming the non-negative rule', () => {
+    expect(validateDropWeights({ basic: -1, magic: 24, rare: 5.5, unique: 0.5 }))
+      .toBe('Weights must be non-negative.');
+  });
+
+  it('rejects when every weight is negative', () => {
+    expect(validateDropWeights({ basic: -1, magic: -1, rare: -1, unique: -1 }))
+      .toBe('Weights must be non-negative.');
+  });
+
+  it('rejects all-zero weights, naming the at-least-one-positive rule', () => {
+    expect(validateDropWeights({ basic: 0, magic: 0, rare: 0, unique: 0 }))
+      .toBe('At least one weight must be positive.');
+  });
+
+  it('checks the non-negative rule before the positive-sum rule', () => {
+    // A negative paired with an offsetting positive can still sum > 0 —
+    // the non-negative check must fire first, not the sum check.
+    expect(validateDropWeights({ basic: -5, magic: 10, rare: 0, unique: 0 }))
+      .toBe('Weights must be non-negative.');
   });
 });
