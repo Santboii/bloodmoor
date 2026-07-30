@@ -1,6 +1,7 @@
-import { fetchCharacters, createCharacter, deleteCharacter } from '../supabase';
-import type { CharacterRecord } from '@arena/shared';
-import { MAX_CHARACTERS_PER_ACCOUNT, CHARACTER_CLASSES, xpToNextLevel } from '@arena/shared';
+import { fetchCharacters, createCharacter, deleteCharacter, updateAppearance } from '../supabase';
+import type { CharacterRecord, CharacterClass } from '@arena/shared';
+import { MAX_CHARACTERS_PER_ACCOUNT, CHARACTER_CLASSES, xpToNextLevel, appearanceToRow, appearanceFromRow } from '@arena/shared';
+import { AppearancePicker } from './AppearancePicker';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -38,6 +39,7 @@ const STYLES = `
 .cs-xp-text{font-size:16px;color:var(--px-border-light);margin-bottom:auto;}
 .cs-slot-actions{display:flex;gap:8px;margin-top:12px;}
 .cs-btn-select{flex:1;}
+.cs-btn-look{padding:8px 10px;font-size:8px;}
 .cs-btn-delete{padding:8px 12px;}
 .cs-btn-delete:hover{color:var(--px-danger);}
 .cs-empty-text{margin-top:4px;}
@@ -52,11 +54,14 @@ const STYLES = `
 .cs-class-option.active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .cs-class-option.disabled{opacity:0.4;cursor:not-allowed;position:relative;}
 .cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:7px;color:var(--px-border-light);}
+.cs-appearance-wrap{margin-bottom:20px;}
 .cs-btn-create{width:100%;}
 .cs-btn-cancel{width:100%;margin-top:8px;}
 .cs-error{color:var(--px-danger);font-size:16px;margin-bottom:12px;text-align:center;}
+.cs-error[hidden]{display:none;}
 .cs-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
 .cs-confirm-panel{padding:28px 32px;max-width:380px;text-align:center;}
+.cs-edit-look-panel{padding:28px 32px;max-width:520px;text-align:center;}
 .cs-confirm-title{color:var(--px-danger);font-size:11px;margin-bottom:12px;}
 .cs-confirm-text{font-size:16px;color:var(--px-text);margin-bottom:16px;line-height:1.6;}
 .cs-confirm-input{width:100%;margin-bottom:16px;}
@@ -73,6 +78,7 @@ export class CharacterSelectUI {
   private ui: HTMLElement;
   private characters: CharacterRecord[] = [];
   private showingCreate = false;
+  private activePicker: AppearancePicker | null = null;
 
   constructor(container: HTMLElement, private cb: CharacterSelectCallbacks) {
     const style = document.createElement('style');
@@ -102,6 +108,10 @@ export class CharacterSelectUI {
       this.renderCreateForm();
       return;
     }
+    // Leaving the create panel — free its picker (rAF loop + composited
+    // textures) rather than letting it dangle once its DOM is wiped below.
+    this.activePicker?.dispose();
+    this.activePicker = null;
 
     const slotsHtml = this.characters.map((char, i) => {
       const xpNeeded = xpToNextLevel(char.level);
@@ -115,6 +125,7 @@ export class CharacterSelectUI {
           <div class="cs-xp-text">${char.xp} / ${xpNeeded} XP</div>
           <div class="cs-slot-actions">
             <button class="cs-btn-select px-btn px-btn-primary" data-index="${i}">Select</button>
+            <button class="cs-btn-look px-btn" data-index="${i}">Edit Look</button>
             <button class="cs-btn-delete px-btn" data-index="${i}">Delete</button>
           </div>
         </div>`;
@@ -147,6 +158,14 @@ export class CharacterSelectUI {
       });
     });
 
+    this.ui.querySelectorAll('.cs-btn-look').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt((btn as HTMLElement).dataset.index!);
+        this.showEditLook(this.characters[idx]);
+      });
+    });
+
     this.ui.querySelectorAll('.cs-btn-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -164,6 +183,11 @@ export class CharacterSelectUI {
   }
 
   private renderCreateForm(error = ''): void {
+    // Re-entering (e.g. a validation error re-render) — free the previous
+    // picker before the innerHTML replace below tears out its DOM.
+    this.activePicker?.dispose();
+    this.activePicker = null;
+
     const classOptions = CHARACTER_CLASSES.map(c => {
       const activeClass = c.id === 'mage' ? 'active' : '';
       const disabledClass = !c.enabled ? 'disabled' : '';
@@ -180,20 +204,27 @@ export class CharacterSelectUI {
         <input id="cs-name" class="cs-input px-input" type="text" placeholder="Name your champion..." maxlength="20">
         <div class="cs-label px-label">Class</div>
         <div class="cs-class-grid">${classOptions}</div>
+        <div class="cs-label px-label">Appearance</div>
+        <div id="cs-appearance" class="cs-appearance-wrap"></div>
         <button id="cs-create-btn" class="cs-btn-create px-btn px-btn-primary">Forge Champion</button>
         <button id="cs-cancel-btn" class="cs-btn-cancel px-btn">Cancel</button>
       </div>`;
 
-    let selectedClass = 'mage';
+    let selectedClass: CharacterClass = 'mage';
+    this.activePicker = new AppearancePicker(this.ui.querySelector('#cs-appearance')!, selectedClass);
 
     this.ui.querySelectorAll('.cs-class-option').forEach(opt => {
       opt.addEventListener('click', () => {
-        const cls = (opt as HTMLElement).dataset.class!;
+        const cls = (opt as HTMLElement).dataset.class! as CharacterClass;
         const config = CHARACTER_CLASSES.find(c => c.id === cls);
-        if (!config?.enabled) return;
+        if (!config?.enabled || cls === selectedClass) return;
         this.ui.querySelectorAll('.cs-class-option').forEach(o => o.classList.remove('active'));
         opt.classList.add('active');
         selectedClass = cls;
+        // Different classes have different default appearances (torso,
+        // hat, etc. are class-locked) — rebuild the picker for the new class.
+        this.activePicker?.dispose();
+        this.activePicker = new AppearancePicker(this.ui.querySelector('#cs-appearance')!, selectedClass);
       });
     });
 
@@ -201,7 +232,8 @@ export class CharacterSelectUI {
       const name = (this.ui.querySelector('#cs-name') as HTMLInputElement).value.trim();
       if (!name) { this.renderCreateForm('Name is required'); return; }
       if (name.length > 20) { this.renderCreateForm('Name must be 20 characters or less'); return; }
-      const id = await createCharacter(name, selectedClass);
+      const appearanceRow = appearanceToRow(this.activePicker!.getAppearance());
+      const id = await createCharacter(name, selectedClass, appearanceRow);
       if (!id) { this.renderCreateForm('Failed to create character. Name may already be taken.'); return; }
       this.showingCreate = false;
       this.characters = await fetchCharacters();
@@ -257,5 +289,50 @@ export class CharacterSelectUI {
     });
 
     cancelBtn.addEventListener('click', () => overlay.remove());
+  }
+
+  private showEditLook(character: CharacterRecord): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'cs-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="cs-edit-look-panel px-panel">
+        <div class="cs-confirm-title px-title">Edit Look</div>
+        <div class="cs-error" hidden></div>
+        <div id="cs-edit-look-picker"></div>
+        <div class="cs-confirm-buttons" style="margin-top:16px">
+          <button class="px-btn px-btn-primary" id="cs-look-save">Save</button>
+          <button class="px-btn" id="cs-look-cancel">Cancel</button>
+        </div>
+      </div>`;
+    this.el.appendChild(overlay);
+
+    const picker = new AppearancePicker(
+      overlay.querySelector('#cs-edit-look-picker')!,
+      character.class,
+      appearanceFromRow(character.appearance, character.class),
+    );
+    const errorEl = overlay.querySelector('.cs-error') as HTMLElement;
+    const saveBtn = overlay.querySelector('#cs-look-save') as HTMLButtonElement;
+    const cancelBtn = overlay.querySelector('#cs-look-cancel')!;
+
+    const close = () => { picker.dispose(); overlay.remove(); };
+    cancelBtn.addEventListener('click', close);
+
+    saveBtn.addEventListener('click', async () => {
+      errorEl.hidden = true;
+      saveBtn.disabled = true;
+      const row = appearanceToRow(picker.getAppearance());
+      try {
+        await updateAppearance(character.id, row);
+        character.appearance = row;
+        close();
+        this.render();
+      } catch (err) {
+        console.error('update_appearance failed:', err instanceof Error ? err.message : err);
+        errorEl.textContent = 'Failed to save look. Please try again.';
+        errorEl.hidden = false;
+        saveBtn.disabled = false;
+      }
+    });
   }
 }
