@@ -283,5 +283,25 @@ export class Room {
         }
       }
     }
+
+    // Remap ownerId on every in-flight entity — otherwise a reconnect mid-
+    // match leaves projectiles/zones pointing at the stale socket id, which
+    // silently drops the reconnected attacker's statMults.damage (and any
+    // other ownerId-keyed lookup, e.g. friendly-fire) for anything airborne
+    // at the moment of reconnect.
+    if (this.state) {
+      for (const proj of this.state.projectiles) {
+        if (proj.ownerId === oldSocketId) proj.ownerId = newSocketId;
+      }
+      for (const fw of this.state.fireWalls) {
+        if (fw.ownerId === oldSocketId) fw.ownerId = newSocketId;
+      }
+      for (const m of this.state.meteors) {
+        if (m.ownerId === oldSocketId) m.ownerId = newSocketId;
+      }
+      for (const rain of this.state.rainOfArrows) {
+        if (rain.ownerId === oldSocketId) rain.ownerId = newSocketId;
+      }
+    }
   }
 }

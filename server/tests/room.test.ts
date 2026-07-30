@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Room } from '../src/rooms/Room.ts';
 import { DUEL_MODE, FFA_MODE, TEAM_DUEL_MODE, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
+import type { ItemRow } from '@arena/shared';
 
 describe('Room.creatorName', () => {
   it('stores the first player added as creator', () => {
@@ -163,6 +164,48 @@ describe('Room.remapPlayer', () => {
     expect(room.state!.players['s1-new']).toBeDefined();
     expect(room.state!.players['s1-new'].displayName).toBe('Alice');
     expect(room.state!.players['s1-new'].id).toBe('s1-new');
+  });
+
+  it('rewrites in-flight projectile ownerId on reconnect, preserving the attacker\'s statMults.damage on a later hit', () => {
+    const room = new Room('r1', DUEL_MODE);
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.userIds.set('s1', 'user-1');
+    room.userIds.set('s2', 'user-2');
+    room.charClasses.set('s1', 'mage');
+    room.charClasses.set('s2', 'mage');
+    // bone_ring's implicit is max_mana — inert here, so damage_pct is the
+    // only stat under test.
+    const item: ItemRow = {
+      id: 'item1', base_id: 'bone_ring', rarity: 'magic',
+      affixes: [{ id: 'damage_pct', value: 10 }],
+      level_req: 1, equipped_by: 'char1', equipped_slot: 'ring1', slot: 'ring',
+    };
+    room.loadouts.set('s1', [item]);
+    room.startMatch();
+
+    // Inject a fireball owned by s1 (pre-remap id), positioned one tick's
+    // travel short of s2 so it lands exactly on s2 (distance 0, no blast
+    // falloff) on the very next tick — damageMin === damageMax keeps
+    // fireballDamage() deterministic.
+    const s2Pos = room.state!.players['s2'].position;
+    room.state!.projectiles.push({
+      id: 'fb_test', ownerId: 's1', type: 'fireball',
+      position: { x: s2Pos.x - 400 / 60, y: s2Pos.y }, velocity: { x: 400, y: 0 },
+      damageMin: 100, damageMax: 100,
+    });
+
+    // Simulate a mid-match reconnect: s1 comes back on a new socket id.
+    room.remapPlayer('s1', 's1-new');
+    expect(room.state!.projectiles[0].ownerId).toBe('s1-new');
+
+    const before = room.state!.players['s2'].hp;
+    const state = room.tick();
+
+    // Without the remap fix, getDamageMultiplier's players['s1'] lookup
+    // would miss (stale id) and silently fall back to a 1x multiplier —
+    // this asserts the full 1.1x gear damageMult still lands post-reconnect.
+    expect(state.players['s2'].hp).toBeCloseTo(before - 100 * 1.1, 5);
   });
 });
 
