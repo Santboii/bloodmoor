@@ -12,12 +12,15 @@ export const LOOTBOX_PRICES = { basic: 150, premium: 500 } as const;
 export type LootboxTier = keyof typeof LOOTBOX_PRICES;
 
 /** Sell price per rarity, indexed by item-level band [1, 4, 7, 10]. Vendor
- * buy price is a flat 4x markup over these (vendorBuyPrice below). */
+ * buy price is a flat 4x markup over these (vendorBuyPrice below). Canonical
+ * table from the economy Phase 2 plan's Global Constraints — Task 2's SQL
+ * sell_price function is drift-tested against these exact values, so they
+ * must not be tuned here without updating that contract too. */
 export const SELL_PRICES: Record<ItemRarity, [number, number, number, number]> = {
-  basic:  [10, 25, 50, 100],
-  magic:  [25, 60, 120, 220],
-  rare:   [60, 140, 280, 480],
-  unique: [150, 350, 650, 1100],
+  basic:  [5, 10, 15, 25],
+  magic:  [25, 40, 60, 90],
+  rare:   [100, 150, 220, 320],
+  unique: [400, 550, 750, 1000],
 };
 
 /** Band index for a (possibly bespoke, e.g. a unique's levelReq) level —
@@ -124,6 +127,8 @@ function rollDropItem(weights: Record<ItemRarity, number>, maxCharLevel: number,
   }
   const rarity: ItemRarity = rolledRarity === 'unique' ? 'rare' : rolledRarity;
 
+  // Deliberate: drops use the exact band only (no +/-1 relaxation) — unlike
+  // vendorStockFor, which relaxes +/-1 for browsable variety.
   const band = levelToBand(maxCharLevel);
   const eligibleBases = ITEM_BASES.filter(b => b.itemLevel === band);
   const base = eligibleBases[Math.floor(rng() * eligibleBases.length)];

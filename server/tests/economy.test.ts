@@ -18,20 +18,39 @@ describe('gold/lootbox constants', () => {
 });
 
 describe('SELL_PRICES / sellPriceFor / vendorBuyPrice', () => {
+  // Exact-value contract test: this table is canonical per the economy
+  // Phase 2 plan's Global Constraints — Task 2's SQL sell_price function is
+  // drift-tested against these literals, so pin them, not a self-reference.
+  it('matches the canonical sell-price table exactly', () => {
+    expect(SELL_PRICES).toEqual({
+      basic:  [5, 10, 15, 25],
+      magic:  [25, 40, 60, 90],
+      rare:   [100, 150, 220, 320],
+      unique: [400, 550, 750, 1000],
+    });
+  });
+
   it('looks up exact band prices', () => {
-    expect(sellPriceFor('basic', 1)).toBe(SELL_PRICES.basic[0]);
-    expect(sellPriceFor('magic', 4)).toBe(SELL_PRICES.magic[1]);
-    expect(sellPriceFor('rare', 10)).toBe(SELL_PRICES.rare[3]);
+    expect(sellPriceFor('basic', 1)).toBe(5);
+    expect(sellPriceFor('magic', 4)).toBe(40);
+    expect(sellPriceFor('rare', 10)).toBe(320);
   });
 
   it('rounds bespoke unique levels down to the nearest band', () => {
-    expect(sellPriceFor('unique', 7)).toBe(SELL_PRICES.unique[2]); // band index 2
-    expect(sellPriceFor('unique', 8)).toBe(SELL_PRICES.unique[2]); // still band 7, rounds down
-    expect(sellPriceFor('unique', 5)).toBe(SELL_PRICES.unique[1]); // band 4
-    expect(sellPriceFor('unique', 0)).toBe(SELL_PRICES.unique[0]); // floor at band 1
+    expect(sellPriceFor('unique', 7)).toBe(750); // band index 2
+    expect(sellPriceFor('unique', 8)).toBe(750); // still band 7, rounds down
+    expect(sellPriceFor('unique', 5)).toBe(550); // band 4
+    expect(sellPriceFor('unique', 0)).toBe(400); // floor at band 1
   });
 
-  it('vendorBuyPrice is always 4x sell', () => {
+  it('vendorBuyPrice equals 4x the canonical sell price', () => {
+    expect(vendorBuyPrice('basic', 1)).toBe(20);
+    expect(vendorBuyPrice('magic', 4)).toBe(160);
+    expect(vendorBuyPrice('rare', 7)).toBe(880);
+    expect(vendorBuyPrice('unique', 10)).toBe(4000);
+  });
+
+  it('vendorBuyPrice is always 4x sell, for every rarity and band', () => {
     const rarities: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];
     for (const rarity of rarities) {
       for (const level of [1, 4, 7, 10]) {
