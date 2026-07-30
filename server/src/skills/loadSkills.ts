@@ -65,6 +65,7 @@ export async function creditMatchResult(
   userId: string,
   characterId: string,
   won: boolean,
+  gold: number = 0,
 ): Promise<MatchCreditResult> {
   const xp = XP_PER_MATCH_BASE + (won ? XP_PER_MATCH_WIN_BONUS : 0);
   const { data, error } = await supabase.rpc('credit_match_result', {
@@ -72,6 +73,7 @@ export async function creditMatchResult(
     p_character_id: characterId,
     p_won: won,
     p_xp: xp,
+    p_gold: gold,
   });
 
   if (error) {

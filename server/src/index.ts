@@ -6,9 +6,12 @@ import { RoomManager } from './rooms/RoomManager.ts';
 import { Room } from './rooms/Room.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
 import { InputFrame, GameState } from '@arena/shared';
-import type { GameModeType } from '@arena/shared';
-import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS } from '@arena/shared';
+import type { GameModeType, ItemRow } from '@arena/shared';
+import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS } from '@arena/shared';
 import { loadSkillsForCharacter, creditMatchResult, loadUserFromToken } from './skills/loadSkills.ts';
+import { economyRouter } from './economy/routes.ts';
+import { supabase } from './supabase.ts';
+import { maybeRollMatchDrop } from './economy/service.ts';
 
 const app = express();
 const httpServer = createServer(app);
@@ -94,7 +97,10 @@ function broadcastState(roomId: string, room: Room, state: GameState): void {
 }
 
 async function settleMatchEnd(roomId: string, room: Room, state: GameState, endedLoop?: GameLoop): Promise<void> {
-  const matchResults: Record<string, { xpGained: number; levelsGained: number; newLevel: number; newXp: number }> = {};
+  const matchResults: Record<string, {
+    xpGained: number; levelsGained: number; newLevel: number; newXp: number;
+    goldGained: number; droppedItem?: ItemRow;
+  }> = {};
   for (const [socketId, userId] of room.userIds.entries()) {
     const characterId = room.characterIds.get(socketId);
     if (!characterId) continue;
@@ -105,8 +111,15 @@ async function settleMatchEnd(roomId: string, room: Room, state: GameState, ende
     } else {
       won = state.winner === socketId;
     }
-    const result = await creditMatchResult(userId, characterId, won);
-    matchResults[socketId] = { xpGained: result.xpGained, levelsGained: result.levelsGained, newLevel: result.newLevel, newXp: result.newXp };
+    const gold = GOLD_PER_MATCH + (won ? GOLD_WIN_BONUS : 0);
+    const result = await creditMatchResult(userId, characterId, won, gold);
+    // Loot box roll is win-only and free (no gold cost) — a losing match
+    // still credits gold above but never rolls a drop.
+    const droppedItem = won ? await maybeRollMatchDrop(supabase, userId) : null;
+    matchResults[socketId] = {
+      xpGained: result.xpGained, levelsGained: result.levelsGained, newLevel: result.newLevel, newXp: result.newXp,
+      goldGained: gold, ...(droppedItem ? { droppedItem } : {}),
+    };
   }
   io.to(roomId).emit('duel-ended', { winnerId: state.winner, gameMode: state.gameMode, matchResults });
 
@@ -160,6 +173,7 @@ function startGameLoop(roomId: string, room: Room): void {
 
 app.use(cors(corsConfig));
 app.use(express.json());
+app.use('/economy', economyRouter);
 
 app.post('/rooms', (req, res) => {
   const mode = (req.body?.mode as GameModeType) ?? '1v1';
