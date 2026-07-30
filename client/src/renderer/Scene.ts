@@ -14,7 +14,7 @@ const INITIAL_CENTER_Z = 1000;
 const VignetteShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    intensity: { value: 0.35 },
+    intensity: { value: 0.2 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -103,7 +103,7 @@ export class Scene {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x050508);
+    this.scene.background = new THREE.Color(0x0a0a12);
 
     const aspect = window.innerWidth / window.innerHeight;
     this.camera = new THREE.OrthographicCamera(
@@ -122,15 +122,15 @@ export class Scene {
 
   private buildLighting(): void {
     // Warm ambient — base illumination so characters are always visible
-    this.scene.add(new THREE.AmbientLight(0x554433, 1.5));
+    this.scene.add(new THREE.AmbientLight(0x665544, 2.2));
 
     // Cool blue sky / blood-red ground gradient
-    this.scene.add(new THREE.HemisphereLight(0x223355, 0x331100, 0.8));
+    this.scene.add(new THREE.HemisphereLight(0x334466, 0x442211, 1.1));
 
     // Moonlight — casts shadows, cool blue-white. Aim it at the arena center
     // (default target is the origin, i.e. a corner of the 0..2000 arena,
     // which left half the map outside the shadow frustum).
-    const moon = new THREE.DirectionalLight(0x7788cc, 1.0);
+    const moon = new THREE.DirectionalLight(0x7788cc, 1.25);
     moon.position.set(1500, 800, 1200);
     moon.target.position.set(1000, 0, 1000);
     moon.castShadow = true;

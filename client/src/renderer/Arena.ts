@@ -15,8 +15,8 @@ function tiledPBR(tex: TextureSet, repeatU: number, repeatV: number): THREE.Mesh
   };
   const mat = new THREE.MeshStandardMaterial({
     map: apply(tex.map),
-    normalMap: apply(tex.normalMap),
-    roughnessMap: apply(tex.roughnessMap),
+    normalMap: tex.normalMap ? apply(tex.normalMap) : null,
+    roughnessMap: tex.roughnessMap ? apply(tex.roughnessMap) : null,
     roughness: 1,
     metalness: 0,
   });

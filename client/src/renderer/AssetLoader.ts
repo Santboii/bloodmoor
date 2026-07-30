@@ -3,8 +3,8 @@ import { posterizePixels } from './pixelation';
 
 export interface TextureSet {
   map: THREE.Texture;
-  normalMap: THREE.Texture;
-  roughnessMap: THREE.Texture;
+  normalMap?: THREE.Texture;
+  roughnessMap?: THREE.Texture;
 }
 
 export interface LoadedAssets {
@@ -55,11 +55,9 @@ export class AssetLoader {
     const sRGB = THREE.SRGBColorSpace;
     const linear = THREE.LinearSRGBColorSpace;
 
-    const [floorDiff, floorNorm, floorRough, stoneDiff, stoneNorm, stoneRough] =
+    const [floorDiff, stoneDiff, stoneNorm, stoneRough] =
       await Promise.all([
         loadTex('/assets/textures/cobblestone/diffuse.jpg', sRGB),
-        loadTex('/assets/textures/cobblestone/normal.jpg', linear),
-        loadTex('/assets/textures/cobblestone/roughness.jpg', linear),
         loadTex('/assets/textures/castle_stone/diffuse.jpg', sRGB),
         loadTex('/assets/textures/castle_stone/normal.jpg', linear),
         loadTex('/assets/textures/castle_stone/roughness.jpg', linear),
@@ -67,10 +65,11 @@ export class AssetLoader {
 
     return {
       textures: {
+        // Floor is diffuse-only: at 360p the normal/roughness maps read as
+        // per-pixel lighting speckle, not detail — flat-lit tiles look
+        // smooth like the Core Keeper reference.
         floor: {
-          map: chunkifyTexture(floorDiff),
-          normalMap: nearestFilter(floorNorm),
-          roughnessMap: nearestFilter(floorRough),
+          map: chunkifyTexture(floorDiff, 64, 12),
         },
         stone: {
           map: chunkifyTexture(stoneDiff),

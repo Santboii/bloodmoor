@@ -31,7 +31,10 @@ export function snapToTexel(value: number, texel: number): number {
 }
 
 /** Color quantization pass. Set PALETTE_ENABLED = false to disable. */
-export const PALETTE_ENABLED = true;
+// Disabled: the Bayer dither read as grain rather than pixel-art cohesion.
+// The 360p nearest-neighbor upscale already carries the pixel look; smooth
+// gradients underneath match the Core Keeper reference.
+export const PALETTE_ENABLED = false;
 export const PALETTE_LEVELS = 32; // per-channel levels; lower = crunchier
 
 /** In-place posterization of RGBA pixel data (RGB only; alpha untouched). */
