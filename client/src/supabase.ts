@@ -191,3 +191,46 @@ export async function adminUpdateDropTable(context: string, weights: DropTableWe
   if (error) { console.error('admin_update_drop_table failed:', error.message); return false; }
   return true;
 }
+
+/** Batch-resolve usernames for the admin screen's owner column and grant-tool
+ * target picker. Reads only `profiles.username` — never `auth.users`/email.
+ * Ids the query can't resolve (unknown, or blocked by RLS) are simply absent
+ * from the returned map; callers fall back to showing the raw id. */
+export async function adminFetchUsernames(userIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('user_id, username')
+    .in('user_id', unique);
+  if (error) { console.error('adminFetchUsernames failed:', error.message); return new Map(); }
+  return new Map((data ?? []).map((r: { user_id: string; username: string }) => [r.user_id, r.username]));
+}
+
+/** Resolve a typed username to its account id for the admin grant tool's
+ * target picker. Returns null if not found — never touches email. */
+export async function adminFindUserByUsername(username: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('user_id')
+    .eq('username', username)
+    .maybeSingle();
+  if (error) { console.error('adminFindUserByUsername failed:', error.message); return null; }
+  return data?.user_id ?? null;
+}
+
+/** Batch-resolve character names for the admin items table's "equipped by"
+ * column (`items.equipped_by` references `characters.id`). Characters the
+ * admin has no read access to (no admin-read RLS policy on `characters`
+ * today) simply aren't in the returned map — the caller falls back to
+ * showing the raw character id. */
+export async function adminFetchCharacterNames(characterIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(characterIds)];
+  if (unique.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('characters')
+    .select('id, name')
+    .in('id', unique);
+  if (error) { console.error('adminFetchCharacterNames failed:', error.message); return new Map(); }
+  return new Map((data ?? []).map((r: { id: string; name: string }) => [r.id, r.name]));
+}

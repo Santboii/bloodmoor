@@ -14,6 +14,7 @@ export type LobbyCallbacks = {
   onSwitchCharacter: () => void;
   onLogout: () => void;
   onShowCredits: () => void;
+  onOpenAdmin: () => void;
 };
 
 interface OpenRoom {
@@ -158,6 +159,8 @@ const STYLES = `
 .bm-btn-ghost:hover{color:var(--px-accent);}
 .bm-credits-btn{position:fixed;right:16px;bottom:16px;font-size:6px;padding:8px 10px;opacity:0.6;z-index:2;}
 .bm-credits-btn:hover{opacity:1;}
+.bm-admin-btn{position:fixed;left:16px;bottom:16px;font-size:6px;padding:8px 10px;opacity:0.6;z-index:2;}
+.bm-admin-btn:hover{opacity:1;}
 .bm-pause-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;}
 .bm-pause-title{font-size:20px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;text-shadow:0 0 20px rgba(224,91,91,0.6);}
 .bm-pause-countdown{font-size:48px;color:var(--px-accent);letter-spacing:2px;margin-bottom:24px;text-shadow:0 0 30px rgba(255,179,71,0.4);}
@@ -235,6 +238,11 @@ export class LobbyUI {
   private pollTimer: number | null = null;
   private pauseOverlay: HTMLElement | null = null;
   private pauseCountdownTimer: number | null = null;
+  // Cosmetic gate only — the admin button simply isn't rendered for
+  // non-admin accounts. Every admin RPC and the items-table RLS policy
+  // independently re-check `profiles.is_admin` server-side (see task-2's
+  // migration), so hiding this button is not the actual security boundary.
+  private isAdminFlag = false;
 
   constructor(container: HTMLElement, private cb: LobbyCallbacks) {
     const style = document.createElement('style');
@@ -251,6 +259,13 @@ export class LobbyUI {
     container.appendChild(this.el);
 
     this.showHome();
+  }
+
+  /** Cached once after auth (see main.ts) and threaded through every
+   * subsequent showHome() re-render since account admin status doesn't
+   * change mid-session. */
+  setAdmin(isAdmin: boolean): void {
+    this.isAdminFlag = isAdmin;
   }
 
   showHome(username?: string, points?: number, charClass?: string, level?: number): void {
@@ -308,7 +323,8 @@ export class LobbyUI {
           <div id="bm-rooms"></div>
         </div>
       </div>
-      <button id="bm-credits" class="bm-btn-ghost px-btn bm-credits-btn">Credits</button>`;
+      <button id="bm-credits" class="bm-btn-ghost px-btn bm-credits-btn">Credits</button>
+      ${this.isAdminFlag ? `<button id="bm-admin" class="bm-btn-ghost px-btn bm-admin-btn">⚙ Admin</button>` : ''}`;
 
     const skillsBtn = this.ui.querySelector('#bm-skills');
     if (skillsBtn) skillsBtn.addEventListener('click', () => this.cb.onOpenSkills());
@@ -321,6 +337,9 @@ export class LobbyUI {
 
     const creditsBtn = this.ui.querySelector('#bm-credits');
     if (creditsBtn) creditsBtn.addEventListener('click', () => this.cb.onShowCredits());
+
+    const adminBtn = this.ui.querySelector('#bm-admin');
+    if (adminBtn) adminBtn.addEventListener('click', () => this.cb.onOpenAdmin());
 
     const logoutBtn = this.ui.querySelector('#bm-logout');
     if (logoutBtn) logoutBtn.addEventListener('click', () => this.cb.onLogout());

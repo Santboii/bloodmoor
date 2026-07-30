@@ -11,6 +11,7 @@ import { LobbyUI } from './lobby/LobbyUI';
 import { AuthUI } from './auth/AuthUI';
 import { SkillTreeUI } from './skills/SkillTreeUI';
 import { GearScreen } from './items/GearScreen';
+import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems } from './supabase';
 import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
@@ -112,6 +113,7 @@ let myDisplayName = '';
 
 const skillTreeUI = new SkillTreeUI(uiOverlay);
 const gearScreen = new GearScreen(uiOverlay);
+const adminScreen = new AdminScreen(uiOverlay);
 
 const charSelect = new CharacterSelectUI(uiOverlay, {
   onSelectCharacter: async (character) => {
@@ -137,6 +139,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     pendingRejoin = null;
     socket.disconnect();
     lobby.hide();
+    lobby.setAdmin(false);
     charSelect.hide();
     auth.show();
   },
@@ -149,6 +152,13 @@ const auth = new AuthUI(uiOverlay, {
     auth.hide();
     await assetsReady;
     loadingScreen.hide();
+
+    // Cached once per session — the admin button's visibility is cosmetic
+    // only (every admin RPC and the items-table RLS policy independently
+    // re-check profiles.is_admin server-side), so a single fetch here is
+    // enough for the lifetime of this login.
+    const profile = await fetchProfile();
+    lobby.setAdmin(profile?.is_admin ?? false);
 
     const pausedRoomId = await checkPausedMatch(token);
     if (pausedRoomId) {
@@ -286,6 +296,7 @@ const lobby = new LobbyUI(uiOverlay, {
     pendingRejoin = null;
     socket.disconnect();
     lobby.hide();
+    lobby.setAdmin(false);
     auth.show();
   },
   onOpenSkills: async () => {
@@ -320,6 +331,16 @@ const lobby = new LobbyUI(uiOverlay, {
   },
   onShowCredits: () => {
     void creditsScreen.show();
+  },
+  onOpenAdmin: async () => {
+    lobby.hide();
+    await adminScreen.show();
+    lobby.show();
+    if (activeCharacter) {
+      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+    } else {
+      lobby.showHome(myDisplayName);
+    }
   },
 });
 lobby.hide();
