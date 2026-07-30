@@ -6,9 +6,9 @@ import {
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK,
 } from '@arena/shared';
-import type { CharacterClass } from '@arena/shared';
+import type { CharacterClass, Appearance } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
-import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell } from '@arena/shared';
+import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
@@ -19,7 +19,7 @@ import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage 
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildAmazonModifiers } from '../skills/AmazonModifiers.ts';
 
-export type PlayerInit = { id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2 };
+export type PlayerInit = { id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2; appearance?: Appearance };
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
   const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.amazon) ? 'amazon' : 'mage';
@@ -56,6 +56,7 @@ export function makeInitialState(
       castingSpell: null,
       cooldowns: {},
       teamId: teamLookup[p.id],
+      appearance: p.appearance ?? CLASS_DEFAULT_APPEARANCE[p.charClass],
     };
   }
   return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };

@@ -209,6 +209,7 @@ io.on('connection', socket => {
       if (skillResult.ok) {
         room.skillSets.set(socket.id, skillResult.skills);
         room.charClasses.set(socket.id, skillResult.charClass);
+        room.appearances.set(socket.id, skillResult.appearance);
         room.userIds.set(socket.id, skillResult.userId);
         room.characterIds.set(socket.id, characterId);
       }

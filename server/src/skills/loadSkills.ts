@@ -1,9 +1,9 @@
 import { supabase } from '../supabase.ts';
-import type { NodeId, CharacterClass } from '@arena/shared';
-import { XP_PER_MATCH_BASE, XP_PER_MATCH_WIN_BONUS, CLASS_DEFAULT_NODE } from '@arena/shared';
+import type { NodeId, CharacterClass, Appearance } from '@arena/shared';
+import { XP_PER_MATCH_BASE, XP_PER_MATCH_WIN_BONUS, CLASS_DEFAULT_NODE, appearanceFromRow } from '@arena/shared';
 
 export type SkillLoadResult =
-  | { ok: true; userId: string; skills: Map<NodeId, number>; charClass: CharacterClass }
+  | { ok: true; userId: string; skills: Map<NodeId, number>; charClass: CharacterClass; appearance: Appearance }
   | { ok: false; error: string };
 
 export async function loadSkillsForCharacter(
@@ -15,7 +15,7 @@ export async function loadSkillsForCharacter(
 
   const { data: charData, error: charErr } = await supabase
     .from('characters')
-    .select('id, class')
+    .select('id, class, appearance')
     .eq('id', characterId)
     .eq('user_id', user.id)
     .single();
@@ -35,7 +35,8 @@ export async function loadSkillsForCharacter(
   const charClass = charData.class as CharacterClass;
   const defaultSkill: NodeId = CLASS_DEFAULT_NODE[charClass];
   if (!skills.has(defaultSkill)) skills.set(defaultSkill, 1);
-  return { ok: true, userId: user.id, skills, charClass };
+  const appearance = appearanceFromRow(charData.appearance, charClass);
+  return { ok: true, userId: user.id, skills, charClass, appearance };
 }
 
 export type MatchCreditResult = {

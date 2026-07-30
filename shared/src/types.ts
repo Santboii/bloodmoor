@@ -1,3 +1,5 @@
+import type { Appearance } from './appearance.js';
+
 export type Vec2 = { x: number; y: number };
 
 export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -35,6 +37,7 @@ export type PlayerState = {
   poisonManaReduction?: number; // fraction of mana regen removed
   // Shadowstep
   invisibleUntil?: number;
+  appearance?: Appearance;
 };
 
 export type Projectile = {
