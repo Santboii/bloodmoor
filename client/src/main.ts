@@ -584,9 +584,13 @@ scene.startRenderLoop(() => {
       const me = latest?.players[myId];
       const opts: PredictOpts = {};
       if (latest && me) {
-        if ((me.slowUntil ?? 0) > latest.tick && me.slowFactor !== undefined) {
-          opts.speedMult = me.slowFactor;
-        }
+        // Mirror the server's movement multiplier exactly
+        // (StateAdvancer.ts: `slowMult * p.statMults.moveSpeed`) — omitting
+        // the gear multiplier here made every player wearing move-speed
+        // affixes mispredict every tick and rubber-band continuously on
+        // reconcile.
+        const slowMult = (me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1;
+        opts.speedMult = slowMult * (me.statMults?.moveSpeed ?? 1);
         // Predict teleport locally so it feels instant instead of arriving a
         // round-trip later as a slide. Only when the latest snapshot says the
         // server will actually accept the cast — a mispredicted teleport
