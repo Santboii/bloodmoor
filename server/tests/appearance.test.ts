@@ -5,21 +5,20 @@ import {
 } from '@arena/shared';
 
 describe('layersFor', () => {
-  it('resolves the mage default to body, head, eyes, torso, legs, hat in z-order', () => {
+  it('resolves the mage default to body, head, torso, legs, hat in z-order', () => {
     const layers = layersFor(CLASS_DEFAULT_APPEARANCE.mage);
     const paths = layers.map(l => l.path);
     expect(paths).toEqual([
       'body/bodies/male',
       'head/heads/human/male',
-      'eyes/human/adult/default/blue',
       'torso/clothes/longsleeve/longsleeve/male',
       'legs/pants/male',
       'hat/magic/wizard/base/adult/base_black',
     ]);
     const zs = layers.map(l => l.z);
     expect([...zs].sort((a, b) => a - b)).toEqual(zs); // already sorted
-    expect(layers[3].tint).toBe('#8a5fc4');
-    expect(layers[5].tint).toBeUndefined();
+    expect(layers[2].tint).toBe('#8a5fc4');
+    expect(layers[4].tint).toBeUndefined();
   });
 
   it('resolves the ranger default with hair bg behind the body and fg above the head', () => {
@@ -29,13 +28,12 @@ describe('layersFor', () => {
       'hair/ponytail/adult/bg',
       'body/bodies/female',
       'head/heads/human/female',
-      'eyes/human/adult/default/blue',
       'hair/ponytail/adult/fg',
       'torso/clothes/longsleeve/longsleeve/female',
       'legs/pants/thin',
     ]);
     expect(layers[0].tint).toBe('#c0503a');
-    expect(layers[5].tint).toBe('#4d8f4d');
+    expect(layers[4].tint).toBe('#4d8f4d');
   });
 
   it('animation table matches the LPC universal layout', () => {
@@ -82,7 +80,10 @@ describe('layersFor v2', () => {
     }
   });
   it('eyes layer sits between head and foreground hair', () => {
-    const a = { ...CLASS_DEFAULT_APPEARANCE.amazon, eyes: APPEARANCE_OPTIONS.eyes[0] };
+    // eyes defaults to null (not renderable yet — see APPEARANCE_OPTIONS.eyes),
+    // so this must set an explicit non-null color to exercise the layer at all.
+    const eyeColor = APPEARANCE_OPTIONS.eyes.find((e): e is string => e !== null)!;
+    const a = { ...CLASS_DEFAULT_APPEARANCE.amazon, eyes: eyeColor };
     const zs = Object.fromEntries(layersFor(a).map(l => [l.path.split('/')[0], l.z]));
     expect(zs['eyes']).toBeGreaterThan(zs['head']);
     expect(zs['eyes']).toBeLessThan(40);

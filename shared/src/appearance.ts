@@ -56,12 +56,12 @@ export const SKIN_TINTS: Record<string, string> = {
 export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
   mage: {
     body: 'male', skin: 'light', hairStyle: null, hairColor: 'red',
-    eyes: 'blue', torso: 'longsleeve', torsoColor: 'purple', legsColor: 'black',
+    eyes: null, torso: 'longsleeve', torsoColor: 'purple', legsColor: 'black',
     hat: 'wizard', hatColor: 'base_black',
   },
   amazon: {
     body: 'female', skin: 'light', hairStyle: 'ponytail', hairColor: 'red',
-    eyes: 'blue', torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
+    eyes: null, torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
     hat: null, hatColor: 'base_black',
   },
 };
@@ -73,7 +73,11 @@ export const APPEARANCE_OPTIONS = {
   // the Task 1 report; upstream ships no style literally named 'curly'.
   hairStyle: [null, 'ponytail', 'plain', 'long', 'curly_short', 'bangs'],
   hairColor: ['red', 'blonde', 'brown', 'black', 'gray', 'blue', 'green', 'purple', 'white'],
-  eyes: ['blue', 'brown', 'green', 'gray'],
+  // 'eyes/human' sheets aren't vendored (no upstream attribution — see the
+  // Task 1 report), so a real color would render as an invisible layer.
+  // The catalog keeps the color names for when a head-sheet palette-recolor
+  // ships; null is the only currently-renderable (and default) value.
+  eyes: [null, 'blue', 'brown', 'green', 'gray'],
   torsoColor: ['purple', 'green', 'red', 'blue', 'brown', 'black', 'white'],
   legsColor: ['black', 'brown', 'blue', 'green', 'red', 'white'],
 } satisfies Record<string, readonly (string | null)[]>;
@@ -147,7 +151,9 @@ export function randomAppearance(charClass: CharacterClass, rng: () => number = 
     skin: choose(APPEARANCE_OPTIONS.skin),
     hairStyle: choose(APPEARANCE_OPTIONS.hairStyle),
     hairColor: choose(APPEARANCE_OPTIONS.hairColor),
-    eyes: choose(APPEARANCE_OPTIONS.eyes),
+    // Eye color has no vendored, renderable sheet yet (see APPEARANCE_OPTIONS.eyes
+    // note) — never randomize into an invisible color; always null for now.
+    eyes: null,
     torso: def.torso,
     torsoColor: choose(APPEARANCE_OPTIONS.torsoColor),
     legsColor: choose(APPEARANCE_OPTIONS.legsColor),
