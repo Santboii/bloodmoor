@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { vendorStockFor, LOOTBOX_WIN_CHANCE } from '@arena/shared';
 
@@ -10,7 +10,7 @@ import { vendorStockFor, LOOTBOX_WIN_CHANCE } from '@arena/shared';
 vi.mock('../src/supabase.ts', () => ({ supabase: {} }));
 vi.mock('../src/skills/loadSkills.ts', () => ({ loadUserFromToken: vi.fn() }));
 
-import { requireUser } from '../src/economy/routes.ts';
+import { requireUser, asyncHandler, buyVendorHandler, openLootboxHandler } from '../src/economy/routes.ts';
 import { loadUserFromToken } from '../src/skills/loadSkills.ts';
 import {
   getVendorView, buyVendorSlot, openLootbox, maybeRollMatchDrop,
@@ -350,5 +350,71 @@ describe('maybeRollMatchDrop', () => {
 
     expect(result).toBeNull();
     errorSpy.mockRestore();
+  });
+});
+
+describe('asyncHandler: misconfigured env fails fast instead of hanging', () => {
+  // buyVendorHandler/openLootboxHandler call buyerClient(accessToken) inline,
+  // which throws synchronously (inside an async function body, so it becomes
+  // a rejected promise) when SUPABASE_URL/SUPABASE_ANON_KEY aren't set.
+  // Express 4 doesn't catch that on its own — asyncHandler must, or the
+  // request just hangs. Explicitly unset both here so the test doesn't
+  // depend on the ambient environment already lacking them.
+  const savedUrl = process.env.SUPABASE_URL;
+  const savedAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  beforeEach(() => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_ANON_KEY;
+  });
+
+  afterEach(() => {
+    if (savedUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = savedUrl;
+    if (savedAnonKey === undefined) delete process.env.SUPABASE_ANON_KEY; else process.env.SUPABASE_ANON_KEY = savedAnonKey;
+  });
+
+  function mockRes() {
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    return { res: { status, headersSent: false } as any, status, json };
+  }
+
+  it('POST /vendor/buy resolves with a 500 (not a hang) when buyerClient() throws', async () => {
+    const req = { userId: 'u1', accessToken: 'tok', body: { slotIndex: 0 } } as any;
+    const { res, status, json } = mockRes();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // No fake timers / race needed: if asyncHandler didn't catch this, the
+    // returned promise itself would reject and this await would throw,
+    // failing the test explicitly rather than hanging it.
+    await asyncHandler(buyVendorHandler)(req, res);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({ error: 'internal error' });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('POST /lootbox/open resolves with a 500 (not a hang) when buyerClient() throws', async () => {
+    const req = { userId: 'u1', accessToken: 'tok', body: { tier: 'basic' } } as any;
+    const { res, status, json } = mockRes();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await asyncHandler(openLootboxHandler)(req, res);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({ error: 'internal error' });
+    errorSpy.mockRestore();
+  });
+
+  it('does not double-respond if headers were already sent before the throw', async () => {
+    const req = { userId: 'u1', accessToken: 'tok', body: { slotIndex: 0 } } as any;
+    const { res, status, json } = mockRes();
+    res.headersSent = true;
+
+    await asyncHandler(buyVendorHandler)(req, res);
+
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
   });
 });
