@@ -162,7 +162,11 @@ export function randomAppearance(charClass: CharacterClass, rng: () => number = 
   };
 }
 
-/** camelCase Appearance → snake_case DB row. */
+/** camelCase Appearance → snake_case DB row.
+ * Only the 7 player-editable fields are persisted — torso, hat, and hatColor
+ * are class-locked (validateAppearance always forces them from the class
+ * default) and are not in the update_appearance RPC's shape-guard allowlist
+ * (see supabase/migrations/20260729000000_character_appearance.sql). */
 export function appearanceToRow(a: Appearance): Record<string, string | null> {
   return {
     body: a.body,
@@ -170,11 +174,8 @@ export function appearanceToRow(a: Appearance): Record<string, string | null> {
     hair_style: a.hairStyle,
     hair_color: a.hairColor,
     eyes: a.eyes,
-    torso: a.torso,
     torso_color: a.torsoColor,
     legs_color: a.legsColor,
-    hat: a.hat,
-    hat_color: a.hatColor,
   };
 }
 

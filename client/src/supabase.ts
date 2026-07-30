@@ -54,7 +54,7 @@ export async function createCharacter(
     try {
       await updateAppearance(characterId, appearance);
     } catch (err) {
-      console.error('set initial appearance failed:', err);
+      console.warn('set initial appearance failed:', err instanceof Error ? err.message : err);
     }
   }
 

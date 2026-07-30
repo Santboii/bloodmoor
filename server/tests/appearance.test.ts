@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   APPEARANCE_OPTIONS, validateAppearance, randomAppearance,
@@ -67,6 +68,26 @@ describe('appearance row round-trip', () => {
   it('camelCase ↔ snake_case survives a round trip', () => {
     const a = randomAppearance('amazon', () => 0.42);
     expect(appearanceFromRow(appearanceToRow(a), 'amazon')).toEqual(a);
+  });
+});
+
+describe('appearanceToRow / update_appearance shape-guard contract', () => {
+  it('matches the SQL allowlist exactly, so the two can never silently drift', () => {
+    const migrationUrl = new URL(
+      '../../supabase/migrations/20260729000000_character_appearance.sql',
+      import.meta.url,
+    );
+    const sql = readFileSync(migrationUrl, 'utf8');
+    const match = sql.match(/key not in \(([^)]+)\)/);
+    expect(match, 'expected a `key not in (...)` clause in the migration').not.toBeNull();
+    const sqlKeys = match![1]
+      .split(',')
+      .map(k => k.trim().replace(/^'|'$/g, ''))
+      .sort();
+
+    const tsKeys = Object.keys(appearanceToRow(CLASS_DEFAULT_APPEARANCE.mage)).sort();
+
+    expect(tsKeys).toEqual(sqlKeys);
   });
 });
 
