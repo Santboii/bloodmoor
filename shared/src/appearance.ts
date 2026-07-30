@@ -17,8 +17,10 @@ export const LPC_ANIMATIONS: Record<LpcAnimation, { frames: number; singleRow: b
 
 export type Appearance = {
   body: 'male' | 'female';
+  skin: string;               // e.g. 'light' — multiply-tinted (see note below), never a separate vendored file
   hairStyle: string | null;   // e.g. 'ponytail'
   hairColor: string;          // e.g. 'red'
+  eyes: string | null;        // e.g. 'blue'
   torso: string;              // e.g. 'longsleeve'
   torsoColor: string;
   legsColor: string;
@@ -32,31 +34,158 @@ export type LpcLayer = { path: string; z: number; tint?: string };
 export const LPC_TINTS: Record<string, string> = {
   purple: '#8a5fc4', green: '#4d8f4d', black: '#4a4a52', brown: '#7d5a38',
   red: '#c0503a', blue: '#4a6fc4', white: '#f0f0f0',
+  blonde: '#d9b256', gray: '#9a9aa2',
+};
+
+/**
+ * Skin-tone tints, keyed the same as APPEARANCE_OPTIONS.skin. Unlike the
+ * upstream generator's live palette-swap (a full 6-step per-tone color ramp,
+ * see palette_definitions/body/body_ulpc.json upstream), the vendored body
+ * and head sheets here ship as a single base-color sheet and skin tone is
+ * approximated with the existing multiply-tint pipeline — see the Task 1
+ * report for why no separate per-skin-tone sheets exist to vendor. Hex values
+ * below are the mid-ramp (index 3) swatch from each upstream tone's palette.
+ */
+export const SKIN_TINTS: Record<string, string> = {
+  // 'light' is left untinted — it's the native color of the vendored base
+  // sheets, so tinting it would be a pure no-op tint at best and a visible
+  // regression to the already-shipped default look at worst.
+  olive: '#ae6b3f', bronze: '#7f4c31', brown: '#76513a', black: '#442725',
 };
 
 export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
   mage: {
-    body: 'male', hairStyle: null, hairColor: 'red',
-    torso: 'longsleeve', torsoColor: 'purple', legsColor: 'black',
+    body: 'male', skin: 'light', hairStyle: null, hairColor: 'red',
+    eyes: 'blue', torso: 'longsleeve', torsoColor: 'purple', legsColor: 'black',
     hat: 'wizard', hatColor: 'base_black',
   },
   amazon: {
-    body: 'female', hairStyle: 'ponytail', hairColor: 'red',
-    torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
+    body: 'female', skin: 'light', hairStyle: 'ponytail', hairColor: 'red',
+    eyes: 'blue', torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
     hat: null, hatColor: 'base_black',
   },
 };
 
+export const APPEARANCE_OPTIONS = {
+  body: ['male', 'female'] as const,
+  skin: ['light', 'olive', 'bronze', 'brown', 'black'],
+  // 'curly' substituted with the closest upstream style, 'curly_short' — see
+  // the Task 1 report; upstream ships no style literally named 'curly'.
+  hairStyle: [null, 'ponytail', 'plain', 'long', 'curly_short', 'bangs'],
+  hairColor: ['red', 'blonde', 'brown', 'black', 'gray', 'blue', 'green', 'purple', 'white'],
+  eyes: ['blue', 'brown', 'green', 'gray'],
+  torsoColor: ['purple', 'green', 'red', 'blue', 'brown', 'black', 'white'],
+  legsColor: ['black', 'brown', 'blue', 'green', 'red', 'white'],
+} satisfies Record<string, readonly (string | null)[]>;
+
+/** Hair styles that ship as a single bg/fg pair (behind body, above head). */
+const SPLIT_HAIR_STYLES = new Set(['ponytail']);
+
 /** Resolve an appearance to concrete layer paths in draw order (low z first). */
 export function layersFor(a: Appearance): LpcLayer[] {
   const layers: LpcLayer[] = [];
-  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/bg`, z: 0, tint: LPC_TINTS[a.hairColor] });
-  layers.push({ path: `body/bodies/${a.body}`, z: 10 });
-  layers.push({ path: `head/heads/human/${a.body}`, z: 20 });
-  if (a.hairStyle) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: LPC_TINTS[a.hairColor] });
+  const skinTint = SKIN_TINTS[a.skin];
+  const hairTint = LPC_TINTS[a.hairColor];
+  const split = a.hairStyle != null && SPLIT_HAIR_STYLES.has(a.hairStyle);
+  if (a.hairStyle && split) {
+    layers.push({ path: `hair/${a.hairStyle}/adult/bg`, z: 0, tint: hairTint });
+  }
+  layers.push({ path: `body/bodies/${a.body}`, z: 10, tint: skinTint });
+  layers.push({ path: `head/heads/human/${a.body}`, z: 20, tint: skinTint });
+  // Eye color: upstream's current generator only offers eye color as a
+  // palette recolor baked into the head sheet itself, not a standalone
+  // overlay — the standalone 'eyes/human/...' sheets that do exist upstream
+  // carry no CREDITS.csv attribution, so they are not vendored (see report).
+  // This layer path is left well-formed for when that's resolved; until
+  // then the client's existing missing-sheet fallback (null image → skipped
+  // layer) makes this a silent no-op rather than a broken render.
+  if (a.eyes) layers.push({ path: `eyes/human/adult/default/${a.eyes}`, z: 25 });
+  if (a.hairStyle) {
+    if (split) layers.push({ path: `hair/${a.hairStyle}/adult/fg`, z: 30, tint: hairTint });
+    else layers.push({ path: `hair/${a.hairStyle}/adult`, z: 30, tint: hairTint });
+  }
   layers.push({ path: `torso/clothes/${a.torso}/${a.torso}/${a.body}`, z: 40, tint: LPC_TINTS[a.torsoColor] });
   // Female-fit pants live under 'thin' upstream, not 'female'.
   layers.push({ path: `legs/pants/${a.body === 'female' ? 'thin' : 'male'}`, z: 50, tint: LPC_TINTS[a.legsColor] });
   if (a.hat) layers.push({ path: `hat/magic/${a.hat}/base/adult/${a.hatColor}`, z: 60 });
   return layers.sort((x, y) => x.z - y.z);
+}
+
+/** Type-safe membership check against a readonly options list (nulls included). */
+function isOption<T extends string | null>(value: unknown, options: readonly T[]): value is T {
+  return (options as readonly unknown[]).includes(value);
+}
+
+/** Validate/clamp an unknown appearance blob to the manifest, filling gaps
+ * (and non-editable fields) from the character class's default appearance. */
+export function validateAppearance(a: unknown, charClass: CharacterClass): Appearance {
+  const def = CLASS_DEFAULT_APPEARANCE[charClass];
+  if (typeof a !== 'object' || a === null) return { ...def };
+  const obj = a as Record<string, unknown>;
+
+  return {
+    body: isOption(obj.body, APPEARANCE_OPTIONS.body) ? obj.body : def.body,
+    skin: isOption(obj.skin, APPEARANCE_OPTIONS.skin) ? obj.skin : def.skin,
+    hairStyle: isOption(obj.hairStyle, APPEARANCE_OPTIONS.hairStyle) ? obj.hairStyle : def.hairStyle,
+    hairColor: isOption(obj.hairColor, APPEARANCE_OPTIONS.hairColor) ? obj.hairColor : def.hairColor,
+    eyes: isOption(obj.eyes, APPEARANCE_OPTIONS.eyes) ? obj.eyes : def.eyes,
+    torso: def.torso,
+    torsoColor: isOption(obj.torsoColor, APPEARANCE_OPTIONS.torsoColor) ? obj.torsoColor : def.torsoColor,
+    legsColor: isOption(obj.legsColor, APPEARANCE_OPTIONS.legsColor) ? obj.legsColor : def.legsColor,
+    hat: def.hat,
+    hatColor: def.hatColor,
+  };
+}
+
+/** Uniform-random appearance for a class, keeping class-locked fields (torso, hat, hatColor). */
+export function randomAppearance(charClass: CharacterClass, rng: () => number = Math.random): Appearance {
+  const def = CLASS_DEFAULT_APPEARANCE[charClass];
+  const choose = <T,>(options: readonly T[]): T => options[Math.floor(rng() * options.length)];
+
+  return {
+    body: choose(APPEARANCE_OPTIONS.body),
+    skin: choose(APPEARANCE_OPTIONS.skin),
+    hairStyle: choose(APPEARANCE_OPTIONS.hairStyle),
+    hairColor: choose(APPEARANCE_OPTIONS.hairColor),
+    eyes: choose(APPEARANCE_OPTIONS.eyes),
+    torso: def.torso,
+    torsoColor: choose(APPEARANCE_OPTIONS.torsoColor),
+    legsColor: choose(APPEARANCE_OPTIONS.legsColor),
+    hat: def.hat,
+    hatColor: def.hatColor,
+  };
+}
+
+/** camelCase Appearance → snake_case DB row. */
+export function appearanceToRow(a: Appearance): Record<string, string | null> {
+  return {
+    body: a.body,
+    skin: a.skin,
+    hair_style: a.hairStyle,
+    hair_color: a.hairColor,
+    eyes: a.eyes,
+    torso: a.torso,
+    torso_color: a.torsoColor,
+    legs_color: a.legsColor,
+    hat: a.hat,
+    hat_color: a.hatColor,
+  };
+}
+
+/** snake_case DB row → validated Appearance. */
+export function appearanceFromRow(row: unknown, charClass: CharacterClass): Appearance {
+  if (typeof row !== 'object' || row === null) return validateAppearance(row, charClass);
+  const r = row as Record<string, unknown>;
+  return validateAppearance({
+    body: r.body,
+    skin: r.skin,
+    hairStyle: r.hair_style,
+    hairColor: r.hair_color,
+    eyes: r.eyes,
+    torso: r.torso,
+    torsoColor: r.torso_color,
+    legsColor: r.legs_color,
+    hat: r.hat,
+    hatColor: r.hat_color,
+  }, charClass);
 }
