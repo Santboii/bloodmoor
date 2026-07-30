@@ -1,5 +1,5 @@
 import { fetchCharacters, createCharacter, deleteCharacter, updateAppearance } from '../supabase';
-import type { CharacterRecord, CharacterClass } from '@arena/shared';
+import type { CharacterRecord, CharacterClass, Appearance } from '@arena/shared';
 import { MAX_CHARACTERS_PER_ACCOUNT, CHARACTER_CLASSES, xpToNextLevel, appearanceToRow, appearanceFromRow } from '@arena/shared';
 import { AppearancePicker } from './AppearancePicker';
 
@@ -66,6 +66,7 @@ const STYLES = `
 .cs-confirm-text{font-size:16px;color:var(--px-text);margin-bottom:16px;line-height:1.6;}
 .cs-confirm-input{width:100%;margin-bottom:16px;}
 .cs-confirm-buttons{display:flex;gap:12px;justify-content:center;}
+.cs-confirm-buttons button:disabled{opacity:0.5;cursor:not-allowed;}
 .cs-confirm-delete{padding:9px 24px;background:var(--px-danger);color:#fff;opacity:0.4;pointer-events:none;}
 .cs-confirm-delete.enabled{opacity:1;pointer-events:auto;}
 .cs-confirm-cancel{padding:9px 24px;}
@@ -182,14 +183,18 @@ export class CharacterSelectUI {
     });
   }
 
-  private renderCreateForm(error = ''): void {
-    // Re-entering (e.g. a validation error re-render) — free the previous
-    // picker before the innerHTML replace below tears out its DOM.
+  // `preserve` carries the in-progress class/appearance choice across a
+  // validation-error re-render (empty/too-long name, duplicate name) so a
+  // rejected submit doesn't silently discard the user's picker customization.
+  private renderCreateForm(error = '', preserve?: { selectedClass: CharacterClass; appearance: Appearance }): void {
+    // Free the previous picker before the innerHTML replace below tears out
+    // its DOM — whether re-entering fresh or re-rendering after a validation error.
     this.activePicker?.dispose();
     this.activePicker = null;
 
+    const initialClass: CharacterClass = preserve?.selectedClass ?? 'mage';
     const classOptions = CHARACTER_CLASSES.map(c => {
-      const activeClass = c.id === 'mage' ? 'active' : '';
+      const activeClass = c.id === initialClass ? 'active' : '';
       const disabledClass = !c.enabled ? 'disabled' : '';
       return `<div class="cs-class-option ${activeClass} ${disabledClass}" data-class="${c.id}">${CLASS_ICONS[c.id] ?? ''} ${esc(c.label)}</div>`;
     }).join('');
@@ -210,8 +215,8 @@ export class CharacterSelectUI {
         <button id="cs-cancel-btn" class="cs-btn-cancel px-btn">Cancel</button>
       </div>`;
 
-    let selectedClass: CharacterClass = 'mage';
-    this.activePicker = new AppearancePicker(this.ui.querySelector('#cs-appearance')!, selectedClass);
+    let selectedClass: CharacterClass = initialClass;
+    this.activePicker = new AppearancePicker(this.ui.querySelector('#cs-appearance')!, selectedClass, preserve?.appearance);
 
     this.ui.querySelectorAll('.cs-class-option').forEach(opt => {
       opt.addEventListener('click', () => {
@@ -230,11 +235,12 @@ export class CharacterSelectUI {
 
     this.ui.querySelector('#cs-create-btn')!.addEventListener('click', async () => {
       const name = (this.ui.querySelector('#cs-name') as HTMLInputElement).value.trim();
-      if (!name) { this.renderCreateForm('Name is required'); return; }
-      if (name.length > 20) { this.renderCreateForm('Name must be 20 characters or less'); return; }
-      const appearanceRow = appearanceToRow(this.activePicker!.getAppearance());
+      const preserved = { selectedClass, appearance: this.activePicker!.getAppearance() };
+      if (!name) { this.renderCreateForm('Name is required', preserved); return; }
+      if (name.length > 20) { this.renderCreateForm('Name must be 20 characters or less', preserved); return; }
+      const appearanceRow = appearanceToRow(preserved.appearance);
       const id = await createCharacter(name, selectedClass, appearanceRow);
-      if (!id) { this.renderCreateForm('Failed to create character. Name may already be taken.'); return; }
+      if (!id) { this.renderCreateForm('Failed to create character. Name may already be taken.', preserved); return; }
       this.showingCreate = false;
       this.characters = await fetchCharacters();
       this.render();
@@ -313,14 +319,20 @@ export class CharacterSelectUI {
     );
     const errorEl = overlay.querySelector('.cs-error') as HTMLElement;
     const saveBtn = overlay.querySelector('#cs-look-save') as HTMLButtonElement;
-    const cancelBtn = overlay.querySelector('#cs-look-cancel')!;
+    const cancelBtn = overlay.querySelector('#cs-look-cancel') as HTMLButtonElement;
 
     const close = () => { picker.dispose(); overlay.remove(); };
+    // A disabled button doesn't dispatch click, so disabling cancelBtn below
+    // during the save RPC is sufficient to close the race — no separate guard needed.
     cancelBtn.addEventListener('click', close);
 
     saveBtn.addEventListener('click', async () => {
       errorEl.hidden = true;
+      // Disable both buttons for the duration of the RPC: Cancel must not
+      // tear down the modal (and this picker) out from under an in-flight
+      // save, and this also blocks double-submits.
       saveBtn.disabled = true;
+      cancelBtn.disabled = true;
       const row = appearanceToRow(picker.getAppearance());
       try {
         await updateAppearance(character.id, row);
@@ -332,6 +344,7 @@ export class CharacterSelectUI {
         errorEl.textContent = 'Failed to save look. Please try again.';
         errorEl.hidden = false;
         saveBtn.disabled = false;
+        cancelBtn.disabled = false;
       }
     });
   }
