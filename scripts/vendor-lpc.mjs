@@ -25,6 +25,11 @@ const LAYERS = [
   'hair/ponytail/adult/fg',
   'torso/clothes/longsleeve/longsleeve/female',
   'legs/pants/thin',
+  // additional hair styles (single-layer, no bg/fg split — see appearance.ts)
+  'hair/plain/adult',
+  'hair/long/adult',
+  'hair/curly_short/adult',
+  'hair/bangs/adult',
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)
