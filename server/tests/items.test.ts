@@ -53,13 +53,17 @@ describe('rollItem', () => {
     }
   });
   it('basic rolls no affixes', () => {
-    expect(rollItem(ITEM_BASES[0], 'basic', seeded([0.5]))).toEqual([]);
+    const base = ITEM_BASES.find(b => b.id === 'leather_cap')!;
+    expect(rollItem(base, 'basic', seeded([0.5]))).toEqual([]);
   });
 });
 
 describe('computeLoadout', () => {
+  // leather_cap's implicit is max_health, which doesn't collide with the
+  // damage_pct affix under test below — anchored by id, not array position,
+  // since catalog ordering is not a contract.
   const mk = (over: Partial<ItemRowLike>): ItemRowLike => ({
-    id: 'x', base_id: ITEM_BASES[0].id, rarity: 'magic', affixes: [],
+    id: 'x', base_id: 'leather_cap', rarity: 'magic', affixes: [],
     level_req: 1, equipped_by: 'c', equipped_slot: 'helmet', slot: 'helmet', ...over,
   });
   it('starts from the base block and folds affixes + implicits', () => {

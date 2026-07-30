@@ -61,10 +61,13 @@ const NON_TALENT_AFFIX_IDS: AffixId[] = [
 ];
 
 /**
- * ITEM_BASES[0] is deliberately a non-weapon base (a max_health implicit) —
- * computeLoadout's contract test asserts an exact damageMult from a single
- * damage_pct affix on ITEM_BASES[0]; a weapon base's damage_pct implicit
- * would silently compound into that assertion.
+ * Grouped by slot (armor pieces before weapons) for readability; ordering is
+ * not a contract — tests anchor bases by id, never by array position, so
+ * re-sorting this catalog must never change test outcomes.
+ *
+ * Every item-level band (1, 4, 7, 10) has at least one base of each of the
+ * class-agnostic accessory slots and, separately, one weapon per class —
+ * Phase 2's drop rolls and the admin grant tool pick bases by band.
  */
 export const ITEM_BASES: ItemBase[] = [
   { id: 'leather_cap', slot: 'helmet', name: 'Leather Cap', icon: 'fa-helmet-safety', itemLevel: 1, implicit: { id: 'max_health', value: 15 } },
@@ -74,16 +77,20 @@ export const ITEM_BASES: ItemBase[] = [
   { id: 'cloth_pants', slot: 'leggings', name: 'Cloth Pants', icon: 'fa-socks', itemLevel: 1, implicit: { id: 'max_health', value: 10 } },
   { id: 'mail_leggings', slot: 'leggings', name: 'Mail Leggings', icon: 'fa-socks', itemLevel: 7, implicit: { id: 'max_health', value: 45 } },
   { id: 'bone_ring', slot: 'ring', name: 'Bone Ring', icon: 'fa-ring', itemLevel: 1, implicit: { id: 'max_mana', value: 10 } },
-  // itemLevel bumped to 7 (spec prose said L4) to give the catalog an
-  // amulet in the L7 band — see the Task 1 report for the reasoning.
+  { id: 'silver_ring', slot: 'ring', name: 'Silver Ring', icon: 'fa-ring', itemLevel: 4, implicit: { id: 'max_mana', value: 18 } },
+  // carved_amulet takes over the L4 accessory band moon_amulet vacated when
+  // it moved to L7 (see the Task 1 report for that move's rationale).
+  { id: 'carved_amulet', slot: 'amulet', name: 'Carved Amulet', icon: 'fa-gem', itemLevel: 4, implicit: { id: 'max_mana', value: 25 } },
   { id: 'moon_amulet', slot: 'amulet', name: 'Moon Amulet', icon: 'fa-gem', itemLevel: 7, implicit: { id: 'max_mana', value: 25 } },
   { id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 } },
   { id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 } },
+  { id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 } },
   // fa-bow-arrow is Font Awesome PRO — not present in the free 6.5.0 bundle
   // this project loads (client/index.html); fa-crosshairs is the free
-  // fallback used for both bow bases until a licensed bow glyph is vendored.
+  // fallback used for all bow bases until a licensed bow glyph is vendored.
   { id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 } },
   { id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 } },
+  { id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 } },
 ];
 
 export const UNIQUE_ITEMS: UniqueItem[] = [
