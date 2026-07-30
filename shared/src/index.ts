@@ -4,3 +4,4 @@ export * from './gameModes.js';
 export * from './physics.js';
 export * from './character.js';
 export * from './appearance.js';
+export * from './items.js';
