@@ -10,8 +10,8 @@ import { HUD } from './hud/HUD';
 import { LobbyUI } from './lobby/LobbyUI';
 import { AuthUI } from './auth/AuthUI';
 import { SkillTreeUI } from './skills/SkillTreeUI';
-import { supabase, fetchProfile, fetchCharacters } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE } from '@arena/shared';
+import { supabase, fetchProfile, fetchCharacters, fetchItems } from './supabase';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -62,13 +62,6 @@ let activeCharacter: CharacterRecord | null = null;
 let ownedSpells = new Set<SpellId>();
 let playerElement: ArrowElement = 'none';
 
-function elementFromNodes(nodes: Set<NodeId>): ArrowElement {
-  if (nodes.has('archer.burn' as NodeId)) return 'burn';
-  if (nodes.has('archer.freeze' as NodeId)) return 'freeze';
-  if (nodes.has('archer.poison' as NodeId)) return 'poison';
-  return 'none';
-}
-
 function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
   const result = new Set<SpellId>();
   for (const b of SPELL_BINDINGS) {
@@ -79,16 +72,29 @@ function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
 
 let phaseShiftRank = 0;
 
-/** Re-derive owned spells, arrow element, and modifier ranks from the DB. */
+/** Re-derive owned spells, arrow element, and modifier ranks from the DB —
+ * merging talent-tree ranks with equipped-item talent affixes so the client
+ * predicts off the same effective ranks the server computes at match start. */
 async function refreshLoadout(characterId: string, charClass: string): Promise<void> {
   const { data } = await supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId);
   const rows = (data ?? []) as { node_id: string; rank: number | null }[];
   const nodeSet = new Set<NodeId>(rows.map(r => r.node_id as NodeId));
   const defaultNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
   if (defaultNode) nodeSet.add(defaultNode);
+
+  const effRanks = new Map<NodeId, number>();
+  for (const r of rows) effRanks.set(r.node_id as NodeId, r.rank ?? 0);
+
+  const items = (await fetchItems()).filter(i => i.equipped_by === characterId);
+  const { talentRanks } = computeLoadout(items, charClass as CharacterClass);
+  for (const [node, addedRank] of talentRanks) {
+    nodeSet.add(node);
+    effRanks.set(node, (effRanks.get(node) ?? 0) + addedRank);
+  }
+
   ownedSpells = spellsFromNodes(nodeSet);
-  playerElement = elementFromNodes(nodeSet);
-  phaseShiftRank = rows.find(r => r.node_id === 'utility.phase_shift')?.rank ?? 0;
+  playerElement = deriveElement(effRanks);
+  phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
   hud.buildSpellSlots(ownedSpells);
 }
 

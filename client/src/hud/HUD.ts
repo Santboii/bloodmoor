@@ -163,12 +163,14 @@ export class HUD {
     const me = state.players[this.myId];
     if (!me) return;
 
-    const hpPct = Math.round((1 - me.hp / MAX_HP) * 1000) / 10;
+    const maxHp = me.maxHp ?? MAX_HP;
+    const maxMana = me.maxMana ?? MAX_MANA;
+    const hpPct = Math.round((1 - me.hp / maxHp) * 1000) / 10;
     if (hpPct !== this.lastHpPct) {
       this.hpFill.style.transform = `translateY(${hpPct}%)`;
       this.lastHpPct = hpPct;
     }
-    const mpPct = Math.round((1 - me.mana / MAX_MANA) * 1000) / 10;
+    const mpPct = Math.round((1 - me.mana / maxMana) * 1000) / 10;
     if (mpPct !== this.lastMpPct) {
       this.mpFill.style.transform = `translateY(${mpPct}%)`;
       this.lastMpPct = mpPct;
@@ -183,7 +185,7 @@ export class HUD {
       this.mpNum.textContent = mpText;
       this.lastMpText = mpText;
     }
-    const lowPulse = me.hp > 0 && me.hp / MAX_HP < 0.3;
+    const lowPulse = me.hp > 0 && me.hp / maxHp < 0.3;
     if (lowPulse !== this.lastLowPulse) {
       this.hpOrb.classList.toggle('low-pulse', lowPulse);
       this.lastLowPulse = lowPulse;
@@ -251,7 +253,7 @@ export class HUD {
           clearTimeout(entry.flashTimer);
           entry.flashTimer = window.setTimeout(() => entry!.row.classList.remove('hit'), 140);
         }
-        entry.fill.style.width = `${(player.hp / MAX_HP) * 100}%`;
+        entry.fill.style.width = `${(player.hp / (player.maxHp ?? MAX_HP)) * 100}%`;
         entry.row.style.opacity = player.hp <= 0 ? '0.3' : '1';
         entry.lastHp = player.hp;
       }
