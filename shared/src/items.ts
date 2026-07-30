@@ -54,11 +54,27 @@ export const AFFIX_TIERS: Record<AffixId, [number, number][]> = {
   talent:         [[1, 1],   [1, 1],   [1, 2],    [1, 3]],
 };
 
-const ITEM_LEVEL_BANDS: ItemBase['itemLevel'][] = [1, 4, 7, 10];
+/** Item-level bands, in order; also consumed by economy.ts for vendor stock
+ * and drop-roll base selection — export rather than duplicate. */
+export const ITEM_LEVEL_BANDS: ItemBase['itemLevel'][] = [1, 4, 7, 10];
 
 const NON_TALENT_AFFIX_IDS: AffixId[] = [
   'max_health', 'max_mana', 'damage_pct', 'cast_speed_pct', 'move_speed_pct', 'mana_regen_pct',
 ];
+
+/** Slots an affix is eligible to roll on — omitted ids may roll on any slot.
+ * Data-driven so future slot restrictions don't need an if-special-case in
+ * rollItem; move_speed_pct is leggings-only per Phase 2 economy spec. */
+const AFFIX_ALLOWED_SLOTS: Partial<Record<AffixId, ItemBaseSlot[]>> = {
+  move_speed_pct: ['leggings'],
+};
+
+function affixPoolFor(base: ItemBase): AffixId[] {
+  return NON_TALENT_AFFIX_IDS.filter(id => {
+    const allowed = AFFIX_ALLOWED_SLOTS[id];
+    return !allowed || allowed.includes(base.slot);
+  });
+}
 
 /**
  * Grouped by slot (armor pieces before weapons) for readability; ordering is
@@ -175,7 +191,7 @@ export function rollItem(base: ItemBase, rarity: ItemRarity, rng: () => number =
   const includeTalent = rarity !== 'magic' && rng() < TALENT_AFFIX_WEIGHT;
   const nonTalentCount = includeTalent ? count - 1 : count;
 
-  const affixes: RolledAffix[] = pickWithoutReplacement(NON_TALENT_AFFIX_IDS, nonTalentCount, rng)
+  const affixes: RolledAffix[] = pickWithoutReplacement(affixPoolFor(base), nonTalentCount, rng)
     .map(id => ({ id, value: rollInRange(AFFIX_TIERS[id][bandIndex], rng) }));
 
   if (includeTalent) {

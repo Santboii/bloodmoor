@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
-  classOwnsTree, validateItemRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA,
+  classOwnsTree, validateItemRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
 } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -55,6 +55,26 @@ describe('rollItem', () => {
   it('basic rolls no affixes', () => {
     const base = ITEM_BASES.find(b => b.id === 'leather_cap')!;
     expect(rollItem(base, 'basic', seeded([0.5]))).toEqual([]);
+  });
+
+  it('move_speed_pct never rolls on non-leggings bases, but does roll on leggings, over 300 seeded rare rolls', () => {
+    const nonLeggings = [
+      ITEM_BASES.find(b => b.slot === 'ring')!,
+      ITEM_BASES.find(b => b.slot === 'amulet')!,
+      ITEM_BASES.find(b => b.slot === 'helmet')!,
+    ];
+    const leggings = ITEM_BASES.find(b => b.slot === 'leggings')!;
+    let leggingsRolledMoveSpeed = false;
+    for (let s = 1; s <= 300; s++) {
+      for (const base of nonLeggings) {
+        const affixes = rollItem(base, 'rare', mulberry32(s));
+        expect(affixes.some(a => a.id === 'move_speed_pct')).toBe(false);
+      }
+      if (rollItem(leggings, 'rare', mulberry32(s)).some(a => a.id === 'move_speed_pct')) {
+        leggingsRolledMoveSpeed = true;
+      }
+    }
+    expect(leggingsRolledMoveSpeed).toBe(true);
   });
 });
 

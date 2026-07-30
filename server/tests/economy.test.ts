@@ -1,0 +1,163 @@
+import { describe, it, expect } from 'vitest';
+import {
+  GOLD_PER_MATCH, GOLD_WIN_BONUS, LOOTBOX_WIN_CHANCE, LOOTBOX_PRICES,
+  SELL_PRICES, sellPriceFor, vendorBuyPrice, levelToBand,
+  vendorStockFor, rollLootboxItem, rollMatchDropItem,
+  fnv1aHash, mulberry32, seededRng,
+  UNIQUE_ITEMS,
+} from '@arena/shared';
+import type { ItemRarity } from '@arena/shared';
+
+describe('gold/lootbox constants', () => {
+  it('match economy spec values', () => {
+    expect(GOLD_PER_MATCH).toBe(25);
+    expect(GOLD_WIN_BONUS).toBe(35);
+    expect(LOOTBOX_WIN_CHANCE).toBe(0.15);
+    expect(LOOTBOX_PRICES).toEqual({ basic: 150, premium: 500 });
+  });
+});
+
+describe('SELL_PRICES / sellPriceFor / vendorBuyPrice', () => {
+  it('looks up exact band prices', () => {
+    expect(sellPriceFor('basic', 1)).toBe(SELL_PRICES.basic[0]);
+    expect(sellPriceFor('magic', 4)).toBe(SELL_PRICES.magic[1]);
+    expect(sellPriceFor('rare', 10)).toBe(SELL_PRICES.rare[3]);
+  });
+
+  it('rounds bespoke unique levels down to the nearest band', () => {
+    expect(sellPriceFor('unique', 7)).toBe(SELL_PRICES.unique[2]); // band index 2
+    expect(sellPriceFor('unique', 8)).toBe(SELL_PRICES.unique[2]); // still band 7, rounds down
+    expect(sellPriceFor('unique', 5)).toBe(SELL_PRICES.unique[1]); // band 4
+    expect(sellPriceFor('unique', 0)).toBe(SELL_PRICES.unique[0]); // floor at band 1
+  });
+
+  it('vendorBuyPrice is always 4x sell', () => {
+    const rarities: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];
+    for (const rarity of rarities) {
+      for (const level of [1, 4, 7, 10]) {
+        expect(vendorBuyPrice(rarity, level)).toBe(sellPriceFor(rarity, level) * 4);
+      }
+    }
+  });
+});
+
+describe('levelToBand', () => {
+  it('maps character level to the correct item-level band', () => {
+    expect(levelToBand(1)).toBe(1);
+    expect(levelToBand(3)).toBe(1);
+    expect(levelToBand(4)).toBe(4);
+    expect(levelToBand(6)).toBe(4);
+    expect(levelToBand(7)).toBe(7);
+    expect(levelToBand(9)).toBe(7);
+    expect(levelToBand(10)).toBe(10);
+    expect(levelToBand(50)).toBe(10);
+  });
+});
+
+describe('vendorStockFor', () => {
+  it('is byte-identical for the same user+day+level', () => {
+    const a = vendorStockFor('user1', '2026-07-28', 5);
+    const b = vendorStockFor('user1', '2026-07-28', 5);
+    expect(a).toEqual(b);
+  });
+
+  it('differs for a different day', () => {
+    const a = vendorStockFor('user1', '2026-07-28', 5);
+    const b = vendorStockFor('user1', '2026-07-29', 5);
+    expect(a).not.toEqual(b);
+  });
+
+  it('differs for a different user', () => {
+    const a = vendorStockFor('user1', '2026-07-28', 5);
+    const b = vendorStockFor('user2', '2026-07-28', 5);
+    expect(a).not.toEqual(b);
+  });
+
+  it('produces exactly 6 slots, each basic or magic, priced at 4x sell', () => {
+    const stock = vendorStockFor('userX', '2026-07-28', 8);
+    expect(stock.length).toBe(6);
+    for (const slot of stock) {
+      expect(['basic', 'magic']).toContain(slot.rarity);
+      expect(slot.price).toBe(vendorBuyPrice(slot.rarity, slot.base.itemLevel));
+      if (slot.rarity === 'basic') expect(slot.affixes).toEqual([]);
+    }
+  });
+
+  it('picks bases within ±1 band-step of the level band (mid band)', () => {
+    // level 5 -> band 4 (index 1); allowed bands: 1, 4, 7
+    const stock = vendorStockFor('userY', '2026-07-28', 5);
+    for (const slot of stock) {
+      expect([1, 4, 7]).toContain(slot.base.itemLevel);
+    }
+  });
+
+  it('does not go below band 1 at the lowest band', () => {
+    const stock = vendorStockFor('userZ', '2026-07-28', 2); // band 1, allowed [1, 4]
+    for (const slot of stock) {
+      expect([1, 4]).toContain(slot.base.itemLevel);
+    }
+  });
+
+  it('does not go above band 10 at the highest band', () => {
+    const stock = vendorStockFor('userW', '2026-07-28', 12); // band 10, allowed [7, 10]
+    for (const slot of stock) {
+      expect([7, 10]).toContain(slot.base.itemLevel);
+    }
+  });
+
+  it('rolls roughly 50/50 basic/magic over many seeds (weighted, not skewed)', () => {
+    let magicCount = 0;
+    let total = 0;
+    for (let day = 0; day < 100; day++) {
+      const stock = vendorStockFor('userBalance', `2026-01-${String(day + 1).padStart(2, '0')}`, 8);
+      for (const slot of stock) {
+        total++;
+        if (slot.rarity === 'magic') magicCount++;
+      }
+    }
+    expect(magicCount / total).toBeGreaterThan(0.35);
+    expect(magicCount / total).toBeLessThan(0.65);
+  });
+});
+
+describe('rollLootboxItem / rollMatchDropItem', () => {
+  const weights: Record<ItemRarity, number> = { basic: 70, magic: 24, rare: 5.5, unique: 0.5 };
+
+  it('respects rarity weights deterministically', () => {
+    const basicRoll = rollLootboxItem('basic', weights, 8, () => 0.0);
+    expect(basicRoll.rarity).toBe('basic');
+    expect(basicRoll.affixes).toEqual([]);
+
+    const magicRoll = rollLootboxItem('basic', weights, 8, () => 0.71);
+    expect(magicRoll.rarity).toBe('magic');
+  });
+
+  it('downgrades unique to rare when no unique is eligible at band 1', () => {
+    // maxCharLevel 2 -> band 1; both UNIQUE_ITEMS require levelReq 7.
+    const result = rollLootboxItem('premium', weights, 2, () => 0.9999);
+    expect(result.rarity).toBe('rare');
+  });
+
+  it('rolls an eligible unique deterministically when maxCharLevel qualifies', () => {
+    // Constant 0.9999 lands rollRarity on 'unique', then floor(0.9999 * 2) = 1
+    // selects the second eligible unique.
+    const result = rollMatchDropItem(weights, 10, () => 0.9999);
+    expect(result.rarity).toBe('unique');
+    expect(result.affixes).toEqual(UNIQUE_ITEMS[1].affixes);
+    expect(result.base.id).toBe(UNIQUE_ITEMS[1].baseId);
+    expect(result.levelReq).toBe(UNIQUE_ITEMS[1].levelReq);
+  });
+
+  it('is pure under an injected rng — same seed sequence yields identical output', () => {
+    const a = rollMatchDropItem(weights, 8, mulberry32(fnv1aHash('purity-seed')));
+    const b = rollMatchDropItem(weights, 8, mulberry32(fnv1aHash('purity-seed')));
+    expect(a).toEqual(b);
+  });
+
+  it('seededRng composes fnv1aHash + mulberry32 deterministically', () => {
+    const a = seededRng('user1', '2026-07-28');
+    const b = mulberry32(fnv1aHash('user1:2026-07-28'));
+    expect(a()).toBe(b());
+    expect(a()).toBe(b());
+  });
+});
