@@ -590,7 +590,7 @@ scene.startRenderLoop(() => {
     if (!playerMeshes.has(id)) {
       const playerIds = Object.keys(state.players);
       const colorIndex = playerIds.indexOf(id) % Object.keys(PLAYER_COLORS).length;
-      const mesh = new CharacterMesh(player.charClass, PLAYER_COLORS[colorIndex], player.displayName, uiOverlay);
+      const mesh = new CharacterMesh(player.charClass, player.appearance, PLAYER_COLORS[colorIndex], player.displayName, uiOverlay);
       scene.scene.add(mesh.group);
       playerMeshes.set(id, mesh);
     }
