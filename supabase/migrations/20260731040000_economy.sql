@@ -24,8 +24,16 @@ create table if not exists vendor_purchases (
 
 alter table vendor_purchases enable row level security;
 
+drop policy if exists vendor_purchases_owner_read on vendor_purchases;
 create policy vendor_purchases_owner_read on vendor_purchases for select
   using (user_id = auth.uid());
+
+-- vendorStockFor always produces exactly 6 slots (indices 0..5) — this
+-- constraint is added via drop-then-add (Postgres has no `ADD CONSTRAINT
+-- IF NOT EXISTS`) so the migration stays idempotently re-runnable against
+-- an already-migrated live DB.
+alter table vendor_purchases drop constraint if exists vendor_purchases_slot_index_check;
+alter table vendor_purchases add constraint vendor_purchases_slot_index_check check (slot_index between 0 and 5);
 
 -- sell_price: SQL mirror of shared/src/economy.ts's SELL_PRICES table
 -- (rarity x item-level band [1, 4, 7, 10]). This exact CASE table is
@@ -49,13 +57,23 @@ $$;
 -- hidden in UI). Deletes the item, credits the sell price to the caller's
 -- gold, and returns the price so the client can show it without a
 -- follow-up read.
+--
+-- `select ... for update` locks the row for the rest of this transaction:
+-- a second concurrent call on the same item blocks here until the first
+-- call's DELETE commits, then finds zero matching rows and falls into the
+-- `not found` branch below instead of re-validating a row that's already
+-- gone — closing the race where two concurrent sells both pass validation,
+-- one deletes, and the other's DELETE silently no-ops but still credits
+-- gold (double-sold item, double gold). The `if not found` check after the
+-- DELETE itself is a second, independent guard against the same failure
+-- mode (defense in depth, not load-bearing given the lock above).
 create or replace function sell_item(p_item_id uuid) returns int
 language plpgsql security definer set search_path = public as $$
 declare
   v_item items%rowtype;
   v_price int;
 begin
-  select * into v_item from items where id = p_item_id and user_id = auth.uid();
+  select * into v_item from items where id = p_item_id and user_id = auth.uid() for update;
   if not found then
     raise exception 'item not found or not owned by caller';
   end if;
@@ -71,6 +89,9 @@ begin
   v_price := sell_price(v_item.rarity, v_item.level_req);
 
   delete from items where id = p_item_id;
+  if not found then
+    raise exception 'item was already sold';
+  end if;
 
   update profiles set gold = gold + v_price where user_id = auth.uid();
 
@@ -119,6 +140,17 @@ grant execute on function spend_gold(int) to authenticated;
 -- sanity-bounded to the plan's 0..200 match-reward range) credited to the
 -- profile alongside the existing XP/level-up/match-stat updates, which are
 -- otherwise unchanged.
+--
+-- The 4-arg overload (p_user_id, p_character_id, p_won, p_xp) predates this
+-- migration and is NOT superseded by a bare CREATE OR REPLACE, since adding
+-- a parameter changes the signature — Postgres treats it as a distinct
+-- overload rather than a replacement, so both would coexist and the
+-- server's existing (unchanged) 4-arg call site would keep resolving to
+-- the stale, unpinned, gold-blind original. Drop it explicitly first;
+-- `p_gold integer default 0` below lets that same 4-arg call site resolve
+-- to this 5-arg function instead once the old overload is gone.
+drop function if exists credit_match_result(uuid, uuid, boolean, integer);
+
 create or replace function credit_match_result(
   p_user_id uuid,
   p_character_id uuid,
@@ -180,4 +212,16 @@ begin
 end;
 $$;
 
-grant execute on function credit_match_result(uuid, uuid, boolean, integer, integer) to authenticated;
+-- No `grant execute ... to authenticated` here, unlike the RPCs above:
+-- this function trusts p_user_id/p_character_id verbatim (see note above)
+-- specifically because its only real caller is the game server's
+-- service-role client, which never needed an explicit grant — service_role
+-- already has implicit execute access via its own default privileges, and
+-- it is never explicitly granted anywhere else in this schema either. A
+-- client-facing grant here would let any signed-in user call this RPC
+-- directly to credit arbitrary gold/XP/level-ups to any account, repeatedly.
+-- Supabase's default privileges grant EXECUTE to authenticated/anon on
+-- every newly created function, so the absence of a grant line is not
+-- itself sufficient — revoke explicitly, and re-revoke on every re-run
+-- (REVOKE is a no-op, never an error, when the privilege isn't held).
+revoke execute on function credit_match_result(uuid, uuid, boolean, integer, integer) from public, authenticated, anon;
