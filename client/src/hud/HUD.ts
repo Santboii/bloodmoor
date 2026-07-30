@@ -1,13 +1,35 @@
 import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA } from '@arena/shared';
 import { Minimap } from './Minimap';
 
-// Display abbreviations only — identity/keybinds come from SPELL_BINDINGS.
-const SPELL_NAMES: Record<number, string> = {
-  1: 'FB', 2: 'FW', 3: 'MT', 4: 'TP',
-  5: 'PS', 6: 'MS', 7: 'RA', 8: 'EV',
+// Same Font Awesome glyphs the skill tree uses for these spells' nodes.
+const SPELL_ICONS: Record<number, string> = {
+  1: 'fa-fire', 2: 'fa-fire-flame-simple', 3: 'fa-meteor', 4: 'fa-wand-magic',
+  5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
 };
 
-type EnemyRow = { row: HTMLElement; name: HTMLElement; fill: HTMLElement; lastHp: number; lastName: string };
+// Spell-school tint for slot icons: fire / utility (mobility) / ranger.
+const SPELL_TINTS: Record<number, string> = {
+  1: '#ff8c42', 2: '#ff8c42', 3: '#ff8c42', 4: '#b48cff',
+  5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
+};
+
+// Chunky 20-gon staircase — a circle drawn at pixel-art resolution.
+const PIXEL_CIRCLE =
+  'polygon(37.5% 0%,62.5% 0%,75% 6.25%,87.5% 12.5%,93.75% 25%,100% 37.5%,' +
+  '100% 62.5%,93.75% 75%,87.5% 87.5%,75% 93.75%,62.5% 100%,37.5% 100%,' +
+  '25% 93.75%,12.5% 87.5%,6.25% 75%,0% 62.5%,0% 37.5%,6.25% 25%,12.5% 12.5%,25% 6.25%)';
+
+type EnemyRow = { row: HTMLElement; name: HTMLElement; fill: HTMLElement; lastHp: number; lastName: string; flashTimer: number };
+
+type SlotEntry = {
+  slot: HTMLElement;
+  cd: HTMLElement;
+  cdTime: HTMLElement;
+  lastPct: number;
+  lastActive: boolean;
+  lastNoMana: boolean;
+  lastCdText: string;
+};
 
 export class HUD {
   private el: HTMLElement;
@@ -16,45 +38,89 @@ export class HUD {
   private prevHp: Record<string, number> = {};
   private hpFill: HTMLElement;
   private mpFill: HTMLElement;
+  private hpOrb: HTMLElement;
+  private hpNum: HTMLElement;
+  private mpNum: HTMLElement;
   private spellsEl: HTMLElement;
   private enemiesEl: HTMLElement;
-  private slotEls = new Map<SpellId, { slot: HTMLElement; cd: HTMLElement; lastPct: number; lastActive: boolean }>();
+  private slotEls = new Map<SpellId, SlotEntry>();
   private enemyRows = new Map<string, EnemyRow>();
   private lastHpPct = -1;
   private lastMpPct = -1;
+  private lastHpText = '';
+  private lastMpText = '';
+  private lastLowPulse = false;
 
   constructor(container: HTMLElement) {
     this.minimap = new Minimap(container);
     this.el = document.createElement('div');
     this.el.innerHTML = `
       <style>
-        .hud-panel{position:fixed;bottom:0;left:0;right:0;height:72px;background:var(--px-panel);box-shadow:0 -2px 0 0 var(--px-border-light),0 -4px 0 0 var(--px-border-dark);display:flex;align-items:center;justify-content:space-between;padding:0 20px}
-        .orb{width:80px;height:80px;position:relative;overflow:hidden;margin-bottom:16px;background:var(--px-border-dark);box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);border:none;border-radius:0}
-        .orb-fill{position:absolute;inset:0;transition:transform .1s;image-rendering:pixelated}
-        .orb-hp .orb-fill{background:repeating-linear-gradient(0deg,#a02222 0 6px,#c23333 6px 12px)}
-        .orb-mp .orb-fill{background:repeating-linear-gradient(0deg,#2244a0 0 6px,#3355c2 6px 12px)}
-        .spells{display:flex;gap:6px}
-        .spell-slot{width:44px;height:44px;background:#33294a;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);border:none;border-radius:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-text);position:relative;overflow:hidden;cursor:pointer}
-        .spell-slot.active{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);color:var(--px-accent)}
-        .spell-slot .cd-overlay{position:absolute;bottom:0;left:0;right:0;background:rgba(14,11,22,0.75);transition:height .1s}
-        .hud-enemies{position:fixed;top:12px;right:140px;display:flex;flex-direction:column;gap:6px;min-width:160px}
-        .hud-enemy-entry{text-align:center}
-        .hud-enemy-entry .enemy-name{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-accent);margin-bottom:3px}
-        .hud-enemy-entry .enemy-hp-track{height:10px;background:var(--px-border-dark);border-radius:0;overflow:hidden;width:160px;box-shadow:0 0 0 2px var(--px-border-dark)}
-        .hud-enemy-entry .enemy-hp-fill{height:100%;background:repeating-linear-gradient(90deg,#a02222 0 6px,#c23333 6px 12px);border-radius:0;transition:width .1s}
+        .hud-dock{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:18px;pointer-events:none}
+        /* --- orbs --- */
+        .orb-wrap{display:flex;flex-direction:column;align-items:center;gap:5px}
+        .orb{width:88px;height:88px;position:relative;clip-path:${PIXEL_CIRCLE};background:var(--px-border-dark);}
+        .orb-inner{position:absolute;inset:5px;clip-path:${PIXEL_CIRCLE};background:#120e1c;overflow:hidden}
+        .orb-fill{position:absolute;inset:0;transition:transform .12s}
+        .orb-fill::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:rgba(255,255,255,0.35)}
+        .orb-hp .orb-fill{background:linear-gradient(180deg,#e0524a 0%,#b32e2e 45%,#7d1c22 100%)}
+        .orb-mp .orb-fill{background:linear-gradient(180deg,#4a7ce0 0%,#2e50b3 45%,#1c2f7d 100%)}
+        .orb-shine{position:absolute;top:12%;left:18%;width:26%;height:16%;background:rgba(255,255,255,0.22);clip-path:${PIXEL_CIRCLE};pointer-events:none}
+        .orb-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:13px;color:#fff;text-shadow:1px 1px 0 #000,-1px 1px 0 #000,1px -1px 0 #000,-1px -1px 0 #000,0 2px 0 #000;z-index:2}
+        .orb-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:1px}
+        .orb.low-pulse{animation:orb-low .9s ease-in-out infinite}
+        @keyframes orb-low{0%,100%{filter:drop-shadow(0 0 0 rgba(224,91,91,0))}50%{filter:drop-shadow(0 0 9px rgba(224,91,91,0.85))}}
+        /* --- spell slots --- */
+        .spells{display:flex;gap:8px;padding:9px 12px;margin-bottom:8px;background:var(--px-panel);box-shadow:0 -3px 0 0 var(--px-border-light),0 3px 0 0 var(--px-border-dark),-3px 0 0 0 var(--px-border-light),3px 0 0 0 var(--px-border-dark),0 6px 12px rgba(0,0,0,0.5)}
+        .spell-slot{width:52px;height:52px;background:linear-gradient(180deg,#3a2f52 0%,#2b2140 100%);box-shadow:inset 0 2px 0 0 rgba(255,255,255,0.08),inset 0 -2px 0 0 rgba(0,0,0,0.45),0 0 0 2px var(--px-border-dark);position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+        .spell-slot .slot-icon{font-size:21px;text-shadow:0 2px 0 rgba(0,0,0,0.6);z-index:1;transition:opacity .1s}
+        .spell-slot .slot-key{position:absolute;right:2px;bottom:2px;font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-text);background:var(--px-border-dark);padding:2px 3px;z-index:3}
+        .spell-slot .cd-overlay{position:absolute;bottom:0;left:0;right:0;background:rgba(10,8,18,0.8);transition:height .1s;z-index:2}
+        .spell-slot .cd-time{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:10px;color:#fff;text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000;z-index:3;display:none}
+        .spell-slot.cooling .cd-time{display:flex}
+        .spell-slot.cooling .slot-icon{opacity:0.45}
+        .spell-slot.nomana .slot-icon{opacity:0.35;filter:saturate(0.2) brightness(1.6) hue-rotate(180deg)}
+        .spell-slot.active{box-shadow:inset 0 2px 0 0 rgba(255,255,255,0.08),inset 0 -2px 0 0 rgba(0,0,0,0.45),0 0 0 2px var(--px-accent),0 0 10px rgba(255,179,71,0.55)}
+        .spell-slot.active::after{content:'';position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,179,71,0.4);z-index:2;pointer-events:none}
+        /* --- enemy plates --- */
+        .hud-enemies{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:7px;align-items:center}
+        .hud-enemy-entry{background:var(--px-panel);padding:6px 10px 8px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:opacity .3s}
+        .hud-enemy-entry .enemy-name{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-accent);margin-bottom:5px;letter-spacing:1px;text-shadow:1px 1px 0 var(--px-border-dark)}
+        .hud-enemy-entry .enemy-hp-track{height:12px;background:#120e1c;overflow:hidden;width:190px;box-shadow:inset 0 0 0 2px var(--px-border-dark);position:relative}
+        .hud-enemy-entry .enemy-hp-fill{height:100%;background:linear-gradient(180deg,#e0524a 0%,#b32e2e 55%,#8a2026 100%);transition:width .12s;position:relative}
+        .hud-enemy-entry .enemy-hp-fill::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 17px,rgba(0,0,0,0.35) 17px 19px)}
+        .hud-enemy-entry.hit .enemy-hp-fill{filter:brightness(2.2)}
+        /* --- elimination toast --- */
         .hud-elim{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Press Start 2P',monospace;font-size:16px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;text-shadow:2px 2px 0 var(--px-border-dark);pointer-events:none;animation:hud-elim-fade 2s forwards}
         @keyframes hud-elim-fade{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-80%) scale(0.9)}}
       </style>
       <div id="hud-enemies" class="hud-enemies"></div>
-      <div class="hud-panel">
-        <div class="orb orb-hp"><div class="orb-fill" id="hud-hp" style="transform:translateY(0%)"></div></div>
+      <div class="hud-dock">
+        <div class="orb-wrap">
+          <div class="orb orb-hp" id="hud-hp-orb">
+            <div class="orb-inner"><div class="orb-fill" id="hud-hp" style="transform:translateY(0%)"></div></div>
+            <div class="orb-shine"></div>
+            <div class="orb-num" id="hud-hp-num"></div>
+          </div>
+          <div class="orb-label">LIFE</div>
+        </div>
         <div class="spells" id="hud-spells"></div>
-        <div class="orb orb-mp"><div class="orb-fill" id="hud-mp" style="transform:translateY(0%)"></div></div>
+        <div class="orb-wrap">
+          <div class="orb orb-mp">
+            <div class="orb-inner"><div class="orb-fill" id="hud-mp" style="transform:translateY(0%)"></div></div>
+            <div class="orb-shine"></div>
+            <div class="orb-num" id="hud-mp-num"></div>
+          </div>
+          <div class="orb-label">MANA</div>
+        </div>
       </div>
     `;
     container.appendChild(this.el);
     this.hpFill = this.el.querySelector('#hud-hp') as HTMLElement;
     this.mpFill = this.el.querySelector('#hud-mp') as HTMLElement;
+    this.hpOrb = this.el.querySelector('#hud-hp-orb') as HTMLElement;
+    this.hpNum = this.el.querySelector('#hud-hp-num') as HTMLElement;
+    this.mpNum = this.el.querySelector('#hud-mp-num') as HTMLElement;
     this.spellsEl = this.el.querySelector('#hud-spells') as HTMLElement;
     this.enemiesEl = this.el.querySelector('#hud-enemies') as HTMLElement;
   }
@@ -75,13 +141,20 @@ export class HUD {
       if (!ownedSpells.has(binding.spell)) continue;
       const slot = document.createElement('div');
       slot.className = 'spell-slot';
-      slot.innerHTML = `<span>${SPELL_NAMES[binding.spell]}</span><span style="font-size:9px;color:#888">${binding.key}</span><div class="cd-overlay" style="height:0%"></div>`;
+      slot.innerHTML = `
+        <i class="fa ${SPELL_ICONS[binding.spell] ?? 'fa-star'} fa-fw slot-icon" style="color:${SPELL_TINTS[binding.spell] ?? 'var(--px-text)'}"></i>
+        <span class="slot-key">${binding.key}</span>
+        <div class="cd-overlay" style="height:0%"></div>
+        <span class="cd-time"></span>`;
       this.spellsEl.appendChild(slot);
       this.slotEls.set(binding.spell, {
         slot,
         cd: slot.querySelector('.cd-overlay') as HTMLElement,
+        cdTime: slot.querySelector('.cd-time') as HTMLElement,
         lastPct: 0,
         lastActive: false,
+        lastNoMana: false,
+        lastCdText: '',
       });
     }
   }
@@ -100,6 +173,21 @@ export class HUD {
       this.mpFill.style.transform = `translateY(${mpPct}%)`;
       this.lastMpPct = mpPct;
     }
+    const hpText = String(Math.max(0, Math.ceil(me.hp)));
+    if (hpText !== this.lastHpText) {
+      this.hpNum.textContent = hpText;
+      this.lastHpText = hpText;
+    }
+    const mpText = String(Math.max(0, Math.floor(me.mana)));
+    if (mpText !== this.lastMpText) {
+      this.mpNum.textContent = mpText;
+      this.lastMpText = mpText;
+    }
+    const lowPulse = me.hp > 0 && me.hp / MAX_HP < 0.3;
+    if (lowPulse !== this.lastLowPulse) {
+      this.hpOrb.classList.toggle('low-pulse', lowPulse);
+      this.lastLowPulse = lowPulse;
+    }
 
     for (const [key, entry] of this.slotEls) {
       const active = key === activeSpell;
@@ -112,7 +200,18 @@ export class HUD {
       const pct = maxCd > 0 ? Math.round((cd / maxCd) * 1000) / 10 : 0;
       if (pct !== entry.lastPct) {
         entry.cd.style.height = `${pct}%`;
+        entry.slot.classList.toggle('cooling', pct > 0);
         entry.lastPct = pct;
+      }
+      const cdText = cd > 0 ? (cd / 60).toFixed(1) : '';
+      if (cdText !== entry.lastCdText) {
+        entry.cdTime.textContent = cdText;
+        entry.lastCdText = cdText;
+      }
+      const noMana = me.mana < SPELL_CONFIG[key].manaCost;
+      if (noMana !== entry.lastNoMana) {
+        entry.slot.classList.toggle('nomana', noMana);
+        entry.lastNoMana = noMana;
       }
     }
 
@@ -138,7 +237,7 @@ export class HUD {
         track.appendChild(fill);
         row.append(name, track);
         this.enemiesEl.appendChild(row);
-        entry = { row, name, fill, lastHp: -1, lastName: '' };
+        entry = { row, name, fill, lastHp: -1, lastName: '', flashTimer: 0 };
         this.enemyRows.set(id, entry);
       }
       if (player.displayName !== entry.lastName) {
@@ -146,6 +245,12 @@ export class HUD {
         entry.lastName = player.displayName;
       }
       if (player.hp !== entry.lastHp) {
+        // White blink on damage — reads as a hit even at a glance.
+        if (entry.lastHp >= 0 && player.hp < entry.lastHp) {
+          entry.row.classList.add('hit');
+          clearTimeout(entry.flashTimer);
+          entry.flashTimer = window.setTimeout(() => entry!.row.classList.remove('hit'), 140);
+        }
         entry.fill.style.width = `${(player.hp / MAX_HP) * 100}%`;
         entry.row.style.opacity = player.hp <= 0 ? '0.3' : '1';
         entry.lastHp = player.hp;
