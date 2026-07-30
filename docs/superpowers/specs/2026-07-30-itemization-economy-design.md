@@ -153,6 +153,15 @@ eligible unique for the rolled slot/level band falls back to rare.
 - Every mutation is a `SECURITY DEFINER` RPC with `auth.uid()` ownership
   checks; gold amounts are never computed client-side.
 
+**Phase 2 preconditions (from the Phase 1 final review, 2026-07-30):**
+- Starter gear (`source = 'starter'`) must be unsellable — the
+  create/delete-character loop can still farm unequipped starters (the
+  deletion trigger only removes equipped ones), which becomes a gold
+  faucet the moment selling exists.
+- `move_speed_pct` must be slot-restricted (or ranges retuned) in the drop
+  catalog: `computeLoadout` clamps the total at 1.15, so rolls beyond the
+  cap are dead affix slots that read as bad loot.
+
 ## Visible gear (Phase 3 summary — separate plan)
 
 Equipped weapon/helmet/armor/leggings map to LPC layer paths overriding the
