@@ -489,7 +489,12 @@ function startGame(): void {
   inputHandler = new InputHandler(scene, scene.renderer.domElement);
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
 
-  hud.buildSpellSlots(ownedSpells);
+  // Guests have no skill unlocks but the server lets them cast their class's
+  // four bound spells — show those slots rather than an empty bar.
+  const slotSpells = ownedSpells.size > 0
+    ? ownedSpells
+    : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
+  hud.buildSpellSlots(slotSpells);
   hud.show();
   lobby.hide();
 }
@@ -592,8 +597,13 @@ scene.startRenderLoop(() => {
     const mesh = playerMeshes.get(id)!;
 
     if (id === myId && predictor) {
+      // Face the live cursor from the predicted position — the snapshot's
+      // facing is the same aim a round-trip late, which reads as a laggy
+      // turn instead of Core Keeper's instant snap.
       const predicted = predictor.getRenderPosition(stepAlpha, now);
-      mesh.setPosition(predicted.x, predicted.y, player.facing);
+      const aim = inputHandler.getCurrentMouseWorld();
+      const facing = Math.atan2(aim.y - predicted.y, aim.x - predicted.x);
+      mesh.setPosition(predicted.x, predicted.y, facing);
     } else {
       mesh.setPosition(player.position.x, player.position.y, player.facing);
     }
