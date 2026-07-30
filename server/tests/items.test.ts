@@ -81,6 +81,24 @@ describe('computeLoadout', () => {
     expect(talentRanks.get('fire.cataclysm')).toBe(2);
     expect(talentRanks.has('archer.barrage')).toBe(false);
   });
+  it('caps moveSpeedMult at 1.15 even when stacked move_speed_pct affixes would multiply past it', () => {
+    // Best-in-catalog bands (weapon 8% L10, 4x accessory 6% L7, 2x ring 3%
+    // L4) multiply out to ~1.02 * 1.06^4 * 1.03^2 ≈ 1.45 uncapped — the
+    // spec's stated "~+15% across a full loadout" intent, so the clamp
+    // must actually bind here, not just sit above realistic rolls.
+    const items = [
+      mk({ base_id: 'archmage_staff', slot: 'weapon', equipped_slot: 'weapon', affixes: [{ id: 'move_speed_pct', value: 8 }] }),
+      mk({ base_id: 'iron_helm', slot: 'helmet', equipped_slot: 'helmet', affixes: [{ id: 'move_speed_pct', value: 6 }] }),
+      mk({ base_id: 'scale_mail', slot: 'armor', equipped_slot: 'armor', affixes: [{ id: 'move_speed_pct', value: 6 }] }),
+      mk({ base_id: 'mail_leggings', slot: 'leggings', equipped_slot: 'leggings', affixes: [{ id: 'move_speed_pct', value: 6 }] }),
+      mk({ base_id: 'moon_amulet', slot: 'amulet', equipped_slot: 'amulet', affixes: [{ id: 'move_speed_pct', value: 6 }] }),
+      mk({ base_id: 'silver_ring', slot: 'ring', equipped_slot: 'ring1', affixes: [{ id: 'move_speed_pct', value: 3 }] }),
+      mk({ base_id: 'silver_ring', slot: 'ring', equipped_slot: 'ring2', affixes: [{ id: 'move_speed_pct', value: 3 }] }),
+    ];
+    const { statBlock } = computeLoadout(items, 'mage');
+    expect(statBlock.moveSpeedMult).toBe(1.15);
+  });
+
   it('classOwnsTree maps both classes correctly', () => {
     expect(classOwnsTree('mage', 'fire.meteor')).toBe(true);
     expect(classOwnsTree('mage', 'utility.teleport')).toBe(true);

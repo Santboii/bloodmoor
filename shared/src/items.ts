@@ -246,7 +246,16 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
     statBlock: {
       maxHp, maxMana, damageMult,
       cooldownMult: Math.max(0.5, cooldownMult),
-      moveSpeedMult, manaRegenMult,
+      // Spec's affix-system taste rules cap total move-speed intent at
+      // "~+15% across a full loadout, enforced by range design" — but the
+      // ranges alone don't enforce it (move_speed_pct can roll on all 7
+      // slots, and the shipped catalog's best bands multiply out to ~+45%).
+      // Runtime-clamp here, mirroring the cooldownMult floor above: in an
+      // arena PvP game, uncapped move speed is the single most
+      // balance-decisive stat, so this is a hard cap, not just a taste
+      // guideline.
+      moveSpeedMult: Math.min(1.15, moveSpeedMult),
+      manaRegenMult,
     },
     talentRanks,
   };
