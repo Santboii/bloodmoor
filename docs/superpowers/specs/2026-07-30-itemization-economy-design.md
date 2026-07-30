@@ -20,17 +20,23 @@ Three plans, executed in order; each ships something playable:
 - **Ownership**: items are **account-owned** (`user_id`); the stash is shared
   across the account's characters. `equipped_by` (nullable character id)
   marks equipped items; null = in stash.
-- **Slots**: `weapon`, `helmet`, `armor`, `leggings`, `ring1`, `ring2`,
-  `amulet`. Weapons are class-restricted (staff → mage, bow → ranger);
+- **Slots**: base slots are `weapon`, `helmet`, `armor`, `leggings`,
+  `ring`, `amulet`; equip positions are `weapon`, `helmet`, `armor`,
+  `leggings`, `ring1`, `ring2`, `amulet` (a nullable `equipped_slot`
+  column records the concrete position — rings fill the first empty of
+  ring1/ring2). Weapons are class-restricted (staff → mage, bow → ranger);
   all other slots are class-agnostic so cross-class finds matter.
   Rings/amulet are stat-only forever (no sprite representation exists).
 - **Base items**: shared TS manifest `ITEM_BASES` (pattern: `SKILL_NODES`) —
   id, slot, display name, class restriction, item-level band, implicit stat
   + range, Font Awesome icon (Phase 1), LPC layer path (Phase 3).
 - **DB row** (`items`): `id, user_id, base_id, rarity, affixes jsonb,
-  level_req, equipped_by, slot, source, created_at`. `source` ∈
-  `starter | drop | vendor | lootbox | admin`. Slot denormalized from the
-  base for cheap queries; RPCs validate it against the manifest.
+  level_req, equipped_by, equipped_slot, slot, source, created_at`.
+  `source` ∈ `starter | drop | vendor | lootbox | admin`. `slot` is the
+  base slot denormalized for cheap queries; RPCs validate it against the
+  manifest. `equipped_by` carries `ON DELETE SET NULL` semantics via the
+  delete-character path so removing a character returns its gear to the
+  stash rather than orphaning it.
 
 ## Rarity
 
@@ -73,6 +79,13 @@ clamping). Exact roll weights live in the plan and are tunable later.
   become castable and appear on the hotbar for that match. Item grants
   bypass tree gates and mutual exclusion (they are temporary; unequip
   removes them).
+- **Class scoping**: talent affixes roll from any tree, but ranks apply
+  only when the equipping character's class owns that tree (mage: fire +
+  utility; ranger: archer + archer_utility). Off-class affixes are inert
+  while equipped and render dimmed in tooltips — their value is moving the
+  item to the account's other-class character via the shared stash. This
+  keeps the per-class keybind/HUD model intact (keys 1–4 only ever host
+  class spells) and in-class oskill grants fully functional.
 - Element conflict (burn/freeze/poison): the derived arrow element is the
   highest effective rank; ties break burn > freeze > poison.
 - The shared diminishing-returns curve (`effectAtRank`, rank^0.7) applies
@@ -126,7 +139,8 @@ the flag — UI gating is cosmetic only). Contents:
 `lootbox_premium`), `weights jsonb` (`{basic, magic, rare, unique}`),
 `updated_at`. Seeded defaults: match_drop 70/24/5.5/0.5,
 lootbox_basic 60/32/7.5/0.5, lootbox_premium 25/50/21/4. The server reads
-at roll time; the admin editor mutates via RPC.
+at roll time; the admin editor mutates via RPC. A `unique` roll with no
+eligible unique for the rolled slot/level band falls back to rare.
 
 ## Economy (Phase 2 summary — separate plan)
 
