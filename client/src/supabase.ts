@@ -1,11 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { CLASS_DEFAULT_NODE, normalizeCharacterClass, validateItemRow } from '@arena/shared';
-import type { CharacterRecord, CharacterClass, ItemRow, ItemBaseSlot, ItemRarity, RolledAffix, EquipSlot } from '@arena/shared';
+import type { CharacterRecord, CharacterClass, ItemRow, ItemBaseSlot, ItemRarity, RolledAffix, EquipSlot, VendorSlot, LootboxTier } from '@arena/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export const supabase = createClient(url, key);
+
+// Base URL the client already uses to reach the game server (see
+// SocketClient.ts / main.ts's /rooms and /paused-match fetches) — the
+// economy endpoints below live on the same server, not Supabase.
+const GAME_SERVER_URL = (import.meta.env.VITE_SERVER_URL as string | undefined) ?? '';
 
 export type UserProfile = {
   username: string;
@@ -274,4 +279,76 @@ export async function fetchVendorPurchases(utcDay: string): Promise<number[]> {
     .eq('utc_day', utcDay);
   if (error) { console.error('fetchVendorPurchases failed:', error.message); return []; }
   return (data ?? []).map((r: { slot_index: number }) => r.slot_index);
+}
+
+// --- Game-server economy endpoints (Bearer-JWT, not Supabase reads) ---
+// Thin typed fetch helpers for the /economy/* routes added in server/src/
+// economy/routes.ts. No shop/lootbox UI consumes these yet (that's Task 5/6)
+// — they exist now so that work can wire straight into them.
+
+export type VendorSlotView = VendorSlot & { slotIndex: number; purchased: boolean; crossClass: boolean };
+export type VendorView = { utcDay: string; slots: VendorSlotView[] };
+
+/** GET /economy/vendor — today's 6-slot vendor stock for the signed-in
+ * account, annotated with purchased/crossClass flags. Returns null with no
+ * session, on a network failure, or a non-2xx response, so callers can
+ * treat "no vendor view" uniformly without inspecting the failure reason. */
+export async function fetchVendorView(): Promise<VendorView | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  try {
+    const res = await fetch(`${GAME_SERVER_URL}/economy/vendor`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!res.ok) { console.error('fetchVendorView failed:', res.status); return null; }
+    return await res.json() as VendorView;
+  } catch (err) {
+    console.error('fetchVendorView failed:', err);
+    return null;
+  }
+}
+
+/** POST /economy/vendor/buy — purchases a vendor slot for the signed-in
+ * account. Returns the granted item on success, run through validateItemRow
+ * like fetchItems; returns null with no session, on a network failure, or
+ * if the server rejects the purchase (already bought, insufficient gold —
+ * the server logs the specific reason, this just surfaces "it didn't work"
+ * to the caller). */
+export async function buyVendorSlot(slotIndex: number): Promise<ItemRow | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  try {
+    const res = await fetch(`${GAME_SERVER_URL}/economy/vendor/buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ slotIndex }),
+    });
+    if (!res.ok) { console.error('buyVendorSlot failed:', res.status); return null; }
+    const { item } = await res.json();
+    return validateItemRow(item);
+  } catch (err) {
+    console.error('buyVendorSlot failed:', err);
+    return null;
+  }
+}
+
+/** POST /economy/lootbox/open — opens a loot box of the given tier for the
+ * signed-in account. Same return/validation/error-handling shape as
+ * buyVendorSlot above. */
+export async function openLootbox(tier: LootboxTier): Promise<ItemRow | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  try {
+    const res = await fetch(`${GAME_SERVER_URL}/economy/lootbox/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ tier }),
+    });
+    if (!res.ok) { console.error('openLootbox failed:', res.status); return null; }
+    const { item } = await res.json();
+    return validateItemRow(item);
+  } catch (err) {
+    console.error('openLootbox failed:', err);
+    return null;
+  }
 }

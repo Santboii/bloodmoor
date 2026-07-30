@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ringTargetSlot, canEquip } from '../src/items/GearScreen';
+import { ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS } from '../src/items/GearScreen';
 import type { ItemRow } from '@arena/shared';
 
 function makeItem(overrides: Partial<ItemRow> = {}): ItemRow {
@@ -73,5 +73,39 @@ describe('canEquip', () => {
     const result = canEquip(item, 1, 'mage');
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('Requires level 10');
+  });
+});
+
+// Exported for reuse by LobbyUI's "War Spoils" result-screen card (Task 4)
+// instead of duplicating rarity-color/name-resolution logic there.
+describe('itemBase', () => {
+  it('resolves the ItemBase manifest entry for a known base_id', () => {
+    const item = makeItem({ base_id: 'apprentice_staff' });
+    expect(itemBase(item)?.id).toBe('apprentice_staff');
+  });
+
+  it('returns undefined for an unknown base_id', () => {
+    const item = makeItem({ base_id: 'not_a_real_base' });
+    expect(itemBase(item)).toBeUndefined();
+  });
+});
+
+describe('itemDisplayName', () => {
+  it('uses the unique manifest name for a unique-rarity item', () => {
+    const item = makeItem({ base_id: 'moon_amulet', rarity: 'unique', slot: 'amulet' });
+    const base = itemBase(item)!;
+    expect(itemDisplayName(item, base)).toBe('Emberheart');
+  });
+
+  it('falls back to the base name for non-unique rarities', () => {
+    const item = makeItem({ base_id: 'apprentice_staff', rarity: 'magic' });
+    const base = itemBase(item)!;
+    expect(itemDisplayName(item, base)).toBe(base.name);
+  });
+});
+
+describe('RARITY_COLORS', () => {
+  it('has an entry for every item rarity', () => {
+    expect(Object.keys(RARITY_COLORS).sort()).toEqual(['basic', 'magic', 'rare', 'unique']);
   });
 });

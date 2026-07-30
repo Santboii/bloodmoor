@@ -12,7 +12,7 @@ import { AuthUI } from './auth/AuthUI';
 import { SkillTreeUI } from './skills/SkillTreeUI';
 import { GearScreen } from './items/GearScreen';
 import { AdminScreen } from './admin/AdminScreen';
-import { supabase, fetchProfile, fetchCharacters, fetchItems } from './supabase';
+import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
 import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass } from '@arena/shared';
@@ -100,6 +100,18 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   hud.buildSpellSlots(ownedSpells);
 }
 
+/** Fresh profiles.gold read pushed into the lobby's gold pill — gold is
+ * never computed client-side (see supabase.ts's fetchGold). Called on every
+ * lobby show/return and after duel-ended processing (below), and exposed
+ * for Task 5/6's shop and stash-sell flows to call once they mutate gold.
+ * With no session, sets the pill to hidden (null) rather than fetching a
+ * meaningless 0. */
+async function refreshGold(): Promise<void> {
+  if (!accessToken) { lobby.setGold(null); return; }
+  const gold = await fetchGold();
+  lobby.setGold(gold);
+}
+
 const PLAYER_COLORS: Record<number, number> = {
   0: 0xc8a000,  // gold
   1: 0xc00030,  // red
@@ -122,6 +134,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     charSelect.hide();
     lobby.show();
     lobby.showHome(character.name, character.skill_points_available, character.class, character.level);
+    void refreshGold();
   },
   onLogout: async () => {
     try { await supabase.auth.signOut(); } catch {}
@@ -213,6 +226,7 @@ async function attemptAutoRejoin(
     myId = '';
     lobby.show();
     lobby.showHome(username, skillPoints);
+    void refreshGold();
   });
   socket.rejoinRoom(roomId, accessToken);
 }
@@ -278,6 +292,7 @@ const lobby = new LobbyUI(uiOverlay, {
     } else {
       lobby.showHome(myDisplayName);
     }
+    void refreshGold();
   },
   onSendChatMessage: (text) => socket.sendChatMessage(text),
   onLogout: async () => {
@@ -314,6 +329,7 @@ const lobby = new LobbyUI(uiOverlay, {
     if (activeCharacter) {
       lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
     }
+    void refreshGold();
   },
   onOpenGear: async () => {
     if (!activeCharacter) return;
@@ -324,6 +340,7 @@ const lobby = new LobbyUI(uiOverlay, {
     if (activeCharacter) {
       lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
     }
+    void refreshGold();
   },
   onSwitchCharacter: async () => {
     lobby.hide();
@@ -341,6 +358,7 @@ const lobby = new LobbyUI(uiOverlay, {
     } else {
       lobby.showHome(myDisplayName);
     }
+    void refreshGold();
   },
 });
 lobby.hide();
@@ -429,6 +447,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
         xp: myResult.newXp ?? activeCharacter.xp,
       };
     }
+    void refreshGold();
   });
 
   socket.onRematchReady(() => {

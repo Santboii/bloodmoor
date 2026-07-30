@@ -10,7 +10,7 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const RARITY_COLORS: Record<ItemRow['rarity'], string> = {
+export const RARITY_COLORS: Record<ItemRow['rarity'], string> = {
   basic: '#e8dff5',
   magic: '#4a6fc4',
   rare: '#ddb84a',
@@ -49,7 +49,7 @@ function affixLabel(a: RolledAffix): string {
   return AFFIX_LABELS[a.id](a.value);
 }
 
-function itemBase(item: ItemRow): ItemBase | undefined {
+export function itemBase(item: ItemRow): ItemBase | undefined {
   return ITEM_BASES.find(b => b.id === item.base_id);
 }
 
@@ -60,7 +60,7 @@ function findUniqueItem(item: ItemRow): UniqueItem | undefined {
   return UNIQUE_ITEMS.find(u => u.baseId === item.base_id);
 }
 
-function itemDisplayName(item: ItemRow, base: ItemBase): string {
+export function itemDisplayName(item: ItemRow, base: ItemBase): string {
   if (item.rarity === 'unique') return findUniqueItem(item)?.name ?? base.name;
   return base.name;
 }
