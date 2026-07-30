@@ -19,8 +19,6 @@ export class CharacterMesh {
   private prevZ = 0;
   private velocityMag = 0;
   private smoothVel = 0;
-  private smoothVelX = 0;
-  private smoothVelZ = 0;
 
   constructor(charClass: CharacterClass, color: number, displayName: string, labelContainer: HTMLElement) {
     this.sprite = new SpriteCharacter(CLASS_DEFAULT_APPEARANCE[charClass], charClass);
@@ -47,19 +45,14 @@ export class CharacterMesh {
   setPosition(x: number, y: number, facing?: number): void {
     const dx = x - this.prevX;
     const dz = y - this.prevZ;
-    // Exponential smoothing of velocity vector — filters jitter from interpolated positions.
-    this.smoothVelX = this.smoothVelX * 0.8 + dx * 0.2;
-    this.smoothVelZ = this.smoothVelZ * 0.8 + dz * 0.2;
-    const smoothMag = Math.sqrt(this.smoothVelX * this.smoothVelX + this.smoothVelZ * this.smoothVelZ);
     const raw = Math.min(Math.sqrt(dx * dx + dz * dz) * 60, 1000);
     this.smoothVel = this.smoothVel * 0.85 + raw * 0.15;
     this.velocityMag = this.smoothVel;
-    // Facing: use smoothed velocity direction when moving (stable & responsive),
-    // fall back to server facing (aim direction) when stationary. Billboards
-    // never rotate the group — facing only steers which sprite row is shown.
-    if (smoothMag > 0.05) {
-      this.sprite.setFacing(Math.atan2(this.smoothVelZ, this.smoothVelX));
-    } else if (facing !== undefined) {
+    // Facing follows the aim direction only (cursor), never movement — the
+    // character snaps to face the cursor Core-Keeper-style, strafing while
+    // running. Billboards never rotate the group — facing only steers which
+    // sprite row is shown.
+    if (facing !== undefined) {
       this.sprite.setFacing(facing);
     }
     this.prevX = x;

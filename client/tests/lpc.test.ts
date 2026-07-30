@@ -29,6 +29,33 @@ describe('directionFromWorldAngle', () => {
     expect(directionFromWorldAngle(-Math.PI / 4 + 0.3)).toBe(3);
     expect(directionFromWorldAngle(-Math.PI / 4 - 0.3)).toBe(3);
   });
+
+  it('holds the current row across small oscillations at a sector boundary', () => {
+    // World angle 0 = screen 45°, the exact right/down boundary. Jitter of a
+    // few degrees around it must not flip the row once one is established.
+    const jitter = 0.04; // ~2.3°, well inside the 15° hysteresis margin
+    const dir = directionFromWorldAngle(0);
+    expect(directionFromWorldAngle(jitter, dir)).toBe(dir);
+    expect(directionFromWorldAngle(-jitter, dir)).toBe(dir);
+  });
+
+  it('switches rows once the angle clearly leaves the current sector', () => {
+    // Established screen-right (row 3), then aim swings to screen-down
+    // territory beyond the 45°+15° margin → must switch to row 2.
+    expect(directionFromWorldAngle(Math.PI / 4, 3)).toBe(2);
+    // A full reversal always switches.
+    expect(directionFromWorldAngle((3 * Math.PI) / 4, 3)).toBe(1);
+  });
+
+  it('never sticks past the hysteresis margin on either side', () => {
+    // 45° + 15° margin = 60° from the current sector center is the release
+    // point; just inside holds, just outside releases.
+    const center = -Math.PI / 4; // screen-right center as world angle
+    const hold = center + (Math.PI / 3 - 0.02);
+    const release = center + (Math.PI / 3 + 0.02);
+    expect(directionFromWorldAngle(hold, 3)).toBe(3);
+    expect(directionFromWorldAngle(release, 3)).toBe(2);
+  });
 });
 
 describe('animationFrame', () => {
