@@ -1,27 +1,15 @@
 import type { Appearance, ItemRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
+import {
+  buildNavBar, wireNavBar, setNavGold, injectNavBarCss,
+} from '../ui/navBar';
+export { accountMenuItems, skillsBadge } from '../ui/navBar';
+export type { AccountMenuItem, NavKey } from '../ui/navBar';
 import { SpritePreview } from '../renderer/sprites/SpritePreview';
 import { RARITY_COLORS, itemBase, itemDisplayName } from '../items/GearScreen';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-export type AccountMenuItem = { id: 'switch' | 'credits' | 'admin' | 'logout'; label: string };
-
-/** Account dropdown contents. Admin is a cosmetic gate — see isAdminFlag. */
-export function accountMenuItems(isAdmin: boolean): AccountMenuItem[] {
-  const items: AccountMenuItem[] = [
-    { id: 'credits', label: 'Credits' },
-  ];
-  if (isAdmin) items.push({ id: 'admin', label: '⚙ Admin' });
-  items.push({ id: 'logout', label: 'Sign Out' });
-  return items;
-}
-
-/** Unspent-points badge for the Skills tab; empty string when none. */
-export function skillsBadge(points?: number): string {
-  return points && points > 0 ? `✦${points}` : '';
 }
 
 /** Nameplate meta line. Returns safe HTML (class string is escaped). */
@@ -175,26 +163,10 @@ const STYLES = `
 .bm-disc-panel{text-align:center;max-width:360px;}
 .bm-disc-title{font-family:'Press Start 2P',monospace;font-size:16px;color:var(--px-danger);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;}
 .bm-disc-sub{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-border-light);letter-spacing:1px;}
-.bm-nav{display:flex;align-items:center;gap:10px;width:100%;max-width:1060px;background:rgba(10,11,15,0.92);padding:10px 14px;margin-bottom:24px;box-sizing:border-box;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);}
-.bm-gold-pill{display:flex;align-items:center;gap:6px;padding:8px 14px;flex-shrink:0;background:var(--px-border-dark);box-shadow:0 0 0 2px var(--px-accent);color:var(--px-accent);font-size:11px;letter-spacing:1px;white-space:nowrap;font-family:'Press Start 2P',monospace;}
-.bm-gold-pill i{font-size:12px;}
-.bm-nav-crest{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--px-accent);letter-spacing:1px;white-space:nowrap;margin-right:8px;text-shadow:0 0 10px rgba(255,122,30,0.5),2px 2px 0 var(--px-border-dark);}
-.bm-nav-tab{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;padding:10px 14px;}
-.bm-nav-tab.active{background:#3a3f4b;color:var(--px-accent);cursor:default;box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
-.bm-nav-tab.locked{opacity:0.4;cursor:not-allowed;}
-.bm-nav-badge{color:var(--px-success);margin-left:6px;}
-.bm-nav-spacer{flex:1;}
-.bm-acct{position:relative;}
-.bm-acct-btn{font-size:8px;letter-spacing:1px;padding:10px 12px;color:var(--px-accent);}
-.bm-acct-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:200px;background:var(--px-panel);display:none;z-index:5;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark),0 8px 24px rgba(0,0,0,0.6);}
-.bm-acct-menu.open{display:block;}
-.bm-acct-item{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:var(--px-text);text-transform:uppercase;padding:12px 14px;}
-.bm-acct-item:hover{background:#3a3f4b;color:var(--px-accent);}
-.bm-acct-item[data-item="logout"]:hover{color:var(--px-danger);}
 .bm-layout-home{max-width:1060px;}
 .bm-panel-lobbies{flex:0 0 340px;}
 .bm-panel-translucent{background:rgba(30,32,38,0.92);}
-.bm-hero{flex:1;display:flex;flex-direction:column;align-items:center;padding-top:6px;min-width:0;}
+.bm-hero{flex:1;align-self:stretch;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;}
 .bm-hero-plate{background:rgba(10,11,15,0.85);box-shadow:0 0 0 1px var(--px-border-light);padding:10px 18px;text-align:center;margin-bottom:16px;}
 .bm-hero-name{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--px-accent);letter-spacing:1px;}
 .bm-hero-meta{font-family:'VT323',monospace;font-size:17px;color:var(--px-border-light);margin-top:5px;}
@@ -219,7 +191,7 @@ export class LobbyUI {
   private bg: HTMLElement;
   private pollTimer: number | null = null;
   private heroPreview: SpritePreview | null = null;
-  private docClickHandler: ((e: MouseEvent) => void) | null = null;
+  private navTeardown: (() => void) | null = null;
   private pauseOverlay: HTMLElement | null = null;
   private pauseCountdownTimer: number | null = null;
   // Cosmetic gate only — the admin button simply isn't rendered for
@@ -242,6 +214,7 @@ export class LobbyUI {
     this.el.className = 'bm-overlay';
 
     injectCastleSceneCss();
+    injectNavBarCss();
     this.bg = document.createElement('div');
     this.bg.className = 'bm-bg';
     this.bg.innerHTML = buildHallScene();
@@ -269,15 +242,7 @@ export class LobbyUI {
    * showHome() also reads the cached value on its next full re-render. */
   setGold(gold: number | null): void {
     this.goldAmount = gold;
-    const pill = this.ui.querySelector('#bm-gold-pill') as HTMLElement | null;
-    if (!pill) return;
-    if (gold === null) {
-      pill.style.display = 'none';
-      return;
-    }
-    pill.style.display = '';
-    const amountEl = pill.querySelector('#bm-gold-amount');
-    if (amountEl) amountEl.textContent = String(gold);
+    setNavGold(this.ui, gold);
   }
 
   /** Home-screen chrome (sprite raf loop, account-menu document listener)
@@ -287,9 +252,9 @@ export class LobbyUI {
       this.heroPreview.dispose();
       this.heroPreview = null;
     }
-    if (this.docClickHandler) {
-      document.removeEventListener('click', this.docClickHandler);
-      this.docClickHandler = null;
+    if (this.navTeardown) {
+      this.navTeardown();
+      this.navTeardown = null;
     }
   }
 
@@ -301,12 +266,6 @@ export class LobbyUI {
     const hasChar = charClass !== undefined;
     const hasSprite = hasChar && appearance != null;
     const nameValue = username ? escapeHtml(username) : '';
-    const badge = skillsBadge(points);
-
-    const tabAttrs = hasChar ? 'class="bm-nav-tab px-btn"' : 'class="bm-nav-tab px-btn locked" disabled';
-    const menuHtml = accountMenuItems(this.isAdminFlag)
-      .map(i => `<button class="bm-acct-item" data-item="${i.id}">${i.label}</button>`)
-      .join('');
 
     const heroHtml = hasSprite
       ? `<canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>
@@ -324,21 +283,14 @@ export class LobbyUI {
          </div>`;
 
     this.ui.innerHTML = `
-      <div class="bm-nav">
-        <div class="bm-nav-crest">⚔ Blood Moor</div>
-        <button class="bm-nav-tab px-btn active">Arena</button>
-        <button id="bm-skills" ${tabAttrs}>Skills${badge ? `<span class="bm-nav-badge">${badge}</span>` : ''}</button>
-        <button id="bm-gear" ${tabAttrs}>Gear</button>
-        <button id="bm-shop" ${tabAttrs}>Shop</button>
-        <div class="bm-nav-spacer"></div>
-        <div id="bm-gold-pill" class="bm-gold-pill" style="display:${this.goldAmount === null ? 'none' : ''}">
-          <i class="fa fa-coins"></i><span id="bm-gold-amount">${this.goldAmount ?? 0}</span>
-        </div>
-        <div class="bm-acct">
-          <button id="bm-acct-btn" class="bm-acct-btn px-btn">${nameValue || 'Account'} ▾</button>
-          <div id="bm-acct-menu" class="bm-acct-menu">${menuHtml}</div>
-        </div>
-      </div>
+      ${buildNavBar({
+        active: 'arena',
+        username: nameValue,
+        gold: this.goldAmount,
+        skillPoints: points,
+        isAdmin: this.isAdminFlag,
+        tabsEnabled: hasChar,
+      })}
       <div class="bm-layout bm-layout-home">
         <div class="bm-panel px-panel bm-panel-left bm-panel-translucent">
           <div class="bm-ptitle">Challenger</div>
@@ -367,30 +319,15 @@ export class LobbyUI {
         </div>
       </div>`;
 
-    if (hasChar) {
-      this.ui.querySelector('#bm-skills')!.addEventListener('click', () => this.cb.onOpenSkills());
-      this.ui.querySelector('#bm-gear')!.addEventListener('click', () => this.cb.onOpenGear());
-      this.ui.querySelector('#bm-shop')!.addEventListener('click', () => this.cb.onOpenShop());
-    }
-
-    const acctBtn = this.ui.querySelector('#bm-acct-btn')!;
-    const acctMenu = this.ui.querySelector('#bm-acct-menu')!;
-    acctBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      acctMenu.classList.toggle('open');
-    });
-    this.docClickHandler = () => acctMenu.classList.remove('open');
-    document.addEventListener('click', this.docClickHandler);
-    const menuActions: Record<string, () => void> = {
-      credits: () => this.cb.onShowCredits(),
-      admin: () => this.cb.onOpenAdmin(),
-      logout: () => this.cb.onLogout(),
-    };
-    acctMenu.querySelectorAll('.bm-acct-item').forEach(btn => {
-      btn.addEventListener('click', () => {
-        acctMenu.classList.remove('open');
-        menuActions[(btn as HTMLElement).dataset.item!]?.();
-      });
+    this.navTeardown = wireNavBar(this.ui, {
+      onNavigate: (key) => {
+        if (key === 'skills') this.cb.onOpenSkills();
+        else if (key === 'gear') this.cb.onOpenGear();
+        else if (key === 'shop') this.cb.onOpenShop();
+        else if (key === 'admin') this.cb.onOpenAdmin();
+      },
+      onCredits: () => this.cb.onShowCredits(),
+      onLogout: () => this.cb.onLogout(),
     });
 
     const chooseBtn = this.ui.querySelector('#bm-choose-champion');

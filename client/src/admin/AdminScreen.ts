@@ -8,6 +8,9 @@ import type {
   ItemBaseSlot, ItemRarity, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import {
+  buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
+} from '../ui/navBar';
 
 // This screen renders OTHER accounts' data (owner usernames, equipped
 // character names) — every DB-originated string must go through esc()
@@ -98,7 +101,6 @@ const STYLES = `
 .ad-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .ad-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .ad-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
-.ad-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:1100px;margin-bottom:16px;flex-wrap:wrap;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .ad-title{font-size:11px;letter-spacing:0.05em;}
 .ad-tabs{display:flex;gap:6px;flex-wrap:wrap;}
 .ad-tab{font-size:8px;letter-spacing:0.05em;padding:10px 16px;}
@@ -160,7 +162,8 @@ const STYLES = `
 
 export class AdminScreen {
   private el: HTMLElement;
-  private closeResolver: (() => void) | null = null;
+  private closeResolver: ((next: NavKey) => void) | null = null;
+  private navTeardown: (() => void) | null = null;
   private tab: Tab = 'items';
 
   // Items tab
@@ -188,8 +191,13 @@ export class AdminScreen {
   private dropStatus = new Map<string, string>();
   private dropErrors = new Map<string, string>();
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    private navCtx: () => NavContext,
+    private navHandlers: NavAccountHandlers,
+  ) {
     injectCastleSceneCss();
+    injectNavBarCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -199,17 +207,21 @@ export class AdminScreen {
     container.appendChild(this.el);
   }
 
-  async show(): Promise<void> {
+  async show(): Promise<NavKey> {
     this.tab = 'items';
     this.el.style.display = 'block';
     await this.reloadAll();
-    await new Promise<void>(resolve => { this.closeResolver = resolve; });
+    return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
 
-  hide(): void {
+  /** `next` is where the user asked to go — 'arena' for the lobby. */
+  hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
-    this.closeResolver?.();
+    this.navTeardown?.();
+    this.navTeardown = null;
+    const resolve = this.closeResolver;
     this.closeResolver = null;
+    resolve?.(next);
   }
 
   private async reloadAll(): Promise<void> {
@@ -252,16 +264,21 @@ export class AdminScreen {
       <div class="ad-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('ad')}</div>
       <div class="ad-vignette"></div>
       <div class="ad-ui">
-        <div class="ad-header">
+        ${buildNavBar({ active: 'admin', ...this.navCtx() })}
+        <div class="bm-subhead">
           <div class="ad-title px-title">Admin</div>
           <div class="ad-tabs">${tabsHtml}</div>
-          <button id="ad-close" class="ad-btn px-btn px-btn-primary">Back to Lobby</button>
         </div>
         <div class="ad-body">${bodyHtml}</div>
       </div>
     `;
 
-    this.el.querySelector('#ad-close')!.addEventListener('click', () => this.hide());
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+    });
     this.el.querySelectorAll('[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.tab = (btn as HTMLElement).dataset.tab as Tab;

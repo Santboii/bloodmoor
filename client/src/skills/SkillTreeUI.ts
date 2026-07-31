@@ -2,6 +2,9 @@ import { supabase } from '../supabase';
 import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass } from '@arena/shared';
 import type { CharacterClass } from '@arena/shared';
 import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import {
+  buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
+} from '../ui/navBar';
 
 const NODE_ICONS: Record<NodeId, string> = {
   'fire.fireball':        'fa-fire',
@@ -95,14 +98,12 @@ const STYLES = `
 .st-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 /* ── header bar ─────────────────────────────────────────────────────── */
-.st-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:1060px;margin-bottom:16px;flex-wrap:wrap;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .st-title{font-size:11px;letter-spacing:0.05em;}
 .st-points-pill{display:flex;align-items:center;gap:10px;background:#101117;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
 .st-points-gem{width:10px;height:10px;background:var(--px-success);transform:rotate(45deg);box-shadow:0 0 8px rgba(111,206,126,0.7);}
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
-.st-header-buttons{display:flex;gap:10px;}
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .st-col-main{flex:1 1 560px;min-width:480px;max-width:640px;}
@@ -195,8 +196,13 @@ export class SkillTreeUI {
   private selectedId: NodeId | null = null;
   private flashId: NodeId | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    private navCtx: () => NavContext,
+    private navHandlers: NavAccountHandlers,
+  ) {
     injectCastleSceneCss();
+    injectNavBarCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -206,9 +212,10 @@ export class SkillTreeUI {
     container.appendChild(this.el);
   }
 
-  private closeResolver: (() => void) | null = null;
+  private closeResolver: ((next: NavKey) => void) | null = null;
+  private navTeardown: (() => void) | null = null;
 
-  async show(characterId?: string): Promise<void> {
+  async show(characterId?: string): Promise<NavKey> {
     this.characterId = characterId ?? null;
     this.selectedId = null;
     this.el.style.display = 'block';
@@ -216,13 +223,17 @@ export class SkillTreeUI {
     // Resolve only when the user closes the tree — callers refresh the
     // unlocked-spells set afterwards, so resolving on data-load would run
     // that refresh before any points were actually spent.
-    await new Promise<void>(resolve => { this.closeResolver = resolve; });
+    return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
 
-  hide(): void {
+  /** `next` is where the user asked to go — 'arena' for the lobby. */
+  hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
-    this.closeResolver?.();
+    this.navTeardown?.();
+    this.navTeardown = null;
+    const resolve = this.closeResolver;
     this.closeResolver = null;
+    resolve?.(next);
   }
 
   private async reload(): Promise<void> {
@@ -287,16 +298,16 @@ export class SkillTreeUI {
       <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('st')}</div>
       <div class="st-vignette"></div>
       <div class="st-ui">
-        <div class="st-header">
+        ${buildNavBar({ active: 'skills', ...this.navCtx() })}
+        <div class="bm-subhead">
           <div class="st-title px-title">${esc(this.charName)} — ${esc(this.charClass)} Skills</div>
-          <div class="st-points-pill">
-            <div class="st-points-gem"></div>
-            <span class="st-points-num">${pts}</span>
-            <span class="st-points-label">Points<br>Available</span>
-          </div>
-          <div class="st-header-buttons">
+          <div class="bm-subhead-actions">
+            <div class="st-points-pill">
+              <div class="st-points-gem"></div>
+              <span class="st-points-num">${pts}</span>
+              <span class="st-points-label">Points<br>Available</span>
+            </div>
             <button id="st-respec" class="st-btn px-btn">Reset Skills</button>
-            <button id="st-close" class="st-btn px-btn px-btn-primary">Back to Lobby</button>
           </div>
         </div>
 
@@ -322,7 +333,12 @@ export class SkillTreeUI {
       </div>
     `;
 
-    this.el.querySelector('#st-close')!.addEventListener('click', () => this.hide());
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+    });
     this.el.querySelector('#st-respec')!.addEventListener('click', () => this.handleRespec());
 
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);

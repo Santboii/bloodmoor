@@ -1,4 +1,8 @@
 import { fetchVendorView, buyVendorSlot, openLootbox, fetchGold } from '../supabase';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import {
+  buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
+} from '../ui/navBar';
 import type { VendorView, VendorSlotView } from '../supabase';
 import { LOOTBOX_PRICES } from '@arena/shared';
 import type { LootboxTier, ItemRow, AffixId, RolledAffix } from '@arena/shared';
@@ -73,7 +77,6 @@ const STYLES = `
 .sh-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .sh-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .sh-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
-.sh-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:900px;margin-bottom:16px;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .sh-title{font-size:11px;letter-spacing:0.05em;}
 .sh-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
 .sh-columns{display:flex;gap:24px;width:100%;max-width:900px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
@@ -120,7 +123,8 @@ const STYLES = `
 
 export class ShopScreen {
   private el: HTMLElement;
-  private closeResolver: (() => void) | null = null;
+  private closeResolver: ((next: NavKey) => void) | null = null;
+  private navTeardown: (() => void) | null = null;
   private vendor: VendorView | null = null;
   // Fresh server gold, optionally patched with a DISPLAY-ONLY optimistic
   // decrement between firing a buy/open request and its reload() reconcile
@@ -140,7 +144,13 @@ export class ShopScreen {
   // attempt against fresh stock.
   private staleNotice: string | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    private navCtx: () => NavContext,
+    private navHandlers: NavAccountHandlers,
+  ) {
+    injectCastleSceneCss();
+    injectNavBarCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -150,7 +160,7 @@ export class ShopScreen {
     container.appendChild(this.el);
   }
 
-  async show(): Promise<void> {
+  async show(): Promise<NavKey> {
     this.selectedSlotIndex = null;
     this.pending.clear();
     this.noticeBySlot.clear();
@@ -159,13 +169,17 @@ export class ShopScreen {
     this.staleNotice = null;
     this.el.style.display = 'block';
     await this.reload();
-    await new Promise<void>(resolve => { this.closeResolver = resolve; });
+    return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
 
-  hide(): void {
+  /** `next` is where the user asked to go — 'arena' for the lobby. */
+  hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
-    this.closeResolver?.();
+    this.navTeardown?.();
+    this.navTeardown = null;
+    const resolve = this.closeResolver;
     this.closeResolver = null;
+    resolve?.(next);
   }
 
   /** Fresh vendor + gold read — the only source of truth for purchased
@@ -186,11 +200,12 @@ export class ShopScreen {
     const lootboxHtml = (['basic', 'premium'] as LootboxTier[]).map(t => this.renderLootboxCard(t)).join('');
 
     this.el.innerHTML = `
+      <div class="sh-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('sh')}</div>
       <div class="sh-vignette"></div>
       <div class="sh-ui">
-        <div class="sh-header">
+        ${buildNavBar({ active: 'shop', ...this.navCtx(), gold: this.gold })}
+        <div class="bm-subhead">
           <div class="sh-title px-title">Shop</div>
-          <button id="sh-close" class="sh-btn px-btn px-btn-primary">Back to Lobby</button>
         </div>
         <div class="sh-columns">
           <div class="sh-col-vendor">
@@ -300,7 +315,12 @@ export class ShopScreen {
   }
 
   private attachListeners(): void {
-    this.el.querySelector('#sh-close')?.addEventListener('click', () => this.hide());
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+    });
 
     this.el.querySelectorAll('[data-slot]').forEach(el => {
       const slotIndex = Number((el as HTMLElement).dataset.slot);

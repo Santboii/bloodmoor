@@ -6,6 +6,9 @@ import type {
   ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import {
+  buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
+} from '../ui/navBar';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -103,9 +106,7 @@ const STYLES = `
 .gr-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .gr-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .gr-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
-.gr-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:900px;margin-bottom:16px;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .gr-title{font-size:11px;letter-spacing:0.05em;}
-.gr-gold{font-size:14px;color:var(--px-accent);display:flex;align-items:center;gap:6px;white-space:nowrap;}
 .gr-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 .gr-columns{display:flex;gap:24px;width:100%;max-width:900px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .gr-col-doll{flex:0 0 340px;}
@@ -158,7 +159,8 @@ export class GearScreen {
   private charClass: CharacterClass = 'mage';
   private charLevel = 1;
   private selectedId: string | null = null;
-  private closeResolver: (() => void) | null = null;
+  private closeResolver: ((next: NavKey) => void) | null = null;
+  private navTeardown: (() => void) | null = null;
   // Fresh server gold, optionally patched with a DISPLAY-ONLY optimistic
   // bump between firing a sell and its reload() reconcile — see Global
   // Constraints: never trust this for anything but rendering.
@@ -169,8 +171,13 @@ export class GearScreen {
   private sellPending = new Set<string>();
   private sellErrorById = new Map<string, string>();
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    private navCtx: () => NavContext,
+    private navHandlers: NavAccountHandlers,
+  ) {
     injectCastleSceneCss();
+    injectNavBarCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -180,7 +187,7 @@ export class GearScreen {
     container.appendChild(this.el);
   }
 
-  async show(characterId: string, charClass: CharacterClass, charLevel: number): Promise<void> {
+  async show(characterId: string, charClass: CharacterClass, charLevel: number): Promise<NavKey> {
     this.characterId = characterId;
     this.charClass = charClass;
     this.charLevel = charLevel;
@@ -189,13 +196,17 @@ export class GearScreen {
     this.sellErrorById.clear();
     this.el.style.display = 'block';
     await this.reload();
-    await new Promise<void>(resolve => { this.closeResolver = resolve; });
+    return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
 
-  hide(): void {
+  /** `next` is where the user asked to go — 'arena' for the lobby. */
+  hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
-    this.closeResolver?.();
+    this.navTeardown?.();
+    this.navTeardown = null;
+    const resolve = this.closeResolver;
     this.closeResolver = null;
+    resolve?.(next);
   }
 
   /** Fresh items + gold read — the only source of truth for the stash and
@@ -226,10 +237,9 @@ export class GearScreen {
       <div class="gr-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('gr')}</div>
       <div class="gr-vignette"></div>
       <div class="gr-ui">
-        <div class="gr-header">
+        ${buildNavBar({ active: 'gear', ...this.navCtx(), gold: this.gold })}
+        <div class="bm-subhead">
           <div class="gr-title px-title">${esc(this.charClass)} Lvl ${this.charLevel} — Gear</div>
-          <div class="gr-gold"><i class="fa fa-coins"></i> ${this.gold ?? 0}</div>
-          <button id="gr-close" class="gr-btn px-btn px-btn-primary">Back to Lobby</button>
         </div>
         <div class="gr-columns">
           <div class="gr-col-doll">
@@ -245,7 +255,12 @@ export class GearScreen {
       </div>
     `;
 
-    this.el.querySelector('#gr-close')!.addEventListener('click', () => this.hide());
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+    });
     this.attachItemListeners();
     this.renderDetails(this.selectedId);
   }

@@ -20,6 +20,7 @@ import type { CharacterRecord, CharacterClass } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
+import type { NavContext, NavKey } from './ui/navBar';
 import { injectPixelTheme } from './ui/pixelTheme';
 import { CreditsScreen } from './ui/CreditsScreen';
 
@@ -108,9 +109,107 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
  * With no session, sets the pill to hidden (null) rather than fetching a
  * meaningless 0. */
 async function refreshGold(): Promise<void> {
-  if (!accessToken) { lobby.setGold(null); return; }
+  if (!accessToken) { currentGold = null; lobby.setGold(null); return; }
   const gold = await fetchGold();
+  currentGold = gold;
   lobby.setGold(gold);
+}
+
+/** Chrome state the shared nav bar shows on every screen. Read at render
+ * time by each screen so a section switch never paints stale gold/points. */
+function navContext(): NavContext {
+  return {
+    username: activeCharacter?.name ?? myDisplayName,
+    gold: currentGold,
+    skillPoints: activeCharacter?.skill_points_available,
+    isAdmin: isAdminFlag,
+  };
+}
+
+const navAccountHandlers = {
+  onCredits: () => { void creditsScreen.show(); },
+  onLogout: () => { void handleLogout(); },
+};
+
+/** Sign out and return to the auth screen. Shared by the lobby's account
+ * menu and every sub-screen's copy of that menu. */
+async function handleLogout(): Promise<void> {
+    try { await supabase.auth.signOut(); } catch { /* proceed anyway */ }
+    stopGame();
+    accessToken = '';
+    activeCharacter = null;
+    handlersRegistered = false;
+    myId = '';
+    currentRoomId = '';
+    currentPlayers = {};
+    allPlayerNames = {};
+    currentMode = '1v1';
+    myTeamId = undefined;
+    ownedSpells = new Set();
+    pendingRejoin = null;
+    socket.disconnect();
+    lobby.hide();
+    isAdminFlag = false;
+    lobby.setAdmin(false);
+    auth.show();
+}
+
+function renderLobbyHome(): void {
+  if (activeCharacter) {
+    lobby.showHome(
+      activeCharacter.name,
+      activeCharacter.skill_points_available,
+      activeCharacter.class,
+      activeCharacter.level,
+      appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+    );
+  } else {
+    lobby.showHome(myDisplayName);
+  }
+}
+
+/** Open one section and return where the user asked to go next. Each screen
+ * does its own post-close refresh here so the data is current no matter
+ * which tab they leave through. */
+async function runSection(key: Exclude<NavKey, 'arena'>): Promise<NavKey> {
+  if (key === 'skills') {
+    if (!activeCharacter) return 'arena';
+    const next = await skillTreeUI.show(activeCharacter.id);
+    const chars = await fetchCharacters();
+    const updated = chars.find(c => c.id === activeCharacter!.id);
+    if (updated) activeCharacter = updated;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && activeCharacter) {
+      await refreshLoadout(activeCharacter.id, activeCharacter.class);
+    }
+    return next;
+  }
+  if (key === 'gear') {
+    if (!activeCharacter) return 'arena';
+    const next = await gearScreen.show(activeCharacter.id, activeCharacter.class, activeCharacter.level);
+    await refreshLoadout(activeCharacter.id, activeCharacter.class);
+    return next;
+  }
+  if (key === 'shop') {
+    if (!activeCharacter) return 'arena';
+    return await shopScreen.show();
+  }
+  return await adminScreen.show();
+}
+
+/** Nav-tab navigation: stay out of the lobby while the user hops between
+ * sections, and only re-render the lobby once they land back on Arena. */
+async function openSection(start: NavKey): Promise<void> {
+  if (start === 'arena') return;
+  lobby.hide();
+  let target: NavKey = start;
+  while (target !== 'arena') {
+    target = await runSection(target as Exclude<NavKey, 'arena'>);
+    await refreshGold();
+  }
+  lobby.show();
+  renderLobbyHome();
+  void refreshGold();
 }
 
 const PLAYER_COLORS: Record<number, number> = {
@@ -123,11 +222,13 @@ let myColorIndex = 0;
 let assets: LoadedAssets;
 
 let myDisplayName = '';
+let currentGold: number | null = null;
+let isAdminFlag = false;
 
-const skillTreeUI = new SkillTreeUI(uiOverlay);
-const gearScreen = new GearScreen(uiOverlay);
-const shopScreen = new ShopScreen(uiOverlay);
-const adminScreen = new AdminScreen(uiOverlay);
+const skillTreeUI = new SkillTreeUI(uiOverlay, navContext, navAccountHandlers);
+const gearScreen = new GearScreen(uiOverlay, navContext, navAccountHandlers);
+const shopScreen = new ShopScreen(uiOverlay, navContext, navAccountHandlers);
+const adminScreen = new AdminScreen(uiOverlay, navContext, navAccountHandlers);
 
 const charSelect = new CharacterSelectUI(uiOverlay, {
   onSelectCharacter: async (character) => {
@@ -160,6 +261,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     pendingRejoin = null;
     socket.disconnect();
     lobby.hide();
+    isAdminFlag = false;
     lobby.setAdmin(false);
     charSelect.hide();
     auth.show();
@@ -179,7 +281,8 @@ const auth = new AuthUI(uiOverlay, {
     // re-check profiles.is_admin server-side), so a single fetch here is
     // enough for the lifetime of this login.
     const profile = await fetchProfile();
-    lobby.setAdmin(profile?.is_admin ?? false);
+    isAdminFlag = profile?.is_admin ?? false;
+    lobby.setAdmin(isAdminFlag);
 
     const pausedRoomId = await checkPausedMatch(token);
     if (pausedRoomId) {
@@ -309,75 +412,10 @@ const lobby = new LobbyUI(uiOverlay, {
     void refreshGold();
   },
   onSendChatMessage: (text) => socket.sendChatMessage(text),
-  onLogout: async () => {
-    try { await supabase.auth.signOut(); } catch { /* proceed anyway */ }
-    stopGame();
-    accessToken = '';
-    activeCharacter = null;
-    handlersRegistered = false;
-    myId = '';
-    currentRoomId = '';
-    currentPlayers = {};
-    allPlayerNames = {};
-    currentMode = '1v1';
-    myTeamId = undefined;
-    ownedSpells = new Set();
-    pendingRejoin = null;
-    socket.disconnect();
-    lobby.hide();
-    lobby.setAdmin(false);
-    auth.show();
-  },
-  onOpenSkills: async () => {
-    if (!activeCharacter) return;
-    lobby.hide();
-    await skillTreeUI.show(activeCharacter.id);
-    const chars = await fetchCharacters();
-    const updated = chars.find(c => c.id === activeCharacter!.id);
-    if (updated) activeCharacter = updated;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user && activeCharacter) {
-      await refreshLoadout(activeCharacter.id, activeCharacter.class);
-    }
-    lobby.show();
-    if (activeCharacter) {
-      lobby.showHome(
-        activeCharacter.name,
-        activeCharacter.skill_points_available,
-        activeCharacter.class,
-        activeCharacter.level,
-        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
-      );
-    }
-    void refreshGold();
-  },
-  onOpenGear: async () => {
-    if (!activeCharacter) return;
-    lobby.hide();
-    await gearScreen.show(activeCharacter.id, activeCharacter.class, activeCharacter.level);
-    await refreshLoadout(activeCharacter.id, activeCharacter.class);
-    lobby.show();
-    if (activeCharacter) {
-      lobby.showHome(
-        activeCharacter.name,
-        activeCharacter.skill_points_available,
-        activeCharacter.class,
-        activeCharacter.level,
-        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
-      );
-    }
-    void refreshGold();
-  },
-  onOpenShop: async () => {
-    if (!activeCharacter) return;
-    lobby.hide();
-    await shopScreen.show();
-    lobby.show();
-    if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
-    }
-    void refreshGold();
-  },
+  onLogout: () => { void handleLogout(); },
+  onOpenSkills: () => { void openSection('skills'); },
+  onOpenGear: () => { void openSection('gear'); },
+  onOpenShop: () => { void openSection('shop'); },
   onSwitchCharacter: async () => {
     lobby.hide();
     await charSelect.show();
@@ -385,23 +423,7 @@ const lobby = new LobbyUI(uiOverlay, {
   onShowCredits: () => {
     void creditsScreen.show();
   },
-  onOpenAdmin: async () => {
-    lobby.hide();
-    await adminScreen.show();
-    lobby.show();
-    if (activeCharacter) {
-      lobby.showHome(
-        activeCharacter.name,
-        activeCharacter.skill_points_available,
-        activeCharacter.class,
-        activeCharacter.level,
-        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
-      );
-    } else {
-      lobby.showHome(myDisplayName);
-    }
-    void refreshGold();
-  },
+  onOpenAdmin: () => { void openSection('admin'); },
 });
 lobby.hide();
 
