@@ -53,6 +53,15 @@ const settingsPopover = new SettingsPopover(uiOverlay);
 
 const scene = new Scene(container);
 
+// The arena renders continuously from boot, so it's on screen unless a menu
+// happens to be covering it — and menu swaps await network work between
+// hiding one screen and showing the next, which flashes the arena through.
+// Tie the canvas to "a match is actually running" instead.
+function setArenaVisible(visible: boolean): void {
+  container.style.display = visible ? '' : 'none';
+}
+setArenaVisible(false);
+
 const hud = new HUD(uiOverlay);
 hud.hide();
 
@@ -115,10 +124,54 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
     effRanks.set(node, (effRanks.get(node) ?? 0) + addedRank);
   }
 
+  // Now that this runs in the background off section switches, the two awaits
+  // above can straddle a sign-out or a character switch. Committing then would
+  // apply a character the user has already left — and after sign-out, would
+  // rebuild the spell bar for the previous account. Callers that set
+  // activeCharacter before calling (character select) still pass this check.
+  if (activeCharacter?.id !== characterId) return;
+
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
   hud.buildSpellSlots(ownedSpells);
+}
+
+/** Re-deriving the loadout used to be awaited between hiding one screen and
+ * showing the next, which put one to three network round trips of blank
+ * screen into every section switch. It's queued in the background instead;
+ * the in-flight promise is parked here and awaited at match start, which is
+ * the only point the derived ranks actually have to be correct. */
+let pendingLoadoutSync: Promise<void> = Promise.resolve();
+/** True while openSection is hopping between sections, so a background sync
+ * knows whether the lobby is the surface currently on screen. */
+let inSection = false;
+
+function queueLoadoutSync(): void {
+  const character = activeCharacter;
+  if (!character) return;
+  pendingLoadoutSync = refreshLoadout(character.id, character.class)
+    .catch(err => { console.error('loadout sync failed:', err); });
+}
+
+/** Skills can spend points, so its exit re-reads the character row too. */
+function queueCharacterSync(): void {
+  const character = activeCharacter;
+  if (!character) return;
+  pendingLoadoutSync = (async () => {
+    const chars = await fetchCharacters();
+    // Same in-flight-staleness guard as refreshLoadout's.
+    if (activeCharacter?.id !== character.id) return;
+    const updated = chars.find(c => c.id === character.id);
+    if (!updated) return;
+    const pointsChanged = updated.skill_points_available !== character.skill_points_available;
+    activeCharacter = updated;
+    await refreshLoadout(updated.id, updated.class);
+    // The nav badge and hero plate both show unspent points. Only re-render
+    // on an actual change — showHome rebuilds its markup, which would
+    // otherwise clobber a half-typed room code for no reason.
+    if (pointsChanged && !inSection) renderLobbyHome();
+  })().catch(err => { console.error('character sync failed:', err); });
 }
 
 /** Fresh profiles.gold read pushed into the lobby's gold pill — gold is
@@ -168,6 +221,11 @@ async function handleLogout(): Promise<void> {
     myTeamId = undefined;
     ownedSpells = new Set();
     pendingRejoin = null;
+    // Gear and Shop cache their last read to make the tab switch instant;
+    // both are account-scoped, so the cache dies with the session.
+    gearScreen.reset();
+    shopScreen.reset();
+    pendingLoadoutSync = Promise.resolve();
     socket.disconnect();
     lobby.hide();
     isAdminFlag = false;
@@ -189,26 +247,20 @@ function renderLobbyHome(): void {
   }
 }
 
-/** Open one section and return where the user asked to go next. Each screen
- * does its own post-close refresh here so the data is current no matter
- * which tab they leave through. */
+/** Open one section and return where the user asked to go next. Screens whose
+ * contents can invalidate the derived loadout queue that refresh on the way
+ * out rather than awaiting it — see pendingLoadoutSync. */
 async function runSection(key: Exclude<NavKey, 'arena'>): Promise<NavKey> {
   if (key === 'skills') {
     if (!activeCharacter) return 'arena';
     const next = await skillTreeUI.show(activeCharacter.id);
-    const chars = await fetchCharacters();
-    const updated = chars.find(c => c.id === activeCharacter!.id);
-    if (updated) activeCharacter = updated;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user && activeCharacter) {
-      await refreshLoadout(activeCharacter.id, activeCharacter.class);
-    }
+    queueCharacterSync();
     return next;
   }
   if (key === 'gear') {
     if (!activeCharacter) return 'arena';
     const next = await gearScreen.show(activeCharacter.id, activeCharacter.class, activeCharacter.level);
-    await refreshLoadout(activeCharacter.id, activeCharacter.class);
+    queueLoadoutSync();
     return next;
   }
   if (key === 'shop') {
@@ -222,15 +274,21 @@ async function runSection(key: Exclude<NavKey, 'arena'>): Promise<NavKey> {
  * sections, and only re-render the lobby once they land back on Arena. */
 async function openSection(start: NavKey): Promise<void> {
   if (start === 'arena') return;
+  inSection = true;
   lobby.hide();
   let target: NavKey = start;
+  // Nothing in this loop may await the network between one screen's hide()
+  // and the next one's first paint. Promise resolution is a microtask, so as
+  // long as the path stays microtask-only the browser never gets a chance to
+  // paint the gap — that gap was the black flash. Both the gold read and the
+  // loadout re-derivation are deliberately fire-and-forget for that reason.
   while (target !== 'arena') {
     target = await runSection(target as Exclude<NavKey, 'arena'>);
-    await refreshGold();
+    void refreshGold();
   }
   lobby.show();
   renderLobbyHome();
-  void refreshGold();
+  inSection = false;
 }
 
 const PLAYER_COLORS: Record<number, number> = {
@@ -280,6 +338,10 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     myTeamId = undefined;
     ownedSpells = new Set();
     pendingRejoin = null;
+    // Keep in step with handleLogout above — this path duplicates it.
+    gearScreen.reset();
+    shopScreen.reset();
+    pendingLoadoutSync = Promise.resolve();
     socket.disconnect();
     lobby.hide();
     isAdminFlag = false;
@@ -365,6 +427,9 @@ async function attemptAutoRejoin(
 
 const lobby = new LobbyUI(uiOverlay, {
   onCreateRoom: async (displayName, mode) => {
+    // Section switches queue the loadout re-derivation instead of awaiting it;
+    // this is where it has to have landed.
+    await pendingLoadoutSync;
     myDisplayName = displayName;
     currentMode = mode;
     const res = await fetch(`${import.meta.env.VITE_SERVER_URL ?? ''}/rooms`, {
@@ -389,7 +454,8 @@ const lobby = new LobbyUI(uiOverlay, {
     });
     setupSocketHandlers(displayName);
   },
-  onJoinRoom: (roomId, displayName, teamId?) => {
+  onJoinRoom: async (roomId, displayName, teamId?) => {
+    await pendingLoadoutSync;
     myDisplayName = displayName;
     socket.connect();
     socket.joinRoom(roomId, displayName, accessToken, teamId, activeCharacter?.id);
@@ -639,6 +705,8 @@ function setupSocketHandlers(_myDisplayName: string): void {
 }
 
 function startGame(): void {
+  // Before InputHandler is built — it measures the canvas for mouse→world.
+  setArenaVisible(true);
   for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
   playerMeshes.clear();
   spellRenderer?.dispose();
@@ -663,6 +731,7 @@ function startGame(): void {
 }
 
 function stopGame(): void {
+  setArenaVisible(false);
   inputHandler?.dispose();
   inputHandler = null;
   spellRenderer?.dispose();

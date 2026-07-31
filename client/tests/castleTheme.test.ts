@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWallSvg, buildTorch, buildHallScene, buildDimBackdrop } from '../src/ui/castleTheme';
+import { buildWallSvg, buildTorch, buildHallScene } from '../src/ui/castleTheme';
 
 describe('buildWallSvg', () => {
   it('produces a crisp-edged pixel svg with 17 double-tiled brick courses', () => {
@@ -39,11 +39,10 @@ describe('scenes', () => {
     expect(s).toContain('ct-ember');
     expect(s).toContain('ct-vig');
   });
-  it('dim backdrop dims the wall and skips torches', () => {
-    const s = buildDimBackdrop('gr');
-    expect(s).toContain('ct-dim');
-    // the torch *def* still sits in <defs>; what matters is no torch is placed
-    expect(s).not.toContain('href="#gr-torch"');
-    expect(s).toContain('id="gr-rowA"');
+  it('scopes svg ids per instance so screens can coexist in one document', () => {
+    const gear = buildHallScene('gr');
+    expect(gear).toContain('id="gr-rowA"');
+    expect((gear.match(/href="#gr-torch"/g) ?? []).length).toBe(2);
+    expect(gear).not.toContain('cth-rowA');
   });
 });

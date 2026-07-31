@@ -1,7 +1,7 @@
 import { supabase } from '../supabase';
 import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass } from '@arena/shared';
 import type { CharacterClass } from '@arena/shared';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
@@ -96,7 +96,6 @@ const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-.st-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 /* ── header bar ─────────────────────────────────────────────────────── */
 .st-title{font-size:11px;letter-spacing:0.05em;}
@@ -220,6 +219,7 @@ export class SkillTreeUI {
     this.characterId = characterId ?? null;
     this.selectedId = null;
     this.el.style.display = 'block';
+    this.renderLoading();
     await this.reload();
     // Resolve only when the user closes the tree — callers refresh the
     // unlocked-spells set afterwards, so resolving on data-load would run
@@ -235,6 +235,34 @@ export class SkillTreeUI {
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
+  }
+
+  /**
+   * Chrome-only paint covering the gap between show() and the first data
+   * load — previously that gap was a blank screen, because show() only set
+   * display:block on a still-empty element and then awaited the network.
+   * Kept separate from render() rather than folded in behind a flag: render()
+   * binds the respec button and both tree <svg>s by id with non-null
+   * assertions, and none of that markup exists yet.
+   */
+  private renderLoading(): void {
+    this.el.innerHTML = `
+      <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('st')}</div>
+      <div class="st-ui">
+        ${buildNavBar({ active: 'skills', ...this.navCtx() })}
+        <div class="bm-subhead">
+          <div class="st-title px-title">Skills</div>
+        </div>
+        <div class="bm-loading">Loading skills…</div>
+      </div>
+    `;
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
+    });
   }
 
   private async reload(): Promise<void> {
@@ -296,8 +324,7 @@ export class SkillTreeUI {
     const mainContainerHeight = isRanger ? '560px' : '640px';
 
     this.el.innerHTML = `
-      <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('st')}</div>
-      <div class="st-vignette"></div>
+      <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('st')}</div>
       <div class="st-ui">
         ${buildNavBar({ active: 'skills', ...this.navCtx() })}
         <div class="bm-subhead">

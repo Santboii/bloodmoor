@@ -1,5 +1,5 @@
 import { fetchVendorView, buyVendorSlot, openLootbox, fetchGold } from '../supabase';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
@@ -76,7 +76,6 @@ export function vendorViewIsStale(vendorUtcDay: string, nowUtcDay: string): bool
 
 const STYLES = `
 .sh-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-.sh-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .sh-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 .sh-title{font-size:11px;letter-spacing:0.05em;}
 .sh-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
@@ -131,6 +130,8 @@ export class ShopScreen {
   // decrement between firing a buy/open request and its reload() reconcile
   // — see Global Constraints: never trust this for anything but rendering.
   private gold: number | null = null;
+  /** True between show() painting the chrome and the first reload() landing. */
+  private loading = false;
   private selectedSlotIndex: number | null = null;
   // In-flight action keys ('vendor:<slotIndex>' / 'lootbox:<tier>') — the
   // double-submit guard: render() disables a button whenever its key is
@@ -169,6 +170,17 @@ export class ShopScreen {
     this.reveal = null;
     this.staleNotice = null;
     this.el.style.display = 'block';
+    // Stale-while-revalidate — see GearScreen.show for the rationale, and for
+    // why gold specifically is never cached.
+    //
+    // The cached vendor view can be a UTC day out of date, which would show
+    // yesterday's stock with stale SOLD overlays for the round trip until
+    // reload() lands. That's already a handled case rather than a new one:
+    // handleBuySlot re-checks the day before submitting and aborts into
+    // staleNotice, and the server is the real authority on both.
+    this.gold = null;
+    this.loading = this.vendor === null;
+    this.render();
     await this.reload();
     return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
@@ -183,6 +195,14 @@ export class ShopScreen {
     resolve?.(next);
   }
 
+  /** Drop the stale-while-revalidate cache. Must be called on sign-out — the
+   * vendor view carries per-account `purchased` flags. */
+  reset(): void {
+    this.vendor = null;
+    this.gold = null;
+    this.selectedSlotIndex = null;
+  }
+
   /** Fresh vendor + gold read — the only source of truth for purchased
    * slots and balance. Called on open and after every buy/open, success or
    * failure, so optimistic UI never lingers past its request. */
@@ -190,6 +210,7 @@ export class ShopScreen {
     const [vendor, gold] = await Promise.all([fetchVendorView(), fetchGold()]);
     this.vendor = vendor;
     this.gold = gold;
+    this.loading = false;
     this.render();
   }
 
@@ -201,13 +222,13 @@ export class ShopScreen {
     const lootboxHtml = (['basic', 'premium'] as LootboxTier[]).map(t => this.renderLootboxCard(t)).join('');
 
     this.el.innerHTML = `
-      <div class="sh-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('sh')}</div>
-      <div class="sh-vignette"></div>
+      <div class="sh-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('sh')}</div>
       <div class="sh-ui">
         ${buildNavBar({ active: 'shop', ...this.navCtx(), gold: this.gold })}
         <div class="bm-subhead">
           <div class="sh-title px-title">Shop</div>
         </div>
+        ${this.loading ? `<div class="bm-loading">Loading shop…</div>` : `
         <div class="sh-columns">
           <div class="sh-col-vendor">
             <div class="sh-col-label">Vendor<span class="sh-countdown">new stock at midnight UTC</span></div>
@@ -219,7 +240,7 @@ export class ShopScreen {
             <div class="sh-col-label">Loot Boxes</div>
             ${lootboxHtml}
           </div>
-        </div>
+        </div>`}
       </div>
     `;
 

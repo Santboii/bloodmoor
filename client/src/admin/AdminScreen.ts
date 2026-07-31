@@ -7,7 +7,7 @@ import { ITEM_BASES, UNIQUE_ITEMS, rollItem } from '@arena/shared';
 import type {
   ItemBaseSlot, ItemRarity, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
@@ -99,7 +99,6 @@ const TAB_LABELS: Record<Tab, string> = {
 
 const STYLES = `
 .ad-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-.ad-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .ad-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 .ad-title{font-size:11px;letter-spacing:0.05em;}
 .ad-tabs{display:flex;gap:6px;flex-wrap:wrap;}
@@ -210,6 +209,7 @@ export class AdminScreen {
   async show(): Promise<NavKey> {
     this.tab = 'items';
     this.el.style.display = 'block';
+    this.renderLoading();
     await this.reloadAll();
     return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
@@ -222,6 +222,32 @@ export class AdminScreen {
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
+  }
+
+  /**
+   * Chrome-only paint covering the gap between show() and the first data
+   * load — see SkillTreeUI.renderLoading. The tab strip is rendered but inert:
+   * switching tabs re-renders from `this.items`/`this.dropWeights`, which
+   * aren't populated yet.
+   */
+  private renderLoading(): void {
+    this.el.innerHTML = `
+      <div class="ad-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('ad')}</div>
+      <div class="ad-ui">
+        ${buildNavBar({ active: 'admin', ...this.navCtx() })}
+        <div class="bm-subhead">
+          <div class="ad-title px-title">Admin</div>
+        </div>
+        <div class="bm-loading">Loading admin…</div>
+      </div>
+    `;
+    this.navTeardown?.();
+    this.navTeardown = wireNavBar(this.el, {
+      onNavigate: (key) => this.hide(key),
+      onCredits: () => this.navHandlers.onCredits(),
+      onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
+    });
   }
 
   private async reloadAll(): Promise<void> {
@@ -261,8 +287,7 @@ export class AdminScreen {
     else bodyHtml = this.renderDropRatesTab();
 
     this.el.innerHTML = `
-      <div class="ad-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('ad')}</div>
-      <div class="ad-vignette"></div>
+      <div class="ad-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('ad')}</div>
       <div class="ad-ui">
         ${buildNavBar({ active: 'admin', ...this.navCtx() })}
         <div class="bm-subhead">

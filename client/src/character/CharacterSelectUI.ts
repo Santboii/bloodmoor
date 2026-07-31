@@ -2,7 +2,7 @@ import { fetchCharacters, createCharacter, deleteCharacter, updateAppearance } f
 import type { CharacterRecord, CharacterClass, Appearance } from '@arena/shared';
 import { MAX_CHARACTERS_PER_ACCOUNT, CHARACTER_CLASSES, xpToNextLevel, appearanceToRow, appearanceFromRow } from '@arena/shared';
 import { AppearancePicker } from './AppearancePicker';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -108,7 +108,7 @@ export class CharacterSelectUI {
 
     this.el = document.createElement('div');
     this.el.className = 'cs-overlay';
-    this.el.innerHTML = `<div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('cs')}</div>`;
+    this.el.innerHTML = `<div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildHallScene('cs')}</div>`;
 
     this.ui = document.createElement('div');
     this.ui.className = 'cs-ui';

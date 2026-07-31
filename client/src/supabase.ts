@@ -19,24 +19,42 @@ export type UserProfile = {
   is_admin: boolean;
 };
 
+/** Signed-in account id, read from the locally cached session — no network.
+ *
+ * The read helpers below used `supabase.auth.getUser()`, which unconditionally
+ * round-trips to `/auth/v1/user` *and* holds auth-js's exclusive storage lock
+ * for the whole request, so concurrent helpers serialized behind it. That put
+ * two round trips into every `fetchItems`/`fetchGold`/`fetchCharacters` call
+ * and made section switches visibly slow.
+ *
+ * The id is only ever a query filter here; owner-scoped RLS (`items_owner_read`
+ * and friends) is what actually enforces ownership, against the JWT the query
+ * carries. `getSession()` refreshes an expired token on its own, so that JWT is
+ * still valid. Action RPCs that pass a user id as a parameter deliberately keep
+ * using `getUser()`. */
+async function currentUserId(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id ?? null;
+}
+
 export async function fetchProfile(): Promise<UserProfile | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const userId = await currentUserId();
+  if (!userId) return null;
   const { data } = await supabase
     .from('profiles')
     .select('username, matches_played, matches_won, is_admin')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single();
   return data ?? null;
 }
 
 export async function fetchCharacters(): Promise<CharacterRecord[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const userId = await currentUserId();
+  if (!userId) return [];
   const { data } = await supabase
     .from('characters')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: true });
   return (data ?? []).map((r: Record<string, unknown>) => ({ ...r, class: normalizeCharacterClass(r.class) })) as CharacterRecord[];
 }
@@ -100,12 +118,12 @@ export async function updateAppearance(characterId: string, appearance: Record<s
  * (the stash is shared account-wide). Rows that fail `validateItemRow`
  * (unknown base, malformed affix, etc.) are dropped rather than surfaced. */
 export async function fetchItems(): Promise<ItemRow[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const userId = await currentUserId();
+  if (!userId) return [];
   const { data, error } = await supabase
     .from('items')
     .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) { console.error('fetchItems failed:', error.message); return []; }
 
@@ -245,12 +263,12 @@ export async function adminFetchCharacterNames(characterIds: string[]): Promise<
  * plain read). Returns 0 if signed out or the row can't be read, so
  * callers can render a gold pill without a null-check. */
 export async function fetchGold(): Promise<number> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return 0;
+  const userId = await currentUserId();
+  if (!userId) return 0;
   const { data, error } = await supabase
     .from('profiles')
     .select('gold')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single();
   if (error) { console.error('fetchGold failed:', error.message); return 0; }
   return data?.gold ?? 0;
@@ -270,12 +288,12 @@ export async function sellItem(itemId: string): Promise<number | null> {
  * for a given UTC day (matching vendorStockFor's slot ordering) — used to
  * render SOLD overlays on the Shop screen. */
 export async function fetchVendorPurchases(utcDay: string): Promise<number[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const userId = await currentUserId();
+  if (!userId) return [];
   const { data, error } = await supabase
     .from('vendor_purchases')
     .select('slot_index')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .eq('utc_day', utcDay);
   if (error) { console.error('fetchVendorPurchases failed:', error.message); return []; }
   return (data ?? []).map((r: { slot_index: number }) => r.slot_index);

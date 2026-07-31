@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 
 type AuthCallbacks = {
   onAuthed: (username: string, accessToken: string) => void;
@@ -32,11 +32,11 @@ export class AuthUI {
 
   private showLogin(error = ''): void {
     this.el.innerHTML = `
-      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('au')}</div>
+      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildHallScene('au')}</div>
       <div style="text-align:center;position:relative;z-index:1">
         <h1 class="px-title" style="font-size:28px;margin-bottom:8px">BLOODMOOR</h1>
         <p class="px-label" style="margin-bottom:6px">Arena PvP</p>
-        <p style="font-family:'VT323',monospace;font-style:italic;color:var(--px-border-light);font-size:16px;letter-spacing:0.1em;padding-left:0.1em;margin-bottom:36px">Enter the blood-soaked arena</p>
+        <p style="font-family:'VT323',monospace;font-style:italic;color:#9aa0ae;font-size:16px;letter-spacing:0.1em;padding-left:0.1em;margin-bottom:36px">Enter the blood-soaked arena</p>
         <div style="width:120px;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);margin:0 auto 28px;position:relative">
           <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:0.5rem;color:var(--px-accent);background:var(--px-bg);padding:0 8px">◆</span>
         </div>
@@ -62,10 +62,10 @@ export class AuthUI {
 
   private showRegister(error = ''): void {
     this.el.innerHTML = `
-      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('au')}</div>
+      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildHallScene('au')}</div>
       <div style="text-align:center;position:relative;z-index:1">
         <h1 class="px-title" style="font-size:22px;margin-bottom:8px">CREATE ACCOUNT</h1>
-        <p style="font-family:'VT323',monospace;font-style:italic;color:var(--px-border-light);font-size:16px;letter-spacing:0.1em;padding-left:0.1em;margin-bottom:28px">Join the arena</p>
+        <p style="font-family:'VT323',monospace;font-style:italic;color:#9aa0ae;font-size:16px;letter-spacing:0.1em;padding-left:0.1em;margin-bottom:28px">Join the arena</p>
         <div style="width:120px;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);margin:0 auto 24px;position:relative">
           <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:0.5rem;color:var(--px-accent);background:var(--px-bg);padding:0 8px">◆</span>
         </div>

@@ -12,14 +12,6 @@ export function injectStylesOnce(id: string, css: string): void {
 
 const SCENE_CSS = `
 .ct-wall{position:absolute;inset:0;width:100%;height:100%;z-index:0;}
-.ct-warm{position:absolute;z-index:1;width:480px;height:480px;border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle,rgba(255,150,50,0.34) 0%,rgba(255,110,25,0.16) 40%,transparent 68%);
-  animation:ct-pulse 2.4s ease-in-out infinite alternate;}
-.ct-warm-corner{width:420px;height:420px;
-  background:radial-gradient(circle,rgba(255,140,45,0.22) 0%,rgba(255,110,25,0.09) 45%,transparent 70%);
-  animation-duration:2.6s;}
-@keyframes ct-pulse{from{opacity:0.7;transform:scale(0.95);}to{opacity:1;transform:scale(1.06);}}
-.ct-dim{position:absolute;inset:0;z-index:1;background:rgba(5,6,10,0.42);pointer-events:none;}
 .ct-vig{position:absolute;inset:0;pointer-events:none;z-index:2;
   background:radial-gradient(ellipse at center,transparent 28%,rgba(4,5,9,0.72) 100%);}
 .ct-floor{position:absolute;z-index:1;bottom:0;left:0;right:0;height:46px;pointer-events:none;
@@ -338,21 +330,17 @@ export function buildTorch(idPrefix: string, side: 'left' | 'right'): string {
   return `<g transform="translate(320,0) scale(-1,1)" class="ct-slow"><use href="#${idPrefix}-torch" x="-30" y="0"/></g>`;
 }
 
-export function buildHallScene(): string {
-  const p = 'cth';
-  const wall = buildWallSvg({ idPrefix: p })
-    .replace('<!--TORCHES-->', buildTorch(p, 'left') + buildTorch(p, 'right'));
+/**
+ * The hall every screen sits in. `idPrefix` must be unique per instance —
+ * all the screens' overlays coexist in the document (hidden, not removed),
+ * so shared svg `<defs>` ids would otherwise collide.
+ */
+export function buildHallScene(idPrefix = 'cth'): string {
+  const wall = buildWallSvg({ idPrefix })
+    .replace('<!--TORCHES-->', buildTorch(idPrefix, 'left') + buildTorch(idPrefix, 'right'));
   // Glow pools and embers live inside the torch def itself (svg space), so
   // they track the sconces at any viewport size — no positioned divs needed.
   return `${wall}
 <div class="ct-floor"></div>
-<div class="ct-vig"></div>`;
-}
-
-export function buildDimBackdrop(idPrefix: string): string {
-  return `${buildWallSvg({ idPrefix, mossDensity: 'sparse' }).replace('<!--TORCHES-->', '')}
-<div class="ct-dim"></div>
-<div class="ct-warm ct-warm-corner" style="left:-260px;bottom:-260px;"></div>
-<div class="ct-warm ct-warm-corner" style="right:-260px;bottom:-260px;animation-delay:-1.4s;"></div>
 <div class="ct-vig"></div>`;
 }
