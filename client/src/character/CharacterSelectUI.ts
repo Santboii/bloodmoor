@@ -28,8 +28,24 @@ const STYLES = `
 .cs-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
 .cs-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;width:100%;max-width:820px;margin-bottom:24px;}
 .cs-grid>.cs-slot{flex:0 0 calc((100% - 34px)/3);}
-.cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
-.cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06);}
+.cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;position:relative;}
+.cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06),0 0 24px rgba(255,122,30,0.35),inset 0 -14px 26px -14px rgba(255,122,30,0.28);}
+.cs-embers{position:absolute;inset:0;pointer-events:none;}
+.cs-embers i{position:absolute;bottom:8px;width:4px;height:4px;background:var(--px-accent);opacity:0;box-shadow:0 0 6px rgba(255,122,30,0.8);}
+.cs-embers i:nth-child(1){left:12%;--dx:10px;}
+.cs-embers i:nth-child(2){left:30%;--dx:-8px;width:3px;height:3px;background:#ff7a1e;}
+.cs-embers i:nth-child(3){left:47%;--dx:6px;width:5px;height:5px;}
+.cs-embers i:nth-child(4){left:62%;--dx:-12px;background:#ffcf6e;}
+.cs-embers i:nth-child(5){left:78%;--dx:8px;width:3px;height:3px;background:#ff7a1e;}
+.cs-embers i:nth-child(6){left:90%;--dx:-6px;}
+.cs-slot:hover .cs-embers i{animation:cs-ember-rise 1.5s linear infinite;}
+.cs-slot:hover .cs-embers i:nth-child(2){animation-duration:1.2s;animation-delay:0.3s;}
+.cs-slot:hover .cs-embers i:nth-child(3){animation-delay:0.55s;}
+.cs-slot:hover .cs-embers i:nth-child(4){animation-duration:1.8s;animation-delay:0.15s;}
+.cs-slot:hover .cs-embers i:nth-child(5){animation-duration:1.3s;animation-delay:0.7s;}
+.cs-slot:hover .cs-embers i:nth-child(6){animation-duration:1.65s;animation-delay:0.4s;}
+@keyframes cs-ember-rise{0%{transform:translate(0,0);opacity:0;}12%{opacity:1;}55%{opacity:0.9;}100%{transform:translate(var(--dx,8px),-130px);opacity:0;}}
+@media (prefers-reduced-motion: reduce){.cs-slot:hover .cs-embers i{animation:none;}}
 .cs-slot-empty{align-items:center;justify-content:center;box-shadow:none;outline:2px dashed var(--px-border-light);}
 .cs-slot-empty:hover{background:#23252c;box-shadow:none;outline:2px dashed var(--px-accent);}
 .cs-char-name{margin-bottom:4px;}
@@ -123,7 +139,7 @@ export class CharacterSelectUI {
       const xpNeeded = xpToNextLevel(char.level);
       const xpPercent = xpNeeded > 0 ? Math.min(100, (char.xp / xpNeeded) * 100) : 0;
       return `
-        <div class="cs-slot px-panel" data-index="${i}">
+        <div class="cs-slot px-panel" data-index="${i}"><div class="cs-embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="cs-char-name px-title" style="font-size:12px">${esc(char.name)}</div>
           <div class="cs-char-class px-label">${CLASS_ICONS[char.class] ?? ''} ${esc(char.class)}</div>
           <div class="cs-char-level">Level ${char.level}</div>
@@ -139,7 +155,7 @@ export class CharacterSelectUI {
 
     const slotsLeft = Math.max(0, MAX_CHARACTERS_PER_ACCOUNT - this.characters.length);
     const emptySlotsHtml = slotsLeft === 0 ? '' : `
-      <div class="cs-slot cs-slot-empty px-panel" data-action="create">
+      <div class="cs-slot cs-slot-empty px-panel" data-action="create"><div class="cs-embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <div class="cs-empty-plus">+</div>
         <div class="cs-empty-text px-label">Create Character</div>
         <div class="cs-empty-text px-label" style="opacity:0.6">${slotsLeft} slot${slotsLeft === 1 ? '' : 's'} left</div>
