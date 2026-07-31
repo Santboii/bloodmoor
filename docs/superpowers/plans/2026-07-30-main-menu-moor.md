@@ -1,5 +1,11 @@
 # Main Menu "The Moor Is the Menu" Implementation Plan
 
+> **⚠ DO NOT EXECUTE STANDALONE.** Merged into
+> `docs/superpowers/plans/2026-07-30-menu-torchlit-hall.md` (user decision
+> 2026-07-30: nav bar + hero sprite are kept, but staged in the Torchlit Hall
+> instead of the outdoor moor). That plan invokes this file's Tasks 1–4 by
+> reference with amendments — follow it, not this header's task order.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild the lobby home screen as a nav-bar + diegetic character scene: ARENA/SKILLS/GEAR tabs on top, account dropdown for Switch/Sign Out/Credits/Admin, and the player's animated sprite standing center on the moor.

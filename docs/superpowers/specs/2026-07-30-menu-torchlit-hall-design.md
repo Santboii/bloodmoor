@@ -1,7 +1,11 @@
 # BloodMoor Menu Overhaul — "Torchlit Hall" Design
 
 **Date:** 2026-07-30
-**Status:** Approved (pending spec review)
+**Status:** Approved. Amended 2026-07-30: combined with
+`2026-07-30-main-menu-moor-design.md` — the home screen additionally gets that
+spec's nav bar, account dropdown, and animated hero sprite, staged inside the
+Torchlit Hall (this spec's backdrop wins over the outdoor moor). See the merged
+plan `docs/superpowers/plans/2026-07-30-menu-torchlit-hall.md`.
 
 ## Summary
 

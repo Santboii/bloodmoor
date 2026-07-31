@@ -1,12 +1,16 @@
-# Torchlit Hall Menu Overhaul Implementation Plan
+# Torchlit Hall + Moor Menu (Merged) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reskin all BloodMoor client menus from the purple/amber pixel theme to a grimdark torch-lit castle look (grey stone, pixel torches, moss) per the approved spec `docs/superpowers/specs/2026-07-30-menu-torchlit-hall-design.md`.
+**Goal:** Reskin all BloodMoor client menus to the grimdark torch-lit castle look (grey stone, pixel torches, moss) AND rebuild the lobby home screen as nav-bar + animated hero sprite — the sprite stands in the Torchlit Hall, not on the moor.
 
-**Architecture:** One new shared module `client/src/ui/castleTheme.ts` generates the pixel-masonry wall SVG, pixel torches, and scene CSS. `pixelTheme.ts` gets new variable values (names unchanged). Each screen swaps its backdrop for either the full hall scene (main menu) or the dim variant, and purple hex literals are mapped to grey equivalents.
+**Merged from two approved plans** (user decision 2026-07-30: "Combine: sprite + nav in the Hall"):
+- This plan (visual reskin) — spec `docs/superpowers/specs/2026-07-30-menu-torchlit-hall-design.md`
+- `docs/superpowers/plans/2026-07-30-main-menu-moor.md` (structural home-screen rebuild) — spec `docs/superpowers/specs/2026-07-30-main-menu-moor-design.md`. Tasks 3, 4, and 6 below incorporate its Tasks 1, 2, and 3 by reference; its outdoor-moor backdrop is dropped in favor of the hall.
 
-**Tech Stack:** Vanilla TypeScript + Vite, DOM template strings, vitest (client workspace — these are its first tests). No new dependencies, no image assets.
+**Architecture:** One new shared module `client/src/ui/castleTheme.ts` generates the pixel-masonry wall SVG, pixel torches, and scene CSS. `pixelTheme.ts` gets new variable values (names unchanged). Each screen swaps its backdrop for either the full hall scene (main menu) or the dim variant, and purple hex literals are mapped to grey equivalents. The home screen additionally gains a nav bar, account dropdown, and a `SpritePreview` hero canvas (extracted from AppearancePicker).
+
+**Tech Stack:** Vanilla TypeScript + Vite, DOM template strings, 2D canvas, `@arena/shared` appearance model, vitest (node env, pure functions only — no jsdom). No new dependencies, no image assets.
 
 ## Global Constraints
 
@@ -23,11 +27,14 @@
   - `#221a30` → `#1a1b21` (rank segment)
 - Do NOT change: class accent colors (`#a478e8` mage, `#c8a870` ranger), avatar palettes (`.bm-avatar-*`, `.bm-msg-sender-*`), rarity colors (`#4a6fc4`, `#ddb84a`, `#ffb347`), HP/MP orb gradients, skill-node oranges (`#e86020`, supercharge golds), fire/ember literals (`#ff5500` family).
 - Verification commands: `npm run build --workspace=client` (tsc + vite) must pass after every task; `npm run test --workspace=client` after Task 2+.
-- Work on branch `menu-torchlit-hall` cut from `main` (Task 1 creates it). The spec commit `614436f` lives on `economy-phase2` and is cherry-picked in.
+- Work on the existing branch `menu-moor` — it already contains both specs/plans and the committed font-floor polish `d66ce03`. Do NOT create a new branch or cherry-pick anything.
+- Press Start 2P never below 8px for interactive/informational text; 7px floor for decorative captions (constraint carried from the moor plan).
+- The cosmetic-admin-gate comment above `isAdminFlag` in `LobbyUI.ts` must survive all edits.
+- Test files live in `client/tests/` and target exported pure functions only (no jsdom in vitest config).
 
 ---
 
-### Task 1: Branch + palette swap in `pixelTheme.ts`
+### Task 1: Palette swap in `pixelTheme.ts`
 
 **Files:**
 - Modify: `client/src/ui/pixelTheme.ts:5-14` (variables), `:53` `:64` `:70-71` (button literals)
@@ -36,11 +43,11 @@
 - Consumes: nothing.
 - Produces: new values behind the existing `--px-*` variables and `injectPixelTheme(): void` (unchanged signature). Every later task's colors assume these values.
 
-- [ ] **Step 1: Create the branch and bring the spec along**
+- [ ] **Step 1: Confirm the working state**
 
 ```bash
-git checkout -b menu-torchlit-hall main
-git cherry-pick 614436f   # docs: Torchlit Hall menu overhaul design spec
+git checkout menu-moor
+git status --short   # must be empty
 ```
 
 - [ ] **Step 2: Edit the variable block**
@@ -88,7 +95,7 @@ git commit -m "feat(ui): castle-grey palette in pixel theme variables"
 
 **Files:**
 - Create: `client/src/ui/castleTheme.ts`
-- Test: `client/src/ui/castleTheme.test.ts`
+- Test: `client/tests/castleTheme.test.ts`
 
 **Interfaces:**
 - Consumes: nothing (pure string builders + one DOM helper).
@@ -109,11 +116,11 @@ document without id collisions.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `client/src/ui/castleTheme.test.ts`:
+Create `client/tests/castleTheme.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { buildWallSvg, buildTorch, buildHallScene, buildDimBackdrop } from './castleTheme';
+import { buildWallSvg, buildTorch, buildHallScene, buildDimBackdrop } from '../src/ui/castleTheme';
 
 describe('buildWallSvg', () => {
   it('produces a crisp-edged pixel svg with 9 brick courses', () => {
@@ -439,13 +446,29 @@ Expected: all tests PASS.
 
 ```bash
 npm run build --workspace=client
-git add client/src/ui/castleTheme.ts client/src/ui/castleTheme.test.ts
+git add client/src/ui/castleTheme.ts client/tests/castleTheme.test.ts
 git commit -m "feat(ui): castleTheme module - pixel wall, torches, scene css"
 ```
 
 ---
 
-### Task 3: Main menu Torchlit Hall (`LobbyUI`)
+### Task 3: Extract `SpritePreview` from AppearancePicker
+
+Execute **Task 1 of `docs/superpowers/plans/2026-07-30-main-menu-moor.md`** exactly as written there, with one amendment:
+
+- **Skip its Step 1** ("Commit the pending UI-polish changes") — that commit already exists as `d66ce03`. Start at its Step 2 (create `client/src/renderer/sprites/SpritePreview.ts`).
+
+Its Steps 2–5 (SpritePreview class, AppearancePicker refactor, verify, commit) apply verbatim. The `Produces` interface later tasks rely on: `class SpritePreview { constructor(canvas, dir?, anim?); setAppearance(a: Appearance): Promise<boolean>; dispose(): void }`.
+
+---
+
+### Task 4: Pure helpers for nav bar / account menu / nameplate (TDD)
+
+Execute **Task 2 of `docs/superpowers/plans/2026-07-30-main-menu-moor.md`** exactly as written there — no amendments. It creates `client/tests/LobbyUI.test.ts` and exports `accountMenuItems`, `skillsBadge`, `heroMetaHtml`, `AccountMenuItem` from `LobbyUI.ts`.
+
+---
+
+### Task 5: Main menu Torchlit Hall backdrop (`LobbyUI`)
 
 **Files:**
 - Modify: `client/src/lobby/LobbyUI.ts:28-233` (STYLES + BG_HTML), `:247-262` (constructor), and each `show*()` entry point
@@ -495,6 +518,8 @@ private setBackdrop(mode: 'hall' | 'dim'): void {
 
 Call `this.setBackdrop('hall')` at the top of `showHome()`; call `this.setBackdrop('dim')` at the top of `showWaiting()`, `showReady()`, `showResult()`, `showRematchCountdown()`, and `showDisconnected()`. (`showPauseOverlay` is a modal over the game — untouched.)
 
+NOTE: Task 6 rewrites `showHome`'s body. The `this.setBackdrop('hall')` call added here must survive that rewrite — Task 6's amendment list pins its position.
+
 - [ ] **Step 4: Build + visual verify**
 
 Run: `npm run build --workspace=client`, then dev server. Verify: main menu shows the hall (wall, two out-of-sync torch flames, embers, warm pools); creating a lobby dims the scene; returning home restores it. Check title/panels are readable.
@@ -508,7 +533,33 @@ git commit -m "feat(lobby): torchlit hall scene with dim mode for sub-screens"
 
 ---
 
-### Task 4: Auth, character select, credits backdrops
+### Task 6: Nav bar, account menu, hero sprite — staged in the hall
+
+**Files:**
+- Modify: `client/src/lobby/LobbyUI.ts`, `client/src/main.ts`
+
+**Interfaces:**
+- Consumes: `SpritePreview` (Task 3), `accountMenuItems`/`skillsBadge`/`heroMetaHtml` (Task 4), `setBackdrop` (Task 5), `Appearance`/`appearanceFromRow` from `@arena/shared`.
+- Produces: `showHome(username?: string, points?: number, charClass?: string, level?: number, appearance?: Appearance | null): void`.
+
+Execute **Task 3 of `docs/superpowers/plans/2026-07-30-main-menu-moor.md`** (all seven steps: imports/fields, `teardownHome`, STYLES swap, `showHome` rewrite, main.ts threading, verify, commit) with these amendments applied DURING each step — its CSS/copy was authored against the purple moor theme:
+
+- [ ] **Amendment 1 (its Step 2/4):** the first lines of the rewritten `showHome` must be, in order: `this.teardownHome();` `this.setBackdrop('hall');` `this.stopPolling();`. The `setBackdrop('dim')` calls Task 5 added to the other `show*` methods stay.
+- [ ] **Amendment 2 (its Step 3):** before pasting the STYLES additions, apply this literal map to them:
+  - `.bm-nav` `background:rgba(14,11,22,0.92)` → `rgba(10,11,15,0.92)`
+  - `.bm-nav-crest` text-shadow `rgba(255,179,71,0.5)` → `rgba(255,122,30,0.5)`
+  - `.bm-nav-tab.active` `#453766` → `#3a3f4b`
+  - `.bm-acct-item:hover` `#453766` → `#3a3f4b`
+  - `.bm-panel-translucent` `rgba(36,29,51,0.88)` → `rgba(30,32,38,0.92)`
+  - `.bm-hero-plate` `rgba(14,11,22,0.85)` → `rgba(10,11,15,0.85)`
+- [ ] **Amendment 3 (its Step 4):** fallback copy `'The moor mists hide your champion'` → `'The torchlight hides your champion'`. The `.bm-hero-canvas` drop-shadow stays — it reads as the torch shadow on the hall floor.
+- [ ] **Amendment 4 (its Step 7):** commit message → `feat(client): main menu nav, account menu, hero sprite in torchlit hall`.
+
+Its Step 3 deletion list (`.bm-char-card` family, corner buttons, `.bm-btn-logout`, `.bm-btn-ghost`) applies unchanged, as does the admin-gate comment survival rule.
+
+---
+
+### Task 7: Auth, character select, credits backdrops
 
 **Files:**
 - Modify: `client/src/auth/AuthUI.ts:17,33,63`, `client/src/character/CharacterSelectUI.ts:21,32,52,54`, `client/src/ui/CreditsScreen.ts:11`
@@ -552,7 +603,7 @@ git commit -m "feat(ui): dim castle backdrops for auth, character select, credit
 
 ---
 
-### Task 5: Gear, skill tree, admin backdrops
+### Task 8: Gear, skill tree, admin backdrops
 
 **Files:**
 - Modify: `client/src/items/GearScreen.ts:90-91,101,110,116` (+ style injection site ~137), `client/src/skills/SkillTreeUI.ts:93-94,99,151,156` (+ ~198), `client/src/admin/AdminScreen.ts:97-98,104,111,113,132` (+ ~191)
@@ -590,7 +641,7 @@ git commit -m "feat(ui): dim castle backdrops for gear, skill tree, admin"
 
 ---
 
-### Task 6: Loading screen tones + HUD chrome
+### Task 9: Loading screen tones + HUD chrome
 
 **Files:**
 - Modify: `client/src/loading/LoadingScreen.ts:9` (backdrop), `client/src/hud/HUD.ts:75` (spell-slot gradient), `client/src/hud/Minimap.ts` (any `#241d33`/`#1c1730`/`#120e1c` literals — grep first)
@@ -620,7 +671,7 @@ git commit -m "feat(ui): stone-dark loading backdrop and iron-grey hud chrome"
 
 ---
 
-### Task 7: Purple sweep + full visual pass
+### Task 10: Purple sweep + full visual pass
 
 **Files:**
 - Modify: whatever the grep finds (expected: stragglers in `main.ts`, `AppearancePicker.ts:60`)
@@ -642,11 +693,17 @@ npm run build --workspace=client
 
 Expected: both pass.
 
-- [ ] **Step 3: Full visual pass**
+- [ ] **Step 3: Screenshot the home screen via the preview harness**
 
-Dev server walkthrough in order: auth → character select (create + appearance picker) → main menu hall → create lobby (dim) → ready → leave → gear → skill tree → admin (if admin) → credits → reload for loading screen → start a match for HUD/minimap → pause overlay. Confirm: no purple remnants, text readable everywhere, flames flicker out of sync, embers rise, moss visible on wall edges. Where secondary text still uses `color:var(--px-border-light)` and reads too dark against the new backdrops (e.g. `.bm-subtitle`, `.bm-mode-desc`, `.bm-room-meta`), change that rule's color to `#9aa0ae` — color only, don't touch the rule otherwise.
+Execute **Task 4 of `docs/superpowers/plans/2026-07-30-main-menu-moor.md`** (preview harness, screenshots, fix loop, teardown) with these amendments:
+- In `preview-lobby.html`, `body{...background:#0e0b16;}` → `background:#0a0b0f;`.
+- Its Step 2 check "moor scene visible between columns" becomes: hall wall and both torches visible between/behind the columns, flames flickering out of sync, hero sprite standing on the hall floor with the `ct-floor` shadow beneath, warm pools breathing.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Full visual pass**
+
+Dev server walkthrough in order: auth → character select (create + appearance picker) → main menu hall (nav bar, account dropdown, hero sprite) → create lobby (dim) → ready → leave → gear → skill tree → admin (if admin) → credits → reload for loading screen → start a match for HUD/minimap → pause overlay. Confirm: no purple remnants, text readable everywhere, flames flicker out of sync, embers rise, moss visible on wall edges. Where secondary text still uses `color:var(--px-border-light)` and reads too dark against the new backdrops (e.g. `.bm-subtitle`, `.bm-mode-desc`, `.bm-room-meta`, `.bm-hero-meta`), change that rule's color to `#9aa0ae` — color only, don't touch the rule otherwise.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add -A client/src
