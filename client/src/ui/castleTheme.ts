@@ -46,7 +46,10 @@ export function injectCastleSceneCss(): void {
   injectStylesOnce('ct-scene', SCENE_CSS);
 }
 
-// --- pixel-art defs (viewBox 0 0 160 90; bricks 10 tall, 1px mortar) ------
+// --- pixel-art defs (viewBox 0 0 320 180; bricks 10 tall, 1px mortar) -----
+// Row/moss defs are authored on a 160-wide grid and double-tiled across the
+// 320-unit viewBox, halving the on-screen size of each art pixel so the
+// masonry reads sharp on large windows.
 
 const rowDefs = (p: string) => `
 <g id="${p}-rowA">
@@ -139,94 +142,132 @@ const mossDefs = (p: string) => `
 
 const torchDef = (p: string) => `
 <g id="${p}-torch">
-  <rect x="28" y="51" width="5" height="2" fill="#23262e"/><rect x="26" y="53" width="9" height="2" fill="#262a33"/>
-  <rect x="24" y="55" width="13" height="2" fill="#23262e"/><rect x="26" y="57" width="9" height="2" fill="#1e2128"/>
-  <rect x="28" y="59" width="5" height="2" fill="#1a1d23"/><rect x="29" y="55" width="3" height="2" fill="#3b3f4a"/>
-  <rect x="28" y="53" width="2" height="1" fill="#454a57"/>
-  <rect x="29" y="47" width="3" height="4" fill="#2c2f38"/><rect x="30" y="45" width="3" height="3" fill="#2c2f38"/>
-  <rect x="29" y="47" width="1" height="3" fill="#3d414d"/>
-  <rect x="30" y="42" width="3" height="3" fill="#2c2f38"/><rect x="28" y="40" width="7" height="2" fill="#343845"/>
-  <rect x="27" y="38" width="9" height="2" fill="#3a3f4d"/><rect x="26" y="36" width="11" height="2" fill="#404657"/>
-  <rect x="25" y="34" width="13" height="2" fill="#484f61"/>
-  <rect x="25" y="33" width="2" height="1" fill="#484f61"/><rect x="29" y="33" width="2" height="1" fill="#484f61"/>
-  <rect x="33" y="33" width="2" height="1" fill="#484f61"/><rect x="36" y="33" width="2" height="1" fill="#484f61"/>
-  <rect x="33" y="34" width="3" height="1" fill="#8a5c26"/><rect x="34" y="36" width="2" height="2" fill="#6e4a22"/>
-  <rect x="33" y="38" width="2" height="1" fill="#5c3d1c"/><rect x="31" y="42" width="1" height="2" fill="#4a3521"/>
-  <rect x="30" y="53" width="2" height="1" fill="#4f3a1e"/>
+  <rect x="56" y="102" width="10" height="4" fill="#23262e"/><rect x="52" y="106" width="18" height="4" fill="#262a33"/>
+  <rect x="48" y="110" width="26" height="4" fill="#23262e"/><rect x="52" y="114" width="18" height="4" fill="#1e2128"/>
+  <rect x="56" y="118" width="10" height="4" fill="#1a1d23"/><rect x="58" y="110" width="6" height="4" fill="#3b3f4a"/>
+  <rect x="56" y="106" width="4" height="2" fill="#454a57"/><rect x="60" y="106" width="4" height="2" fill="#4f3a1e"/>
+  <rect x="49" y="111" width="2" height="2" fill="#12141b"/><rect x="71" y="111" width="2" height="2" fill="#12141b"/>
+  <rect x="57" y="120" width="8" height="1" fill="#12141b"/>
+  <rect x="58" y="94" width="6" height="8" fill="#2c2f38"/><rect x="60" y="90" width="6" height="6" fill="#2c2f38"/>
+  <rect x="58" y="94" width="2" height="6" fill="#3d414d"/><rect x="59" y="92" width="1" height="4" fill="#24272e"/>
+  <rect x="63" y="96" width="1" height="5" fill="#24272e"/>
+  <rect x="60" y="84" width="6" height="6" fill="#2c2f38"/><rect x="56" y="80" width="14" height="4" fill="#343845"/>
+  <rect x="54" y="76" width="18" height="4" fill="#3a3f4d"/><rect x="52" y="72" width="22" height="4" fill="#404657"/>
+  <rect x="50" y="68" width="26" height="4" fill="#484f61"/><rect x="50" y="68" width="26" height="1" fill="#565d72"/>
+  <rect x="50" y="66" width="4" height="2" fill="#484f61"/><rect x="58" y="66" width="4" height="2" fill="#484f61"/>
+  <rect x="66" y="66" width="4" height="2" fill="#484f61"/><rect x="72" y="66" width="4" height="2" fill="#484f61"/>
+  <rect x="66" y="68" width="6" height="2" fill="#8a5c26"/><rect x="68" y="72" width="4" height="4" fill="#6e4a22"/>
+  <rect x="66" y="76" width="4" height="2" fill="#5c3d1c"/><rect x="62" y="84" width="2" height="4" fill="#4a3521"/>
   <g class="ct-f1">
-    <rect x="26" y="30" width="11" height="3" fill="#922908"/><rect x="27" y="27" width="9" height="3" fill="#922908"/>
-    <rect x="27" y="24" width="8" height="3" fill="#922908"/><rect x="28" y="21" width="6" height="3" fill="#922908"/>
-    <rect x="28" y="18" width="4" height="3" fill="#922908"/><rect x="29" y="15" width="2" height="3" fill="#922908"/>
-    <rect x="27" y="30" width="9" height="3" fill="#e8641c"/><rect x="28" y="27" width="7" height="3" fill="#e8641c"/>
-    <rect x="28" y="24" width="6" height="3" fill="#e8641c"/><rect x="29" y="21" width="4" height="3" fill="#e8641c"/>
-    <rect x="29" y="18" width="2" height="3" fill="#e8641c"/>
-    <rect x="29" y="30" width="6" height="3" fill="#ffb347"/><rect x="29" y="27" width="5" height="3" fill="#ffb347"/>
-    <rect x="30" y="24" width="3" height="3" fill="#ffb347"/><rect x="30" y="21" width="2" height="2" fill="#ffb347"/>
-    <rect x="30" y="30" width="4" height="3" fill="#ffe9a0"/><rect x="30" y="28" width="3" height="2" fill="#ffe9a0"/>
-    <rect x="31" y="26" width="2" height="2" fill="#ffe9a0"/>
+    <rect x="52" y="63" width="22" height="3" fill="#922908"/><rect x="53" y="60" width="20" height="3" fill="#922908"/>
+    <rect x="54" y="57" width="18" height="3" fill="#922908"/><rect x="55" y="54" width="16" height="3" fill="#922908"/>
+    <rect x="54" y="51" width="16" height="3" fill="#922908"/><rect x="55" y="48" width="14" height="3" fill="#922908"/>
+    <rect x="56" y="45" width="12" height="3" fill="#922908"/><rect x="56" y="42" width="12" height="3" fill="#922908"/>
+    <rect x="57" y="39" width="10" height="3" fill="#922908"/><rect x="56" y="36" width="8" height="3" fill="#922908"/>
+    <rect x="58" y="33" width="6" height="3" fill="#922908"/><rect x="58" y="30" width="4" height="3" fill="#922908"/>
+    <rect x="59" y="27" width="2" height="3" fill="#922908"/>
+    <rect x="54" y="63" width="18" height="3" fill="#e8641c"/><rect x="55" y="60" width="16" height="3" fill="#e8641c"/>
+    <rect x="56" y="57" width="14" height="3" fill="#e8641c"/><rect x="57" y="54" width="12" height="3" fill="#e8641c"/>
+    <rect x="56" y="51" width="12" height="3" fill="#e8641c"/><rect x="57" y="48" width="10" height="3" fill="#e8641c"/>
+    <rect x="58" y="45" width="8" height="3" fill="#e8641c"/><rect x="58" y="42" width="8" height="3" fill="#e8641c"/>
+    <rect x="58" y="39" width="6" height="3" fill="#e8641c"/><rect x="58" y="36" width="4" height="3" fill="#e8641c"/>
+    <rect x="59" y="33" width="2" height="3" fill="#e8641c"/>
+    <rect x="57" y="63" width="12" height="3" fill="#ffb347"/><rect x="58" y="60" width="10" height="3" fill="#ffb347"/>
+    <rect x="59" y="57" width="8" height="3" fill="#ffb347"/><rect x="60" y="54" width="6" height="3" fill="#ffb347"/>
+    <rect x="59" y="51" width="6" height="3" fill="#ffb347"/><rect x="60" y="48" width="4" height="3" fill="#ffb347"/>
+    <rect x="60" y="45" width="4" height="3" fill="#ffb347"/><rect x="60" y="42" width="2" height="3" fill="#ffb347"/>
+    <rect x="59" y="63" width="8" height="3" fill="#ffe9a0"/><rect x="60" y="60" width="6" height="3" fill="#ffe9a0"/>
+    <rect x="60" y="57" width="4" height="3" fill="#ffe9a0"/><rect x="61" y="54" width="2" height="3" fill="#ffe9a0"/>
+    <rect x="60" y="51" width="2" height="3" fill="#ffe9a0"/>
   </g>
   <g class="ct-f2">
-    <rect x="26" y="30" width="11" height="3" fill="#922908"/><rect x="27" y="27" width="10" height="3" fill="#922908"/>
-    <rect x="28" y="24" width="8" height="3" fill="#922908"/><rect x="30" y="21" width="6" height="3" fill="#922908"/>
-    <rect x="31" y="18" width="4" height="3" fill="#922908"/><rect x="32" y="14" width="2" height="4" fill="#922908"/>
-    <rect x="27" y="30" width="9" height="3" fill="#e8641c"/><rect x="29" y="27" width="7" height="3" fill="#e8641c"/>
-    <rect x="30" y="24" width="5" height="3" fill="#e8641c"/><rect x="31" y="21" width="4" height="3" fill="#e8641c"/>
-    <rect x="32" y="18" width="2" height="3" fill="#e8641c"/>
-    <rect x="29" y="30" width="6" height="3" fill="#ffb347"/><rect x="30" y="27" width="5" height="3" fill="#ffb347"/>
-    <rect x="31" y="24" width="3" height="3" fill="#ffb347"/><rect x="32" y="22" width="2" height="2" fill="#ffb347"/>
-    <rect x="30" y="30" width="4" height="3" fill="#ffe9a0"/><rect x="31" y="28" width="3" height="2" fill="#ffe9a0"/>
-    <rect x="32" y="26" width="2" height="2" fill="#ffe9a0"/>
+    <rect x="52" y="63" width="22" height="3" fill="#922908"/><rect x="54" y="60" width="21" height="3" fill="#922908"/>
+    <rect x="56" y="57" width="18" height="3" fill="#922908"/><rect x="57" y="54" width="16" height="3" fill="#922908"/>
+    <rect x="58" y="51" width="14" height="3" fill="#922908"/><rect x="60" y="48" width="12" height="3" fill="#922908"/>
+    <rect x="60" y="45" width="12" height="3" fill="#922908"/><rect x="61" y="42" width="10" height="3" fill="#922908"/>
+    <rect x="62" y="39" width="8" height="3" fill="#922908"/><rect x="62" y="36" width="6" height="3" fill="#922908"/>
+    <rect x="63" y="33" width="4" height="3" fill="#922908"/><rect x="64" y="30" width="4" height="3" fill="#922908"/>
+    <rect x="64" y="27" width="2" height="3" fill="#922908"/><rect x="65" y="24" width="2" height="3" fill="#922908"/>
+    <rect x="54" y="63" width="18" height="3" fill="#e8641c"/><rect x="57" y="60" width="16" height="3" fill="#e8641c"/>
+    <rect x="58" y="57" width="14" height="3" fill="#e8641c"/><rect x="59" y="54" width="10" height="3" fill="#e8641c"/>
+    <rect x="60" y="51" width="10" height="3" fill="#e8641c"/><rect x="61" y="48" width="8" height="3" fill="#e8641c"/>
+    <rect x="62" y="45" width="6" height="3" fill="#e8641c"/><rect x="62" y="42" width="6" height="3" fill="#e8641c"/>
+    <rect x="63" y="39" width="4" height="3" fill="#e8641c"/><rect x="63" y="36" width="2" height="3" fill="#e8641c"/>
+    <rect x="57" y="63" width="12" height="3" fill="#ffb347"/><rect x="59" y="60" width="10" height="3" fill="#ffb347"/>
+    <rect x="60" y="57" width="6" height="3" fill="#ffb347"/><rect x="61" y="54" width="6" height="3" fill="#ffb347"/>
+    <rect x="62" y="51" width="4" height="3" fill="#ffb347"/><rect x="62" y="48" width="4" height="3" fill="#ffb347"/>
+    <rect x="63" y="45" width="2" height="3" fill="#ffb347"/>
+    <rect x="59" y="63" width="8" height="3" fill="#ffe9a0"/><rect x="61" y="60" width="6" height="3" fill="#ffe9a0"/>
+    <rect x="61" y="57" width="4" height="3" fill="#ffe9a0"/><rect x="62" y="54" width="2" height="3" fill="#ffe9a0"/>
   </g>
 </g>`;
 
-const rowPlacements = (p: string) => `
-<use href="#${p}-rowA" y="0"/><use href="#${p}-rowB" y="11"/><use href="#${p}-rowC" y="22"/>
-<use href="#${p}-rowB" x="-30" y="33"/><use href="#${p}-rowA" x="-14" y="44"/><use href="#${p}-rowC" x="-22" y="55"/>
-<use href="#${p}-rowB" y="66"/><use href="#${p}-rowA" x="-8" y="77"/><use href="#${p}-rowC" y="88"/>`;
+// 17 courses × 2 side-by-side tiles cover 320x180. Per-course x jitter keeps
+// the vertical seam between tiles from lining up course to course.
+const ROW_BANDS = ['A', 'B', 'C', 'B', 'A', 'C', 'B', 'A', 'C', 'A', 'B', 'C', 'A', 'C', 'B', 'A', 'C'] as const;
+const ROW_JITTER = [0, -30, -14, -22, -8, -27, -18, -6, -26, -12, -3, -20, -9, -29, -15, -4, -23];
+
+const rowPlacements = (p: string) => ROW_BANDS.map((band, i) =>
+  `<use href="#${p}-row${band}" x="${ROW_JITTER[i]}" y="${i * 11}"/>` +
+  `<use href="#${p}-row${band}" x="${ROW_JITTER[i] + 160}" y="${i * 11}"/>`
+).join('\n');
 
 const damage = `
-<rect x="0" y="76" width="7" height="3" fill="#0d0f14"/><rect x="152" y="65" width="8" height="4" fill="#0d0f14"/>
-<rect x="63" y="10" width="5" height="2" fill="#0d0f14"/><rect x="34" y="21" width="4" height="2" fill="#0d0f14"/>
-<rect x="97" y="43" width="3" height="3" fill="#0d0f14"/><rect x="14" y="54" width="4" height="2" fill="#0d0f14"/>
-<rect x="141" y="32" width="3" height="2" fill="#0d0f14"/><rect x="76" y="65" width="4" height="2" fill="#0d0f14"/>
-<rect x="118" y="76" width="3" height="3" fill="#0d0f14"/><rect x="49" y="87" width="4" height="2" fill="#0d0f14"/>
-<rect x="101" y="11" width="1" height="4" fill="#181b23"/><rect x="102" y="15" width="1" height="3" fill="#181b23"/>
-<rect x="103" y="18" width="1" height="4" fill="#181b23"/><rect x="102" y="22" width="1" height="3" fill="#181b23"/>
-<rect x="26" y="66" width="1" height="3" fill="#181b23"/><rect x="25" y="69" width="1" height="4" fill="#181b23"/>
-<rect x="24" y="73" width="1" height="3" fill="#181b23"/>
-<rect x="45" y="32" width="2" height="1" fill="#2a3040"/><rect x="88" y="54" width="2" height="1" fill="#2d3342"/>
-<rect x="129" y="21" width="1" height="1" fill="#2a3040"/><rect x="8" y="32" width="2" height="1" fill="#262c38"/>
-<rect x="70" y="43" width="1" height="1" fill="#2d3342"/><rect x="150" y="54" width="2" height="1" fill="#262c38"/>
-<rect x="58" y="76" width="2" height="1" fill="#2a3040"/><rect x="106" y="65" width="1" height="1" fill="#2d3342"/>`;
+<rect x="0" y="152" width="7" height="3" fill="#0d0f14"/><rect x="304" y="130" width="8" height="4" fill="#0d0f14"/>
+<rect x="126" y="20" width="5" height="2" fill="#0d0f14"/><rect x="68" y="42" width="4" height="2" fill="#0d0f14"/>
+<rect x="194" y="86" width="3" height="3" fill="#0d0f14"/><rect x="28" y="108" width="4" height="2" fill="#0d0f14"/>
+<rect x="282" y="64" width="3" height="2" fill="#0d0f14"/><rect x="152" y="130" width="4" height="2" fill="#0d0f14"/>
+<rect x="236" y="152" width="3" height="3" fill="#0d0f14"/><rect x="98" y="174" width="4" height="2" fill="#0d0f14"/>
+<rect x="252" y="20" width="6" height="3" fill="#0d0f14"/><rect x="44" y="64" width="3" height="2" fill="#0d0f14"/>
+<rect x="310" y="86" width="5" height="2" fill="#0d0f14"/><rect x="180" y="42" width="3" height="2" fill="#0d0f14"/>
+<rect x="14" y="20" width="4" height="2" fill="#0d0f14"/><rect x="216" y="108" width="4" height="3" fill="#0d0f14"/>
+<rect x="202" y="22" width="1" height="4" fill="#181b23"/><rect x="204" y="30" width="1" height="3" fill="#181b23"/>
+<rect x="206" y="36" width="1" height="4" fill="#181b23"/><rect x="204" y="44" width="1" height="3" fill="#181b23"/>
+<rect x="52" y="132" width="1" height="3" fill="#181b23"/><rect x="50" y="138" width="1" height="4" fill="#181b23"/>
+<rect x="48" y="146" width="1" height="3" fill="#181b23"/>
+<rect x="272" y="120" width="1" height="4" fill="#181b23"/><rect x="273" y="124" width="1" height="3" fill="#181b23"/>
+<rect x="271" y="127" width="1" height="4" fill="#181b23"/>
+<rect x="90" y="64" width="2" height="1" fill="#2a3040"/><rect x="176" y="108" width="2" height="1" fill="#2d3342"/>
+<rect x="258" y="42" width="1" height="1" fill="#2a3040"/><rect x="16" y="64" width="2" height="1" fill="#262c38"/>
+<rect x="140" y="86" width="1" height="1" fill="#2d3342"/><rect x="300" y="108" width="2" height="1" fill="#262c38"/>
+<rect x="116" y="152" width="2" height="1" fill="#2a3040"/><rect x="212" y="130" width="1" height="1" fill="#2d3342"/>
+<rect x="76" y="152" width="2" height="1" fill="#262c38"/><rect x="246" y="64" width="2" height="1" fill="#2a3040"/>`;
 
 const mossNormal = (p: string) => `
-<use href="#${p}-mossB" x="4" y="75"/><use href="#${p}-mossA" x="30" y="86"/><use href="#${p}-mossB" x="70" y="87"/>
-<use href="#${p}-mossA" x="112" y="81"/><use href="#${p}-mossB" x="140" y="70"/><use href="#${p}-mossA" x="148" y="87"/>
-<use href="#${p}-mossC" x="52" y="65"/><use href="#${p}-mossC" x="96" y="59"/><use href="#${p}-mossA" x="2" y="43"/>
-<use href="#${p}-mossC" x="150" y="38"/><use href="#${p}-mossC" x="64" y="21"/><use href="#${p}-mossA" x="118" y="32"/>
-<use href="#${p}-mossC" x="20" y="59"/><use href="#${p}-mossC" x="34" y="20"/><use href="#${p}-mossC" x="76" y="64"/>
-<use href="#${p}-mossC" x="14" y="53"/>`;
+<use href="#${p}-mossB" x="8" y="150"/><use href="#${p}-mossA" x="60" y="172"/><use href="#${p}-mossB" x="140" y="174"/>
+<use href="#${p}-mossA" x="224" y="162"/><use href="#${p}-mossB" x="280" y="140"/><use href="#${p}-mossA" x="296" y="174"/>
+<use href="#${p}-mossC" x="104" y="130"/><use href="#${p}-mossC" x="192" y="118"/><use href="#${p}-mossA" x="4" y="86"/>
+<use href="#${p}-mossC" x="300" y="76"/><use href="#${p}-mossC" x="128" y="42"/><use href="#${p}-mossA" x="236" y="64"/>
+<use href="#${p}-mossC" x="40" y="118"/><use href="#${p}-mossC" x="68" y="40"/><use href="#${p}-mossC" x="152" y="128"/>
+<use href="#${p}-mossC" x="28" y="106"/><use href="#${p}-mossB" x="184" y="170"/><use href="#${p}-mossA" x="110" y="166"/>
+<use href="#${p}-mossC" x="252" y="150"/><use href="#${p}-mossC" x="90" y="94"/><use href="#${p}-mossC" x="210" y="90"/>
+<use href="#${p}-mossC" x="308" y="120"/>`;
 
 const mossSparse = (p: string) => `
-<use href="#${p}-mossA" x="4" y="75"/><use href="#${p}-mossC" x="150" y="42"/><use href="#${p}-mossA" x="130" y="86"/>
-<use href="#${p}-mossC" x="24" y="54"/><use href="#${p}-mossC" x="90" y="65"/>`;
+<use href="#${p}-mossA" x="8" y="150"/><use href="#${p}-mossC" x="300" y="84"/><use href="#${p}-mossA" x="260" y="172"/>
+<use href="#${p}-mossC" x="48" y="108"/><use href="#${p}-mossC" x="180" y="130"/><use href="#${p}-mossB" x="120" y="172"/>
+<use href="#${p}-mossC" x="228" y="116"/>`;
 
 export type WallOpts = { idPrefix?: string; mossDensity?: 'normal' | 'sparse' };
 
 export function buildWallSvg(opts: WallOpts = {}): string {
   const p = opts.idPrefix ?? 'ct';
   const moss = opts.mossDensity === 'sparse' ? mossSparse(p) : mossNormal(p);
-  return `<svg class="ct-wall" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges">
-<rect x="0" y="0" width="160" height="90" fill="#12141b"/>
+  return `<svg class="ct-wall" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges">
+<rect x="0" y="0" width="320" height="180" fill="#12141b"/>
 <defs>${rowDefs(p)}${mossDefs(p)}${torchDef(p)}</defs>
 ${rowPlacements(p)}${damage}${moss}
 <!--TORCHES-->
 </svg>`;
 }
 
+// x=-30 pushes the sconce into the outer margin beside the lobby panels
+// (panels are centered at max-width 1060, so wide windows leave a clear
+// strip at each edge; on narrow windows the torch tucks behind the panel,
+// which is fine — it's ambient).
 export function buildTorch(idPrefix: string, side: 'left' | 'right'): string {
-  if (side === 'left') return `<use href="#${idPrefix}-torch" x="-4" y="0"/>`;
-  return `<g transform="translate(160,0) scale(-1,1)" class="ct-slow"><use href="#${idPrefix}-torch" x="-4" y="0"/></g>`;
+  if (side === 'left') return `<use href="#${idPrefix}-torch" x="-30" y="0"/>`;
+  return `<g transform="translate(320,0) scale(-1,1)" class="ct-slow"><use href="#${idPrefix}-torch" x="-30" y="0"/></g>`;
 }
 
 export function buildHallScene(): string {

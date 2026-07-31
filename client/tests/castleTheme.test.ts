@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { buildWallSvg, buildTorch, buildHallScene, buildDimBackdrop } from '../src/ui/castleTheme';
 
 describe('buildWallSvg', () => {
-  it('produces a crisp-edged pixel svg with 9 brick courses', () => {
+  it('produces a crisp-edged pixel svg with 17 double-tiled brick courses', () => {
     const svg = buildWallSvg({ idPrefix: 'x' });
     expect(svg).toContain('shape-rendering="crispEdges"');
-    expect(svg).toContain('viewBox="0 0 160 90"');
+    expect(svg).toContain('viewBox="0 0 320 180"');
     expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
-    expect((svg.match(/href="#x-row[ABC]"/g) ?? []).length).toBe(9);
+    expect((svg.match(/href="#x-row[ABC]"/g) ?? []).length).toBe(34);
   });
   it('interpolates the id prefix into defs so instances can coexist', () => {
     const a = buildWallSvg({ idPrefix: 'a' });
