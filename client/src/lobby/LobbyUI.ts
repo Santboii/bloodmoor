@@ -362,9 +362,10 @@ export class LobbyUI {
 
     if (hasSprite) {
       const canvas = this.ui.querySelector('#bm-hero-canvas') as HTMLCanvasElement;
-      this.heroPreview = new SpritePreview(canvas);
-      this.heroPreview.setAppearance(appearance!).then(ok => {
-        if (!ok && this.heroPreview) {
+      const preview = new SpritePreview(canvas);
+      this.heroPreview = preview;
+      preview.setAppearance(appearance!).then(ok => {
+        if (!ok && this.heroPreview === preview) {
           // Composite failed (bad appearance / missing sheet): degrade to the
           // silhouette rather than a frozen empty canvas.
           this.heroPreview.dispose();
