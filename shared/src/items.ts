@@ -16,11 +16,22 @@ export type AffixId =
 
 export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node only for 'talent'
 
+/** One LPC sheet layer a visible base contributes. Paths may contain the
+ * tokens '{body}' (male|female) and '{legs}' (male|thin pants fit) which
+ * layersForLoadout substitutes from the wearer's appearance. */
+export type GearLayer = { path: string; z: number; tint?: string; tintMode?: 'fabric' };
+export type ItemBaseLpc = {
+  layers: GearLayer[];
+  /** Full helms that would clip badly with above-head hair. */
+  hidesHair?: boolean;
+};
+
 export type ItemBase = {
   id: string; slot: ItemBaseSlot; name: string; icon: string;
   classRestriction?: CharacterClass;        // weapons only
   itemLevel: 1 | 4 | 7 | 10;                // band; also the level_req
   implicit: RolledAffix;                    // fixed value, no rolling
+  lpc?: ItemBaseLpc;
 };
 
 export type UniqueItem = {
@@ -93,27 +104,27 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  * Phase 2's drop rolls and the admin grant tool pick bases by band.
  */
 export const ITEM_BASES: ItemBase[] = [
-  { id: 'leather_cap', slot: 'helmet', name: 'Leather Cap', icon: 'fa-helmet-safety', itemLevel: 1, implicit: { id: 'max_health', value: 15 } },
-  { id: 'iron_helm', slot: 'helmet', name: 'Iron Helm', icon: 'fa-helmet-safety', itemLevel: 7, implicit: { id: 'max_health', value: 60 } },
-  { id: 'padded_tunic', slot: 'armor', name: 'Padded Tunic', icon: 'fa-shirt', itemLevel: 1, implicit: { id: 'max_health', value: 25 } },
-  { id: 'scale_mail', slot: 'armor', name: 'Scale Mail', icon: 'fa-shirt', itemLevel: 7, implicit: { id: 'max_health', value: 90 } },
-  { id: 'cloth_pants', slot: 'leggings', name: 'Cloth Pants', icon: 'fa-socks', itemLevel: 1, implicit: { id: 'max_health', value: 10 } },
-  { id: 'mail_leggings', slot: 'leggings', name: 'Mail Leggings', icon: 'fa-socks', itemLevel: 7, implicit: { id: 'max_health', value: 45 } },
+  { id: 'leather_cap', slot: 'helmet', name: 'Leather Cap', icon: 'fa-helmet-safety', itemLevel: 1, implicit: { id: 'max_health', value: 15 }, lpc: { layers: [{ path: 'hat/cloth/leather_cap/adult/leather', z: 60 }] } },
+  { id: 'iron_helm', slot: 'helmet', name: 'Iron Helm', icon: 'fa-helmet-safety', itemLevel: 7, implicit: { id: 'max_health', value: 60 }, lpc: { layers: [{ path: 'hat/helmet/barbuta/{body}', z: 60 }], hidesHair: true } },
+  { id: 'padded_tunic', slot: 'armor', name: 'Padded Tunic', icon: 'fa-shirt', itemLevel: 1, implicit: { id: 'max_health', value: 25 }, lpc: { layers: [{ path: 'torso/armour/leather/{body}', z: 40 }] } },
+  { id: 'scale_mail', slot: 'armor', name: 'Scale Mail', icon: 'fa-shirt', itemLevel: 7, implicit: { id: 'max_health', value: 90 }, lpc: { layers: [{ path: 'torso/chainmail/{body}', z: 40 }] } },
+  { id: 'cloth_pants', slot: 'leggings', name: 'Cloth Pants', icon: 'fa-socks', itemLevel: 1, implicit: { id: 'max_health', value: 10 }, lpc: { layers: [{ path: 'legs/pants/{legs}', z: 50, tint: '#c9a86a', tintMode: 'fabric' }] } },
+  { id: 'mail_leggings', slot: 'leggings', name: 'Mail Leggings', icon: 'fa-socks', itemLevel: 7, implicit: { id: 'max_health', value: 45 }, lpc: { layers: [{ path: 'legs/leggings/{legs}', z: 50, tint: '#9a9aa2', tintMode: 'fabric' }] } },
   { id: 'bone_ring', slot: 'ring', name: 'Bone Ring', icon: 'fa-ring', itemLevel: 1, implicit: { id: 'max_mana', value: 10 } },
   { id: 'silver_ring', slot: 'ring', name: 'Silver Ring', icon: 'fa-ring', itemLevel: 4, implicit: { id: 'max_mana', value: 18 } },
   // carved_amulet takes over the L4 accessory band moon_amulet vacated when
   // it moved to L7 (see the Task 1 report for that move's rationale).
   { id: 'carved_amulet', slot: 'amulet', name: 'Carved Amulet', icon: 'fa-gem', itemLevel: 4, implicit: { id: 'max_mana', value: 25 } },
   { id: 'moon_amulet', slot: 'amulet', name: 'Moon Amulet', icon: 'fa-gem', itemLevel: 7, implicit: { id: 'max_mana', value: 25 } },
-  { id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 } },
-  { id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 } },
-  { id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 } },
+  { id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 }, lpc: { layers: [{ path: 'weapon/magic/simple/background/simple', z: 5 }, { path: 'weapon/magic/simple/foreground/simple', z: 70 }] } },
+  { id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 }, lpc: { layers: [{ path: 'weapon/magic/gnarled/universal/background/gnarled', z: 5 }, { path: 'weapon/magic/gnarled/universal/foreground/gnarled', z: 70 }] } },
+  { id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 }, lpc: { layers: [{ path: 'weapon/magic/crystal/universal/background/purple', z: 5 }, { path: 'weapon/magic/crystal/universal/foreground/purple', z: 70 }] } },
   // fa-bow-arrow is Font Awesome PRO — not present in the free 6.5.0 bundle
   // this project loads (client/index.html); fa-crosshairs is the free
   // fallback used for all bow bases until a licensed bow glyph is vendored.
-  { id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 } },
-  { id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 } },
-  { id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 } },
+  { id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 }, lpc: { layers: [{ path: 'weapon/ranged/bow/normal/universal/background/normal', z: 5 }, { path: 'weapon/ranged/bow/normal/universal/foreground/normal', z: 70 }] } },
+  { id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 }, lpc: { layers: [{ path: 'weapon/ranged/bow/recurve/universal/background/recurve', z: 5 }, { path: 'weapon/ranged/bow/recurve/universal/foreground/recurve', z: 70 }] } },
+  { id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 }, lpc: { layers: [{ path: 'weapon/ranged/bow/great/universal/background/great', z: 5 }, { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70 }] } },
 ];
 
 export const UNIQUE_ITEMS: UniqueItem[] = [

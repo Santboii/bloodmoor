@@ -5,4 +5,5 @@ export * from './physics.js';
 export * from './character.js';
 export * from './appearance.js';
 export * from './items.js';
+export * from './gearVisuals.js';
 export * from './economy.js';
