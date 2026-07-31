@@ -13,7 +13,7 @@ import { SkillTreeUI } from './skills/SkillTreeUI';
 import { GearScreen } from './items/GearScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -121,7 +121,13 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     await refreshLoadout(character.id, character.class);
     charSelect.hide();
     lobby.show();
-    lobby.showHome(character.name, character.skill_points_available, character.class, character.level);
+    lobby.showHome(
+      character.name,
+      character.skill_points_available,
+      character.class,
+      character.level,
+      appearanceFromRow(character.appearance, character.class),
+    );
   },
   onLogout: async () => {
     try { await supabase.auth.signOut(); } catch {}
@@ -274,7 +280,13 @@ const lobby = new LobbyUI(uiOverlay, {
     currentMode = '1v1';
     myTeamId = undefined;
     if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+      lobby.showHome(
+        activeCharacter.name,
+        activeCharacter.skill_points_available,
+        activeCharacter.class,
+        activeCharacter.level,
+        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      );
     } else {
       lobby.showHome(myDisplayName);
     }
@@ -312,7 +324,13 @@ const lobby = new LobbyUI(uiOverlay, {
     }
     lobby.show();
     if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+      lobby.showHome(
+        activeCharacter.name,
+        activeCharacter.skill_points_available,
+        activeCharacter.class,
+        activeCharacter.level,
+        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      );
     }
   },
   onOpenGear: async () => {
@@ -322,7 +340,13 @@ const lobby = new LobbyUI(uiOverlay, {
     await refreshLoadout(activeCharacter.id, activeCharacter.class);
     lobby.show();
     if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+      lobby.showHome(
+        activeCharacter.name,
+        activeCharacter.skill_points_available,
+        activeCharacter.class,
+        activeCharacter.level,
+        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      );
     }
   },
   onSwitchCharacter: async () => {
@@ -337,7 +361,13 @@ const lobby = new LobbyUI(uiOverlay, {
     await adminScreen.show();
     lobby.show();
     if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+      lobby.showHome(
+        activeCharacter.name,
+        activeCharacter.skill_points_available,
+        activeCharacter.class,
+        activeCharacter.level,
+        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      );
     } else {
       lobby.showHome(myDisplayName);
     }
@@ -510,7 +540,13 @@ function setupSocketHandlers(_myDisplayName: string): void {
 
   socket.onRoomNotFound(() => {
     if (activeCharacter) {
-      lobby.showHome(activeCharacter.name, activeCharacter.skill_points_available, activeCharacter.class, activeCharacter.level);
+      lobby.showHome(
+        activeCharacter.name,
+        activeCharacter.skill_points_available,
+        activeCharacter.class,
+        activeCharacter.level,
+        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      );
     } else {
       lobby.showHome(myDisplayName);
     }

@@ -1,4 +1,6 @@
+import type { Appearance } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
+import { SpritePreview } from '../renderer/sprites/SpritePreview';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -168,21 +170,31 @@ const STYLES = `
 .bm-disc-panel{text-align:center;max-width:360px;}
 .bm-disc-title{font-family:'Press Start 2P',monospace;font-size:16px;color:var(--px-danger);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;}
 .bm-disc-sub{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-border-light);letter-spacing:1px;}
-.bm-btn-logout{background:transparent;font-size:8px;letter-spacing:1px;}
-.bm-btn-logout:hover{color:var(--px-danger);}
-.bm-char-card{display:flex;align-items:center;gap:16px;padding:18px 20px;margin:-8px 0 24px;font-family:'Press Start 2P',monospace;width:100%;max-width:760px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-border-dark);}
-.bm-char-icon{width:38px;height:38px;border-radius:0;background:var(--px-border-dark);box-shadow:0 0 0 2px var(--px-accent);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
-.bm-char-details{flex:1;min-width:0;}
-.bm-char-name{font-size:11px;color:var(--px-accent);letter-spacing:1px;margin-bottom:6px;}
-.bm-char-meta{font-size:16px;color:var(--px-text);opacity:0.85;letter-spacing:0.5px;margin-top:3px;line-height:1.1;font-family:'VT323',monospace;}
-.bm-char-meta b{color:var(--px-accent);}
-.bm-char-actions{display:flex;gap:8px;align-items:center;}
-.bm-btn-ghost{background:transparent;font-size:8px;letter-spacing:1px;padding:10px 12px;}
-.bm-btn-ghost:hover{color:var(--px-accent);}
-.bm-credits-btn{position:fixed;right:16px;bottom:16px;font-size:7px;padding:8px 10px;opacity:0.6;z-index:2;}
-.bm-credits-btn:hover{opacity:1;}
-.bm-admin-btn{position:fixed;left:16px;bottom:16px;font-size:7px;padding:8px 10px;opacity:0.6;z-index:2;}
-.bm-admin-btn:hover{opacity:1;}
+.bm-nav{display:flex;align-items:center;gap:10px;width:100%;max-width:1060px;background:rgba(10,11,15,0.92);padding:10px 14px;margin-bottom:24px;box-sizing:border-box;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);}
+.bm-nav-crest{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--px-accent);letter-spacing:1px;white-space:nowrap;margin-right:8px;text-shadow:0 0 10px rgba(255,122,30,0.5),2px 2px 0 var(--px-border-dark);}
+.bm-nav-tab{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;padding:10px 14px;}
+.bm-nav-tab.active{background:#3a3f4b;color:var(--px-accent);cursor:default;box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
+.bm-nav-tab.locked{opacity:0.4;cursor:not-allowed;}
+.bm-nav-badge{color:var(--px-success);margin-left:6px;}
+.bm-nav-spacer{flex:1;}
+.bm-acct{position:relative;}
+.bm-acct-btn{font-size:8px;letter-spacing:1px;padding:10px 12px;color:var(--px-accent);}
+.bm-acct-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:200px;background:var(--px-panel);display:none;z-index:5;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark),0 8px 24px rgba(0,0,0,0.6);}
+.bm-acct-menu.open{display:block;}
+.bm-acct-item{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:var(--px-text);text-transform:uppercase;padding:12px 14px;}
+.bm-acct-item:hover{background:#3a3f4b;color:var(--px-accent);}
+.bm-acct-item[data-item="logout"]:hover{color:var(--px-danger);}
+.bm-layout-home{max-width:1060px;}
+.bm-panel-lobbies{flex:0 0 340px;}
+.bm-panel-translucent{background:rgba(30,32,38,0.92);}
+.bm-hero{flex:1;display:flex;flex-direction:column;align-items:center;padding-top:6px;min-width:0;}
+.bm-hero-plate{background:rgba(10,11,15,0.85);box-shadow:0 0 0 1px var(--px-border-light);padding:10px 18px;text-align:center;margin-bottom:16px;}
+.bm-hero-name{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--px-accent);letter-spacing:1px;}
+.bm-hero-meta{font-family:'VT323',monospace;font-size:17px;color:var(--px-border-light);margin-top:5px;}
+.bm-hero-meta b{color:var(--px-text);}
+.bm-hero-canvas{width:192px;height:192px;image-rendering:pixelated;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.6));}
+.bm-hero-empty{width:170px;min-height:180px;outline:2px dashed var(--px-border-light);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;line-height:1.8;text-align:center;padding:14px;}
+.bm-hero-empty .px-btn{font-size:8px;}
 .bm-pause-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;}
 .bm-pause-title{font-size:20px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;text-shadow:0 0 20px rgba(224,91,91,0.6);}
 .bm-pause-countdown{font-size:48px;color:var(--px-accent);letter-spacing:2px;margin-bottom:24px;text-shadow:0 0 30px rgba(255,179,71,0.4);}
@@ -198,6 +210,8 @@ export class LobbyUI {
   private ui: HTMLElement;
   private bg: HTMLElement;
   private pollTimer: number | null = null;
+  private heroPreview: SpritePreview | null = null;
+  private docClickHandler: ((e: MouseEvent) => void) | null = null;
   private pauseOverlay: HTMLElement | null = null;
   private pauseCountdownTimer: number | null = null;
   // Cosmetic gate only — the admin button simply isn't rendered for
@@ -235,39 +249,62 @@ export class LobbyUI {
     this.isAdminFlag = isAdmin;
   }
 
-  showHome(username?: string, points?: number, charClass?: string, level?: number): void {
+  /** Home-screen chrome (sprite raf loop, account-menu document listener)
+   * must not outlive the home render. */
+  private teardownHome(): void {
+    if (this.heroPreview) {
+      this.heroPreview.dispose();
+      this.heroPreview = null;
+    }
+    if (this.docClickHandler) {
+      document.removeEventListener('click', this.docClickHandler);
+      this.docClickHandler = null;
+    }
+  }
+
+  showHome(username?: string, points?: number, charClass?: string, level?: number, appearance?: Appearance | null): void {
+    this.teardownHome();
     this.setBackdrop('hall');
     this.stopPolling();
     const prefilledCode = new URLSearchParams(window.location.search).get('room') ?? '';
-    const hasProfile = username !== undefined || points !== undefined;
-    const mageStaffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="22" height="22"><path d="M335.656 19.53c-24.51.093-48.993 5.235-71.062 15.626-22.46 10.577-43.112 34.202-58.375 62.563-15.264 28.36-25.182 61.262-27.69 88.75-7.487 82.112-51.926 155.352-159.78 252.56l-.188 21.44C89.216 403.443 139.915 346.632 176.313 290l.063.03c-9.293 32.473-22.623 63.18-43.594 87.97-31.47 35.584-69.222 71.1-114.468 106.53l-.062 8.25 25 .064h.47l1.28-1.156c24.405-16.498 48.607-31.488 72.594-41.5l.187.187-46.436 42.5 28.937.063c48.372-41.685 94.714-90.58 129.626-137 33.587-44.658 56.02-87.312 60.688-116.844-1.268-2.32-2.552-4.628-3.656-7.094-18.833-42.06-4.273-96.424 40.218-116.063 32.73-14.45 74.854-3.165 90.438 31.344.15.333.324.634.47.97 13.302 24.062 6.175 49.48-9.345 61.97-7.866 6.328-18.442 9.528-28.75 6.56-10.31-2.966-19.043-11.772-24.5-25.124l17.28-7.062c3.992 9.764 8.667 13.15 12.375 14.22 3.708 1.066 7.767.148 11.875-3.158 8.216-6.61 14.282-21.91 4.406-39.03l-.28-.47-.22-.5c-10.7-24.82-41.96-33.333-66.22-22.625-34.063 15.037-45.594 58.052-30.686 91.345 20.527 45.846 77.97 61.177 122.375 40.875 60.157-27.5 80.13-103.328 53.094-161.813-24.737-53.503-81.41-82.484-138.908-83.843-1.633-.04-3.272-.07-4.906-.063zm-25.75 26.72c3.238.035 6.363.348 9.406.906 10.343 1.898 19.946 6.753 29.032 13.25-30.623-5.437-58.324 4.612-80.78 24.782-22.44 20.152-39.16 50.59-45.783 84.718-4.655-11.358-7.166-21.462-6.686-31.72.296-6.343 1.715-12.956 4.78-20.217 9.094-18.016 21.032-33.946 35.22-46.69 7.824-7.026 16.39-13.07 25.53-17.905 10.932-5.212 20.522-7.22 29.282-7.125zm122.938 62.313c22.583 13.167 34.365 41.86 32.937 70.656-.564 11.395-3.466 22.975-8.905 33.624-12.48 18.937-35.53 25.51-49.97 20.875l-.092-.25c27.943-10.365 39.18-32.377 40.312-55.19.124-2.5.115-4.994-.03-7.468 1.447-13.31-.412-28.793-5.47-43.437-2.244-6.496-5.15-12.89-8.844-18.72l.064-.093zm-135.563 1.312c-20.97 19.342-29.406 35.252-33.25 51.25-3.848 16.023-2.788 32.84-2.905 52.875-.14 23.79-2.56 51.542-18.438 85.688-.005.012-.025.018-.03.03-21.095 26.753-45.276 52.25-68.907 67.376l-.063-.03c64.195-71.545 68.527-114.792 68.75-153.19.112-19.197-1.253-37.594 3.438-57.124a98.095 98.095 0 0 1 2-7.125h.03c8.098-17.036 16.572-26.058 25.47-31.563 7.18-4.44 15.035-6.697 23.906-8.187z" fill="#a478e8"/></svg>`;
-    const rangerBowSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="22" height="22"><path d="m257.313 15.688-50.375 87.53 28.156-8.53 22.28-38.72 22.407 38.782 28.126 8.47-50.594-87.532zm-138.938 77.75 18.5 99.28 14.156-22.093L141.595 120l48.97 17.313 23.124-10.157-95.313-33.72zm278.72 0-95.314 33.718 23.876 10.5L375.562 120l-9.812 52.688 12.844 20.03 18.5-99.28zm-139.72 2.03-9.344 2.844v104.47l9.69 11.343 9-10.5V98.28l-9.345-2.81zm81.22 52.032-54.345 63.688.344.28-14.563 17 12.033 14.063 71.093-83.343-4.75-7.375-9.812-4.312zm-161.25.53-8.595 3.782-5.47 8.532 255.5 299.469L433 447.688l-8.094-9.47 22.688-10.03 11.47-5.063-8.158-9.53-44.125-51.783-2.31-2.718-3.564-.47-49.562-6.655-174-203.94zm56.06 123.22-62.218 72.688-.125-.094-6.625 7.75-49.718 6.687-3.564.47-2.312 2.72-44.28 51.936-8.158 9.563 11.5 5.06 22.75 10.064-8.187 9.594 14.218 12.156L245.594 285.28l-12.188-14.03zm24.376 28.125-9.75 11.28v178.75h18.69v-15.092l24.874 7.437 12.03 3.594v-87l-2.374-2.656-34.53-38.47v-47.5l-8.94-10.343zm-111.5 73.5-42.936 50.375L86.906 416l33.844-39.688 25.53-3.437zm223.22.375 25.406 3.438 33.656 39.468-16.312 7.22-42.75-50.126zm-140.03 4.375-16.064 18.094-2.344 2.655v87.031l12.063-3.656 6.344-1.906v-102.22zm37.25 7.563 18.217 20.312v54.75l-18.218-5.438v-69.625zm-87.75 5.406-64.564 74.687 3.5 5.44 6.813 10.592 8.155-9.593 44.28-51.94 2.314-2.686-.064-3.563-.437-22.936zm157.905.156-.438 22.97-.093 3.53 2.312 2.72 44.125 51.75 8.19 9.592 6.78-10.625 3.53-5.5-64.405-74.437z" fill="#c8a870"/></svg>`;
-    const classIcon: Record<string, string> = { mage: mageStaffSvg, ranger: rangerBowSvg };
-    const icon = classIcon[charClass ?? ''] ?? '⚔';
-    const profileBarHtml = hasProfile
-      ? `<div class="bm-char-card px-panel">
-           <div class="bm-char-icon">${icon}</div>
-           <div class="bm-char-details">
-             <div class="bm-char-name">${escapeHtml(username ?? '')}</div>
-             ${charClass || level !== undefined ? `<div class="bm-char-meta">${level !== undefined ? `Lvl <b>${level}</b> ` : ''}${charClass ? escapeHtml(charClass) : ''}</div>` : ''}
-             ${points !== undefined ? `<div class="bm-char-meta"><b>${points}</b> skill point${points === 1 ? '' : 's'} available</div>` : ''}
-           </div>
-           <div class="bm-char-actions">
-             <button id="bm-skills" class="bm-btn-ghost px-btn">✦ Skills</button>
-             <button id="bm-gear" class="bm-btn-ghost px-btn">⚔ Gear</button>
-             <button id="bm-switch-char" class="bm-btn-ghost px-btn">⇄ Switch</button>
-             <button id="bm-logout" class="bm-btn-logout px-btn">Sign Out</button>
-           </div>
-         </div>`
-      : '';
+    const hasChar = charClass !== undefined;
+    const hasSprite = hasChar && appearance != null;
     const nameValue = username ? escapeHtml(username) : '';
+    const badge = skillsBadge(points);
+
+    const tabAttrs = hasChar ? 'class="bm-nav-tab px-btn"' : 'class="bm-nav-tab px-btn locked" disabled';
+    const menuHtml = accountMenuItems(this.isAdminFlag)
+      .map(i => `<button class="bm-acct-item" data-item="${i.id}">${i.label}</button>`)
+      .join('');
+
+    const heroHtml = hasSprite
+      ? `<div class="bm-hero-plate">
+           <div class="bm-hero-name">${nameValue}</div>
+           <div class="bm-hero-meta">${heroMetaHtml(charClass, level, points)}</div>
+         </div>
+         <canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>`
+      : `<div class="bm-hero-plate">
+           <div class="bm-hero-name">${nameValue || 'Wanderer'}</div>
+           ${hasChar ? `<div class="bm-hero-meta">${heroMetaHtml(charClass, level, points)}</div>` : ''}
+         </div>
+         <div class="bm-hero-empty">No champion chosen
+           <button id="bm-choose-champion" class="px-btn">Choose your champion</button>
+         </div>`;
+
     this.ui.innerHTML = `
-      <div class="bm-title px-title">Blood Moor</div>
-      <div class="bm-subtitle px-label">Enter the Arena · Choose Your Fate</div>
-      ${profileBarHtml}
-      <div class="bm-divider"><div class="bm-divider-line"></div><div class="bm-divider-gem"></div><div class="bm-divider-line"></div></div>
-      <div class="bm-layout">
-        <div class="bm-panel px-panel bm-panel-left">
+      <div class="bm-nav">
+        <div class="bm-nav-crest">⚔ Blood Moor</div>
+        <button class="bm-nav-tab px-btn active">Arena</button>
+        <button id="bm-skills" ${tabAttrs}>Skills${badge ? `<span class="bm-nav-badge">${badge}</span>` : ''}</button>
+        <button id="bm-gear" ${tabAttrs}>Gear</button>
+        <div class="bm-nav-spacer"></div>
+        <div class="bm-acct">
+          <button id="bm-acct-btn" class="bm-acct-btn px-btn">${nameValue || 'Account'} ▾</button>
+          <div id="bm-acct-menu" class="bm-acct-menu">${menuHtml}</div>
+        </div>
+      </div>
+      <div class="bm-layout bm-layout-home">
+        <div class="bm-panel px-panel bm-panel-left bm-panel-translucent">
           <div class="bm-ptitle">Challenger</div>
           <input id="bm-name" type="hidden" value="${nameValue}">
           <div class="bm-label">Game Mode</div>
@@ -284,34 +321,66 @@ export class LobbyUI {
             <button id="bm-join-code" class="bm-btn-blue px-btn">Join</button>
           </div>
         </div>
-        <div class="bm-panel px-panel bm-panel-right">
+        <div class="bm-hero">${heroHtml}</div>
+        <div class="bm-panel px-panel bm-panel-lobbies bm-panel-translucent">
           <div class="bm-lobby-header">
             <div class="bm-lobby-label">Open Lobbies</div>
             <div class="bm-pulse"></div>
           </div>
           <div id="bm-rooms"></div>
         </div>
-      </div>
-      <button id="bm-credits" class="bm-btn-ghost px-btn bm-credits-btn">Credits</button>
-      ${this.isAdminFlag ? `<button id="bm-admin" class="bm-btn-ghost px-btn bm-admin-btn">⚙ Admin</button>` : ''}`;
+      </div>`;
 
-    const skillsBtn = this.ui.querySelector('#bm-skills');
-    if (skillsBtn) skillsBtn.addEventListener('click', () => this.cb.onOpenSkills());
+    if (hasChar) {
+      this.ui.querySelector('#bm-skills')!.addEventListener('click', () => this.cb.onOpenSkills());
+      this.ui.querySelector('#bm-gear')!.addEventListener('click', () => this.cb.onOpenGear());
+    }
 
-    const gearBtn = this.ui.querySelector('#bm-gear');
-    if (gearBtn) gearBtn.addEventListener('click', () => this.cb.onOpenGear());
+    const acctBtn = this.ui.querySelector('#bm-acct-btn')!;
+    const acctMenu = this.ui.querySelector('#bm-acct-menu')!;
+    acctBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      acctMenu.classList.toggle('open');
+    });
+    this.docClickHandler = () => acctMenu.classList.remove('open');
+    document.addEventListener('click', this.docClickHandler);
+    const menuActions: Record<string, () => void> = {
+      switch: () => this.cb.onSwitchCharacter(),
+      credits: () => this.cb.onShowCredits(),
+      admin: () => this.cb.onOpenAdmin(),
+      logout: () => this.cb.onLogout(),
+    };
+    acctMenu.querySelectorAll('.bm-acct-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        acctMenu.classList.remove('open');
+        menuActions[(btn as HTMLElement).dataset.item!]?.();
+      });
+    });
 
-    const switchCharBtn = this.ui.querySelector('#bm-switch-char');
-    if (switchCharBtn) switchCharBtn.addEventListener('click', () => this.cb.onSwitchCharacter());
+    const chooseBtn = this.ui.querySelector('#bm-choose-champion');
+    if (chooseBtn) chooseBtn.addEventListener('click', () => this.cb.onSwitchCharacter());
 
-    const creditsBtn = this.ui.querySelector('#bm-credits');
-    if (creditsBtn) creditsBtn.addEventListener('click', () => this.cb.onShowCredits());
-
-    const adminBtn = this.ui.querySelector('#bm-admin');
-    if (adminBtn) adminBtn.addEventListener('click', () => this.cb.onOpenAdmin());
-
-    const logoutBtn = this.ui.querySelector('#bm-logout');
-    if (logoutBtn) logoutBtn.addEventListener('click', () => this.cb.onLogout());
+    if (hasSprite) {
+      const canvas = this.ui.querySelector('#bm-hero-canvas') as HTMLCanvasElement;
+      this.heroPreview = new SpritePreview(canvas);
+      this.heroPreview.setAppearance(appearance!).then(ok => {
+        if (!ok && this.heroPreview) {
+          // Composite failed (bad appearance / missing sheet): degrade to the
+          // silhouette rather than a frozen empty canvas.
+          this.heroPreview.dispose();
+          this.heroPreview = null;
+          const hero = this.ui.querySelector('.bm-hero');
+          const cv = this.ui.querySelector('#bm-hero-canvas');
+          if (hero && cv) {
+            cv.remove();
+            const empty = document.createElement('div');
+            empty.className = 'bm-hero-empty';
+            empty.textContent = 'The torchlight hides your champion';
+            hero.appendChild(empty);
+          }
+        }
+      });
+    }
 
     const modeGrid = this.ui.querySelector('#mode-grid')!;
     let selectedMode = '1v1';
@@ -359,6 +428,7 @@ export class LobbyUI {
   }
 
   showResult(won: boolean, mode?: string, placement?: number, matchResult?: { xpGained: number; levelsGained: number; newLevel: number }): void {
+    this.teardownHome();
     this.setBackdrop('dim');
     this.stopPolling();
     let title: string;
@@ -500,6 +570,7 @@ export class LobbyUI {
   }
 
   showDisconnected(): void {
+    this.teardownHome();
     this.setBackdrop('dim');
     this.stopPolling();
     this.ui.innerHTML = `
@@ -533,6 +604,7 @@ export class LobbyUI {
   }
 
   hide(): void {
+    this.teardownHome();
     this.stopPolling();
     // The rematch countdown must not keep ticking against a hidden/stale
     // screen (e.g. after the opponent accepts and the next match starts).
@@ -636,6 +708,7 @@ export class LobbyUI {
   }
 
   private renderLobby(roomId: string, slots: Array<{ name: string; index: number; ready: boolean }>, mode?: string): void {
+    this.teardownHome();
     const shareUrl = `${location.origin}?room=${roomId}`;
     const maxPlayers = (mode === 'ffa' || mode === '2v2') ? 4 : 2;
     const minPlayers = (mode === '2v2') ? 4 : 2;
