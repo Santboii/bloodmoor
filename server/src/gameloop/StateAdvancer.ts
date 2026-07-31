@@ -274,8 +274,6 @@ export function advanceState(
       const aMods = rangerMods[id];
       if (!aMods) continue;
       rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, input.aimTarget, tick, {
-        sustained: aMods.rain.sustained,
-        piercing: aMods.rain.piercing,
         radiusMultiplier: aMods.rain.radiusMultiplier,
       })];
     } else if (spell === 8) {

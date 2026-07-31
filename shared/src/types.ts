@@ -100,8 +100,6 @@ export type RainOfArrowsState = {
   target: Vec2;
   radius: number;
   strikeAt: number;
-  sustained?: boolean;
-  piercing?: boolean;
 };
 
 export type GameState = {

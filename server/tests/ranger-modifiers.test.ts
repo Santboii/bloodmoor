@@ -12,8 +12,6 @@ describe('buildRangerModifiers', () => {
     expect(m.multishot.arrowCount).toBe(3);
     expect(m.multishot.damageMin).toBe(40);
     expect(m.multishot.damageMax).toBe(60);
-    expect(m.rain.sustained).toBe(false);
-    expect(m.rain.piercing).toBe(false);
     expect(m.evade.range).toBe(EVADE_RANGE);
     expect(m.evade.combatRoll).toBe(false);
     expect(m.evade.shadowstep).toBe(false);
@@ -45,7 +43,6 @@ describe('buildRangerModifiers', () => {
 
   it('applies sustained_rain with duration multiplier', () => {
     const m = buildRangerModifiers(new Map([['archer.rain_of_arrows', 1], ['archer.sustained_rain', 1]]));
-    expect(m.rain.sustained).toBe(true);
     expect(m.rain.durationMultiplier).toBeGreaterThan(1);
   });
 
@@ -56,7 +53,6 @@ describe('buildRangerModifiers', () => {
 
   it('applies piercing_rain with damage multiplier', () => {
     const m = buildRangerModifiers(new Map([['archer.rain_of_arrows', 1], ['archer.piercing_rain', 1]]));
-    expect(m.rain.piercing).toBe(true);
     expect(m.rain.damageMultiplier).toBeGreaterThan(1);
   });
 

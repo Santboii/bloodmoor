@@ -19,9 +19,7 @@ export type MultishotModifiers = {
 };
 
 export type RainModifiers = {
-  sustained: boolean;
   durationMultiplier: number;
-  piercing: boolean;
   damageMultiplier: number;
   radiusMultiplier: number;
 };
@@ -103,9 +101,7 @@ export function buildRangerModifiers(skills: Map<NodeId, number>): RangerSpellMo
       damageMax: 60,
     },
     rain: {
-      sustained: has('archer.sustained_rain'),
       durationMultiplier: sustainedRank > 0 ? 1 + effectAtRank(0.15, sustainedRank) : 1,
-      piercing: has('archer.piercing_rain'),
       damageMultiplier: piercingRank > 0 ? 1 + effectAtRank(0.25, piercingRank) : 1,
       radiusMultiplier: wideRank > 0 ? 1 + effectAtRank(0.15, wideRank) : 1,
     },
