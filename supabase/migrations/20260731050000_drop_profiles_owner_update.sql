@@ -1,0 +1,35 @@
+-- Phase 2 final-review C1 (Critical, live-proven): any authenticated client
+-- could mint unlimited gold — and escalate to admin, and tamper with match
+-- stats — by writing `profiles` directly via the browser's anon-key
+-- Supabase client, entirely bypassing sell_item/spend_gold/
+-- credit_match_result and the #1 Global Constraint ("gold ... never
+-- computed or asserted client-side").
+--
+-- Root cause predates this branch: the Phase 1 policy below
+-- (docs/superpowers/plans/2026-04-18-skill-tree-phase1.md) is
+-- `for update using (auth.uid() = user_id)` with no `with check` clause,
+-- and `authenticated`/`anon` hold table/column UPDATE on `profiles`
+-- (including every column, `gold` now among them) with no guarding
+-- trigger. `items` never had this hole — it has SELECT-only policies, no
+-- UPDATE policy at all — but `profiles` does, and this branch is what
+-- turns that pre-existing gap into a live gold-mint vector by adding a
+-- high-value column to the table it already applies to.
+--
+-- Fix: drop the policy. RLS is default-deny once no UPDATE policy remains,
+-- so this closes the hole outright. Confirmed safe — every legitimate
+-- profiles mutation already goes through a SECURITY DEFINER RPC (runs as
+-- table owner, bypasses RLS) or the game server's service-role client
+-- (bypasses RLS unconditionally); grepping client/src for
+-- `from('profiles').update/insert/upsert/delete` turns up zero matches, so
+-- no client code performs a direct profiles write today. `drop policy if
+-- exists` makes this safely re-runnable.
+drop policy if exists "Users can update own profile" on profiles;
+
+-- Belt-and-suspenders per the review's minimal fix: RLS already denies all
+-- UPDATE on profiles for authenticated/anon once the policy above is gone
+-- (default-deny), so this is redundant with that but removes the
+-- table/column-level grant itself as a second, independent layer — a
+-- future migration that accidentally re-adds a permissive policy would
+-- still not reopen the hole without also re-granting UPDATE. Does not
+-- touch SELECT/INSERT grants or any other table. Safe to re-run.
+revoke update on profiles from authenticated, anon;

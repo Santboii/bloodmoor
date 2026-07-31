@@ -28,10 +28,17 @@ export type UniqueItem = {
   affixes: RolledAffix[]; levelReq: number;
 };
 
+export type ItemSource = 'starter' | 'drop' | 'vendor' | 'lootbox' | 'admin';
+
 export type ItemRow = {                      // DB shape, snake_case at the boundary
   id: string; base_id: string; rarity: ItemRarity; affixes: RolledAffix[];
   level_req: number; equipped_by: string | null; equipped_slot: EquipSlot | null;
   slot: ItemBaseSlot;
+  // Optional: only populated by callers that select it (fetchItems, for the
+  // Gear screen's starter-detection gate on selling) — other ItemRow
+  // producers (loadSkills, economy/service's vendor/lootbox/drop rows,
+  // server test fixtures) don't select/set it and remain valid without it.
+  source?: ItemSource;
 };
 
 export type StatBlock = {
@@ -280,6 +287,7 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
 const VALID_RARITIES: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];
 const VALID_AFFIX_IDS: AffixId[] = [...NON_TALENT_AFFIX_IDS, 'talent'];
 const VALID_EQUIP_SLOTS: EquipSlot[] = ['weapon', 'helmet', 'armor', 'leggings', 'ring1', 'ring2', 'amulet'];
+const VALID_SOURCES: ItemSource[] = ['starter', 'drop', 'vendor', 'lootbox', 'admin'];
 
 function isValidAffix(a: unknown): a is RolledAffix {
   if (typeof a !== 'object' || a === null) return false;
@@ -307,6 +315,9 @@ export function validateItemRow(row: unknown): ItemRow | null {
   if (r.equipped_by !== null && typeof r.equipped_by !== 'string') return null;
   if (r.equipped_slot !== null && (typeof r.equipped_slot !== 'string' || !VALID_EQUIP_SLOTS.includes(r.equipped_slot as EquipSlot))) return null;
   if (typeof r.slot !== 'string' || r.slot !== base.slot) return null;
+  // source is optional (see ItemRow) — validated only when a caller's
+  // select includes it; absent entirely for callers that don't.
+  if (r.source !== undefined && (typeof r.source !== 'string' || !VALID_SOURCES.includes(r.source as ItemSource))) return null;
 
   return {
     id: r.id,
@@ -317,5 +328,6 @@ export function validateItemRow(row: unknown): ItemRow | null {
     equipped_by: r.equipped_by as string | null,
     equipped_slot: r.equipped_slot as EquipSlot | null,
     slot: r.slot as ItemBaseSlot,
+    source: r.source as ItemSource | undefined,
   };
 }
