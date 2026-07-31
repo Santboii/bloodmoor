@@ -60,7 +60,7 @@ interface OpenRoom {
 const STYLES = `
 .bm-overlay{position:fixed;inset:0;z-index:100;}
 .bm-bg{position:absolute;inset:0;overflow:hidden;}
-.bm-bg.bm-bg-dim .ct-warm:not(.ct-warm-corner),.bm-bg.bm-bg-dim .ct-warm-hot,.bm-bg.bm-bg-dim .ct-ember{display:none;}
+.bm-bg.bm-bg-dim{--ct-amb-vis:hidden;}
 .bm-bg.bm-bg-dim::after{content:'';position:absolute;inset:0;z-index:1;background:rgba(5,6,10,0.42);}
 .bm-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
 .bm-title{font-family:'Press Start 2P',monospace;font-size:40px;color:var(--px-accent);text-shadow:0 0 22px rgba(255,122,30,0.4),3px 3px 0 var(--px-border-dark);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}

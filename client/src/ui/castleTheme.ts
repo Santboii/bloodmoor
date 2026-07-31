@@ -15,9 +15,6 @@ const SCENE_CSS = `
 .ct-warm{position:absolute;z-index:1;width:480px;height:480px;border-radius:50%;pointer-events:none;
   background:radial-gradient(circle,rgba(255,150,50,0.34) 0%,rgba(255,110,25,0.16) 40%,transparent 68%);
   animation:ct-pulse 2.4s ease-in-out infinite alternate;}
-.ct-warm-hot{position:absolute;z-index:1;width:200px;height:200px;border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle,rgba(255,190,90,0.38) 0%,transparent 62%);
-  animation:ct-pulse 1.6s ease-in-out infinite alternate-reverse;}
 .ct-warm-corner{width:420px;height:420px;
   background:radial-gradient(circle,rgba(255,140,45,0.22) 0%,rgba(255,110,25,0.09) 45%,transparent 70%);
   animation-duration:2.6s;}
@@ -27,19 +24,33 @@ const SCENE_CSS = `
   background:radial-gradient(ellipse at center,transparent 28%,rgba(4,5,9,0.72) 100%);}
 .ct-floor{position:absolute;z-index:1;bottom:0;left:0;right:0;height:46px;pointer-events:none;
   background:linear-gradient(180deg,transparent 0%,rgba(0,0,0,0.55) 100%);}
-.ct-ember{position:absolute;z-index:1;width:4px;height:4px;background:#ffaa00;
-  animation:ct-rise 5s linear infinite;opacity:0;pointer-events:none;}
-@keyframes ct-rise{
-  0%{opacity:0;transform:translate(0,0);}12%{opacity:0.95;}
-  60%{opacity:0.6;transform:translate(10px,-90px);}
-  100%{opacity:0;transform:translate(-4px,-170px);}}
-.ct-f1{animation:ct-fr1 var(--ct-flame-dur,0.5s) steps(1) infinite;}
-.ct-f2{animation:ct-fr2 var(--ct-flame-dur,0.5s) steps(1) infinite;}
-@keyframes ct-fr1{0%{opacity:1;}50%{opacity:0;}100%{opacity:1;}}
-@keyframes ct-fr2{0%{opacity:0;}50%{opacity:1;}100%{opacity:0;}}
-/* Custom property, not a descendant selector: class selectors can't reach
-   inside a <use> shadow tree, but inherited custom properties can. */
-.ct-slow{--ct-flame-dur:0.62s;}
+/* Torch light pool painted inside the wall svg: screen-blended radial so the
+   bricks around the sconce genuinely brighten, with a slow breathing pulse. */
+.ct-glow{mix-blend-mode:screen;visibility:var(--ct-amb-vis,visible);
+  animation:ct-glowpulse 2.6s ease-in-out infinite alternate;
+  animation-delay:var(--ct-amb-shift,0s);}
+.ct-glow-hot{animation-duration:1.7s;animation-direction:alternate-reverse;}
+@keyframes ct-glowpulse{from{opacity:0.72;}to{opacity:1;}}
+/* Embers are svg rects inside the torch def, so they rise from the flame at
+   any viewport size. Per-ember phase comes from --ct-em-d style attrs. */
+.ct-emberp{opacity:0;visibility:var(--ct-amb-vis,visible);
+  animation:ct-emrise 4.4s linear infinite;
+  animation-delay:calc(var(--ct-amb-shift,0s) + var(--ct-em-d,0s));}
+@keyframes ct-emrise{
+  0%{opacity:0;transform:translate(0,0);}7%{opacity:0.95;}
+  40%{opacity:0.6;transform:translate(2.5px,-18px);}
+  70%{opacity:0.3;transform:translate(-1.5px,-32px);}
+  100%{opacity:0;transform:translate(1px,-45px);}}
+.ct-f1{animation:ct-fx1 var(--ct-flame-dur,0.54s) steps(1) infinite;}
+.ct-f2{animation:ct-fx2 var(--ct-flame-dur,0.54s) steps(1) infinite;}
+.ct-f3{animation:ct-fx3 var(--ct-flame-dur,0.54s) steps(1) infinite;}
+@keyframes ct-fx1{0%,32.99%{opacity:1;}33%,100%{opacity:0;}}
+@keyframes ct-fx2{0%,32.99%{opacity:0;}33%,65.99%{opacity:1;}66%,100%{opacity:0;}}
+@keyframes ct-fx3{0%,65.99%{opacity:0;}66%,100%{opacity:1;}}
+/* Custom properties, not descendant selectors: class selectors can't reach
+   inside a <use> shadow tree, but inherited custom properties can. The right
+   torch runs slower and phase-shifted so the pair never sync up. */
+.ct-slow{--ct-flame-dur:0.66s;--ct-amb-shift:-1.4s;}
 `;
 
 export function injectCastleSceneCss(): void {
@@ -141,65 +152,109 @@ const mossDefs = (p: string) => `
 </g>`;
 
 const torchDef = (p: string) => `
+<radialGradient id="${p}-glowgrad">
+  <stop offset="0" stop-color="#ff9a38" stop-opacity="0.55"/>
+  <stop offset="0.45" stop-color="#ff8226" stop-opacity="0.2"/>
+  <stop offset="1" stop-color="#ff8226" stop-opacity="0"/>
+</radialGradient>
 <g id="${p}-torch">
-  <rect x="56" y="102" width="10" height="4" fill="#23262e"/><rect x="52" y="106" width="18" height="4" fill="#262a33"/>
-  <rect x="48" y="110" width="26" height="4" fill="#23262e"/><rect x="52" y="114" width="18" height="4" fill="#1e2128"/>
-  <rect x="56" y="118" width="10" height="4" fill="#1a1d23"/><rect x="58" y="110" width="6" height="4" fill="#3b3f4a"/>
-  <rect x="56" y="106" width="4" height="2" fill="#454a57"/><rect x="60" y="106" width="4" height="2" fill="#4f3a1e"/>
-  <rect x="49" y="111" width="2" height="2" fill="#12141b"/><rect x="71" y="111" width="2" height="2" fill="#12141b"/>
-  <rect x="57" y="120" width="8" height="1" fill="#12141b"/>
-  <rect x="58" y="94" width="6" height="8" fill="#2c2f38"/><rect x="60" y="90" width="6" height="6" fill="#2c2f38"/>
-  <rect x="58" y="94" width="2" height="6" fill="#3d414d"/><rect x="59" y="92" width="1" height="4" fill="#24272e"/>
-  <rect x="63" y="96" width="1" height="5" fill="#24272e"/>
-  <rect x="60" y="84" width="6" height="6" fill="#2c2f38"/><rect x="56" y="80" width="14" height="4" fill="#343845"/>
-  <rect x="54" y="76" width="18" height="4" fill="#3a3f4d"/><rect x="52" y="72" width="22" height="4" fill="#404657"/>
-  <rect x="50" y="68" width="26" height="4" fill="#484f61"/><rect x="50" y="68" width="26" height="1" fill="#565d72"/>
-  <rect x="50" y="66" width="4" height="2" fill="#484f61"/><rect x="58" y="66" width="4" height="2" fill="#484f61"/>
-  <rect x="66" y="66" width="4" height="2" fill="#484f61"/><rect x="72" y="66" width="4" height="2" fill="#484f61"/>
-  <rect x="66" y="68" width="6" height="2" fill="#8a5c26"/><rect x="68" y="72" width="4" height="4" fill="#6e4a22"/>
-  <rect x="66" y="76" width="4" height="2" fill="#5c3d1c"/><rect x="62" y="84" width="2" height="4" fill="#4a3521"/>
+  <circle class="ct-glow" cx="63" cy="52" r="54" fill="url(#${p}-glowgrad)"/>
+  <circle class="ct-glow ct-glow-hot" cx="63" cy="58" r="22" fill="url(#${p}-glowgrad)"/>
+  <!-- mounting plate bolted to the wall -->
+  <rect x="58" y="98" width="10" height="20" fill="#20232b"/>
+  <rect x="58" y="98" width="10" height="2" fill="#3a3f4b"/>
+  <rect x="58" y="100" width="2" height="18" fill="#2c303a"/>
+  <rect x="66" y="100" width="2" height="18" fill="#171a20"/>
+  <rect x="61" y="101" width="3" height="3" fill="#454a57"/><rect x="62" y="102" width="1" height="1" fill="#5a6172"/>
+  <rect x="61" y="112" width="3" height="3" fill="#454a57"/><rect x="62" y="113" width="1" height="1" fill="#5a6172"/>
+  <rect x="58" y="116" width="10" height="2" fill="#14161c"/>
+  <!-- stem with collar -->
+  <rect x="61" y="86" width="4" height="14" fill="#2c2f38"/>
+  <rect x="61" y="86" width="1" height="14" fill="#3d414d"/>
+  <rect x="59" y="92" width="8" height="3" fill="#343845"/>
+  <rect x="59" y="92" width="8" height="1" fill="#454c5c"/>
+  <!-- flared iron cresset basket -->
+  <rect x="60" y="82" width="6" height="4" fill="#23262e"/>
+  <rect x="56" y="76" width="14" height="6" fill="#262a33"/>
+  <rect x="52" y="70" width="22" height="6" fill="#2a2e38"/>
+  <rect x="50" y="66" width="26" height="4" fill="#343a46"/>
+  <rect x="50" y="66" width="26" height="1" fill="#4d5566"/>
+  <rect x="50" y="64" width="3" height="2" fill="#343a46"/><rect x="57" y="64" width="3" height="2" fill="#343a46"/>
+  <rect x="66" y="64" width="3" height="2" fill="#343a46"/><rect x="73" y="64" width="3" height="2" fill="#343a46"/>
+  <rect x="55" y="72" width="2" height="2" fill="#3f4552"/><rect x="59" y="75" width="2" height="2" fill="#3f4552"/>
+  <rect x="63" y="78" width="2" height="2" fill="#3f4552"/><rect x="69" y="72" width="2" height="2" fill="#3b414d"/>
+  <rect x="66" y="75" width="2" height="2" fill="#3b414d"/>
+  <rect x="52" y="70" width="2" height="4" fill="#1c1f26"/><rect x="72" y="70" width="2" height="4" fill="#171a20"/>
+  <!-- coals in the cup -->
+  <rect x="53" y="66" width="20" height="3" fill="#57230a"/>
+  <rect x="55" y="65" width="7" height="2" fill="#a33d0c"/>
+  <rect x="64" y="65" width="6" height="2" fill="#8a3208"/>
+  <rect x="58" y="64" width="4" height="2" fill="#e8641c"/>
+  <rect x="66" y="64" width="3" height="1" fill="#ffb347"/>
+  <!-- flame frame 1: calm sway left, small right tongue -->
   <g class="ct-f1">
-    <rect x="52" y="63" width="22" height="3" fill="#922908"/><rect x="53" y="60" width="20" height="3" fill="#922908"/>
-    <rect x="54" y="57" width="18" height="3" fill="#922908"/><rect x="55" y="54" width="16" height="3" fill="#922908"/>
-    <rect x="54" y="51" width="16" height="3" fill="#922908"/><rect x="55" y="48" width="14" height="3" fill="#922908"/>
-    <rect x="56" y="45" width="12" height="3" fill="#922908"/><rect x="56" y="42" width="12" height="3" fill="#922908"/>
-    <rect x="57" y="39" width="10" height="3" fill="#922908"/><rect x="56" y="36" width="8" height="3" fill="#922908"/>
-    <rect x="58" y="33" width="6" height="3" fill="#922908"/><rect x="58" y="30" width="4" height="3" fill="#922908"/>
-    <rect x="59" y="27" width="2" height="3" fill="#922908"/>
-    <rect x="54" y="63" width="18" height="3" fill="#e8641c"/><rect x="55" y="60" width="16" height="3" fill="#e8641c"/>
-    <rect x="56" y="57" width="14" height="3" fill="#e8641c"/><rect x="57" y="54" width="12" height="3" fill="#e8641c"/>
-    <rect x="56" y="51" width="12" height="3" fill="#e8641c"/><rect x="57" y="48" width="10" height="3" fill="#e8641c"/>
-    <rect x="58" y="45" width="8" height="3" fill="#e8641c"/><rect x="58" y="42" width="8" height="3" fill="#e8641c"/>
-    <rect x="58" y="39" width="6" height="3" fill="#e8641c"/><rect x="58" y="36" width="4" height="3" fill="#e8641c"/>
-    <rect x="59" y="33" width="2" height="3" fill="#e8641c"/>
-    <rect x="57" y="63" width="12" height="3" fill="#ffb347"/><rect x="58" y="60" width="10" height="3" fill="#ffb347"/>
-    <rect x="59" y="57" width="8" height="3" fill="#ffb347"/><rect x="60" y="54" width="6" height="3" fill="#ffb347"/>
-    <rect x="59" y="51" width="6" height="3" fill="#ffb347"/><rect x="60" y="48" width="4" height="3" fill="#ffb347"/>
-    <rect x="60" y="45" width="4" height="3" fill="#ffb347"/><rect x="60" y="42" width="2" height="3" fill="#ffb347"/>
-    <rect x="59" y="63" width="8" height="3" fill="#ffe9a0"/><rect x="60" y="60" width="6" height="3" fill="#ffe9a0"/>
-    <rect x="60" y="57" width="4" height="3" fill="#ffe9a0"/><rect x="61" y="54" width="2" height="3" fill="#ffe9a0"/>
-    <rect x="60" y="51" width="2" height="3" fill="#ffe9a0"/>
+    <rect x="53" y="61" width="20" height="3" fill="#922908"/><rect x="54" y="58" width="18" height="3" fill="#922908"/>
+    <rect x="54" y="55" width="16" height="3" fill="#922908"/><rect x="55" y="52" width="14" height="3" fill="#922908"/>
+    <rect x="56" y="49" width="12" height="3" fill="#922908"/><rect x="56" y="46" width="10" height="3" fill="#922908"/>
+    <rect x="57" y="43" width="8" height="3" fill="#922908"/><rect x="57" y="40" width="6" height="3" fill="#922908"/>
+    <rect x="58" y="37" width="4" height="3" fill="#922908"/><rect x="58" y="34" width="2" height="3" fill="#922908"/>
+    <rect x="68" y="50" width="3" height="3" fill="#922908"/><rect x="69" y="47" width="2" height="3" fill="#922908"/>
+    <rect x="70" y="44" width="1" height="3" fill="#922908"/>
+    <rect x="55" y="61" width="16" height="3" fill="#e8641c"/><rect x="56" y="58" width="14" height="3" fill="#e8641c"/>
+    <rect x="56" y="55" width="12" height="3" fill="#e8641c"/><rect x="57" y="52" width="10" height="3" fill="#e8641c"/>
+    <rect x="58" y="49" width="8" height="3" fill="#e8641c"/><rect x="58" y="46" width="6" height="3" fill="#e8641c"/>
+    <rect x="59" y="43" width="4" height="3" fill="#e8641c"/><rect x="59" y="40" width="2" height="3" fill="#e8641c"/>
+    <rect x="68" y="50" width="2" height="2" fill="#e8641c"/>
+    <rect x="57" y="61" width="12" height="3" fill="#ffb347"/><rect x="58" y="58" width="10" height="3" fill="#ffb347"/>
+    <rect x="58" y="55" width="8" height="3" fill="#ffb347"/><rect x="59" y="52" width="6" height="3" fill="#ffb347"/>
+    <rect x="60" y="49" width="4" height="3" fill="#ffb347"/><rect x="60" y="46" width="2" height="3" fill="#ffb347"/>
+    <rect x="59" y="61" width="8" height="3" fill="#ffe9a0"/><rect x="60" y="58" width="6" height="3" fill="#ffe9a0"/>
+    <rect x="60" y="55" width="4" height="3" fill="#ffe9a0"/><rect x="61" y="52" width="2" height="3" fill="#ffe9a0"/>
   </g>
+  <!-- flame frame 2: tall lean right with detached spark -->
   <g class="ct-f2">
-    <rect x="52" y="63" width="22" height="3" fill="#922908"/><rect x="54" y="60" width="21" height="3" fill="#922908"/>
-    <rect x="56" y="57" width="18" height="3" fill="#922908"/><rect x="57" y="54" width="16" height="3" fill="#922908"/>
-    <rect x="58" y="51" width="14" height="3" fill="#922908"/><rect x="60" y="48" width="12" height="3" fill="#922908"/>
-    <rect x="60" y="45" width="12" height="3" fill="#922908"/><rect x="61" y="42" width="10" height="3" fill="#922908"/>
-    <rect x="62" y="39" width="8" height="3" fill="#922908"/><rect x="62" y="36" width="6" height="3" fill="#922908"/>
-    <rect x="63" y="33" width="4" height="3" fill="#922908"/><rect x="64" y="30" width="4" height="3" fill="#922908"/>
-    <rect x="64" y="27" width="2" height="3" fill="#922908"/><rect x="65" y="24" width="2" height="3" fill="#922908"/>
-    <rect x="54" y="63" width="18" height="3" fill="#e8641c"/><rect x="57" y="60" width="16" height="3" fill="#e8641c"/>
-    <rect x="58" y="57" width="14" height="3" fill="#e8641c"/><rect x="59" y="54" width="10" height="3" fill="#e8641c"/>
-    <rect x="60" y="51" width="10" height="3" fill="#e8641c"/><rect x="61" y="48" width="8" height="3" fill="#e8641c"/>
-    <rect x="62" y="45" width="6" height="3" fill="#e8641c"/><rect x="62" y="42" width="6" height="3" fill="#e8641c"/>
-    <rect x="63" y="39" width="4" height="3" fill="#e8641c"/><rect x="63" y="36" width="2" height="3" fill="#e8641c"/>
-    <rect x="57" y="63" width="12" height="3" fill="#ffb347"/><rect x="59" y="60" width="10" height="3" fill="#ffb347"/>
-    <rect x="60" y="57" width="6" height="3" fill="#ffb347"/><rect x="61" y="54" width="6" height="3" fill="#ffb347"/>
-    <rect x="62" y="51" width="4" height="3" fill="#ffb347"/><rect x="62" y="48" width="4" height="3" fill="#ffb347"/>
-    <rect x="63" y="45" width="2" height="3" fill="#ffb347"/>
-    <rect x="59" y="63" width="8" height="3" fill="#ffe9a0"/><rect x="61" y="60" width="6" height="3" fill="#ffe9a0"/>
-    <rect x="61" y="57" width="4" height="3" fill="#ffe9a0"/><rect x="62" y="54" width="2" height="3" fill="#ffe9a0"/>
+    <rect x="53" y="61" width="20" height="3" fill="#922908"/><rect x="55" y="58" width="18" height="3" fill="#922908"/>
+    <rect x="56" y="55" width="16" height="3" fill="#922908"/><rect x="58" y="52" width="14" height="3" fill="#922908"/>
+    <rect x="59" y="49" width="12" height="3" fill="#922908"/><rect x="60" y="46" width="10" height="3" fill="#922908"/>
+    <rect x="61" y="43" width="8" height="3" fill="#922908"/><rect x="62" y="40" width="6" height="3" fill="#922908"/>
+    <rect x="63" y="37" width="4" height="3" fill="#922908"/><rect x="64" y="34" width="3" height="3" fill="#922908"/>
+    <rect x="64" y="31" width="2" height="3" fill="#922908"/><rect x="66" y="26" width="2" height="2" fill="#922908"/>
+    <rect x="55" y="52" width="2" height="3" fill="#922908"/><rect x="54" y="49" width="1" height="3" fill="#922908"/>
+    <rect x="55" y="61" width="16" height="3" fill="#e8641c"/><rect x="57" y="58" width="14" height="3" fill="#e8641c"/>
+    <rect x="58" y="55" width="12" height="3" fill="#e8641c"/><rect x="60" y="52" width="10" height="3" fill="#e8641c"/>
+    <rect x="61" y="49" width="8" height="3" fill="#e8641c"/><rect x="62" y="46" width="6" height="3" fill="#e8641c"/>
+    <rect x="62" y="43" width="4" height="3" fill="#e8641c"/><rect x="63" y="40" width="2" height="3" fill="#e8641c"/>
+    <rect x="57" y="61" width="12" height="3" fill="#ffb347"/><rect x="59" y="58" width="10" height="3" fill="#ffb347"/>
+    <rect x="60" y="55" width="8" height="3" fill="#ffb347"/><rect x="61" y="52" width="6" height="3" fill="#ffb347"/>
+    <rect x="62" y="49" width="4" height="3" fill="#ffb347"/><rect x="63" y="46" width="2" height="3" fill="#ffb347"/>
+    <rect x="59" y="61" width="8" height="3" fill="#ffe9a0"/><rect x="61" y="58" width="6" height="3" fill="#ffe9a0"/>
+    <rect x="61" y="55" width="4" height="3" fill="#ffe9a0"/><rect x="62" y="52" width="2" height="3" fill="#ffe9a0"/>
   </g>
+  <!-- flame frame 3: split twin tongues -->
+  <g class="ct-f3">
+    <rect x="53" y="61" width="20" height="3" fill="#922908"/><rect x="54" y="58" width="18" height="3" fill="#922908"/>
+    <rect x="55" y="55" width="16" height="3" fill="#922908"/><rect x="56" y="52" width="14" height="3" fill="#922908"/>
+    <rect x="56" y="49" width="6" height="3" fill="#922908"/><rect x="64" y="49" width="6" height="3" fill="#922908"/>
+    <rect x="57" y="46" width="4" height="3" fill="#922908"/><rect x="65" y="46" width="4" height="3" fill="#922908"/>
+    <rect x="57" y="43" width="3" height="3" fill="#922908"/><rect x="66" y="43" width="3" height="3" fill="#922908"/>
+    <rect x="58" y="40" width="2" height="3" fill="#922908"/><rect x="67" y="40" width="2" height="3" fill="#922908"/>
+    <rect x="67" y="37" width="1" height="3" fill="#922908"/>
+    <rect x="55" y="61" width="16" height="3" fill="#e8641c"/><rect x="56" y="58" width="14" height="3" fill="#e8641c"/>
+    <rect x="57" y="55" width="12" height="3" fill="#e8641c"/><rect x="58" y="52" width="10" height="3" fill="#e8641c"/>
+    <rect x="58" y="49" width="2" height="3" fill="#e8641c"/><rect x="65" y="49" width="3" height="3" fill="#e8641c"/>
+    <rect x="58" y="46" width="2" height="3" fill="#e8641c"/><rect x="66" y="46" width="2" height="3" fill="#e8641c"/>
+    <rect x="57" y="61" width="12" height="3" fill="#ffb347"/><rect x="58" y="58" width="10" height="3" fill="#ffb347"/>
+    <rect x="59" y="55" width="8" height="3" fill="#ffb347"/><rect x="60" y="52" width="6" height="3" fill="#ffb347"/>
+    <rect x="59" y="49" width="2" height="3" fill="#ffb347"/><rect x="66" y="49" width="2" height="3" fill="#ffb347"/>
+    <rect x="59" y="61" width="8" height="3" fill="#ffe9a0"/><rect x="60" y="58" width="6" height="3" fill="#ffe9a0"/>
+    <rect x="61" y="55" width="4" height="3" fill="#ffe9a0"/><rect x="61" y="52" width="2" height="3" fill="#ffe9a0"/>
+  </g>
+  <!-- rising embers, phase-staggered via --ct-em-d -->
+  <rect class="ct-emberp" x="60" y="46" width="2" height="2" fill="#ffcc55" style="--ct-em-d:0s"/>
+  <rect class="ct-emberp" x="66" y="50" width="1" height="1" fill="#ffaa00" style="--ct-em-d:-1.1s"/>
+  <rect class="ct-emberp" x="57" y="52" width="1" height="1" fill="#ff8a2a" style="--ct-em-d:-2.3s"/>
+  <rect class="ct-emberp" x="63" y="42" width="1" height="1" fill="#ffd27a" style="--ct-em-d:-3.2s"/>
+  <rect class="ct-emberp" x="69" y="47" width="1" height="1" fill="#ffaa00" style="--ct-em-d:-2.0s;animation-duration:5.1s"/>
 </g>`;
 
 // 17 courses × 2 side-by-side tiles cover 320x180. Per-course x jitter keeps
@@ -274,17 +329,9 @@ export function buildHallScene(): string {
   const p = 'cth';
   const wall = buildWallSvg({ idPrefix: p })
     .replace('<!--TORCHES-->', buildTorch(p, 'left') + buildTorch(p, 'right'));
+  // Glow pools and embers live inside the torch def itself (svg space), so
+  // they track the sconces at any viewport size — no positioned divs needed.
   return `${wall}
-<div class="ct-warm" style="left:-130px;top:-40px;"></div>
-<div class="ct-warm" style="right:-130px;top:-40px;animation-delay:-1.2s;"></div>
-<div class="ct-warm-hot" style="left:32px;top:70px;"></div>
-<div class="ct-warm-hot" style="right:32px;top:70px;animation-delay:-0.8s;"></div>
-<div class="ct-ember" style="left:120px;top:130px;"></div>
-<div class="ct-ember" style="left:132px;top:140px;animation-delay:-2.3s;"></div>
-<div class="ct-ember" style="left:112px;top:136px;animation-delay:-3.7s;"></div>
-<div class="ct-ember" style="right:120px;top:130px;animation-delay:-1.4s;"></div>
-<div class="ct-ember" style="right:134px;top:140px;animation-delay:-3s;"></div>
-<div class="ct-ember" style="right:110px;top:136px;animation-delay:-4.5s;"></div>
 <div class="ct-floor"></div>
 <div class="ct-vig"></div>`;
 }

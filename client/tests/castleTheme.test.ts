@@ -31,11 +31,11 @@ describe('buildTorch', () => {
 });
 
 describe('scenes', () => {
-  it('hall scene has wall, two torches, pools, embers, vignette', () => {
+  it('hall scene has wall, two torches with glow and embers, vignette', () => {
     const s = buildHallScene();
     expect(s).toContain('class="ct-wall"');
     expect((s.match(/href="#cth-torch"/g) ?? []).length).toBe(2);
-    expect(s).toContain('ct-warm');
+    expect(s).toContain('ct-glow');
     expect(s).toContain('ct-ember');
     expect(s).toContain('ct-vig');
   });
