@@ -48,6 +48,13 @@ const NAV_CSS = `
 .bm-acct-item{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:var(--px-text);text-transform:uppercase;padding:12px 14px;}
 .bm-acct-item:hover{background:#3a3f4b;color:var(--px-accent);}
 .bm-acct-item[data-item="logout"]:hover{color:var(--px-danger);}
+/* Alignment is shared state: the bar is centred inside each screen's own
+   scroll container, so a container that reserves scrollbar space while its
+   neighbour doesn't makes the bar jump sideways on every section switch.
+   Reserving it everywhere — including the lobby, which never scrolls —
+   keeps the bar pinned. The screens' top padding must stay equal too (20px);
+   these class names are listed here so that contract lives in one file. */
+.bm-overlay,.st-overlay,.gr-overlay,.sh-overlay,.ad-overlay{scrollbar-gutter:stable;}
 /* Sub-screens put their own title/actions in a row under the nav. */
 .bm-subhead{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;width:100%;max-width:1060px;margin-bottom:16px;box-sizing:border-box;}
 .bm-subhead-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
