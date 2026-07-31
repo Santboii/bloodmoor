@@ -9,6 +9,7 @@ import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
+import * as sfx from '../audio/sfx';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -341,6 +342,7 @@ export class GearScreen {
    * background refetch — success is a no-op re-render, failure reverts.
    */
   private equipOptimistic(item: ItemRow, targetSlot: EquipSlot): void {
+    sfx.playEquip();
     if (!this.characterId) return;
     const characterId = this.characterId;
 
@@ -362,6 +364,7 @@ export class GearScreen {
   }
 
   private handleUnequip(item: ItemRow): void {
+    sfx.playUnequip();
     item.equipped_by = null;
     item.equipped_slot = null;
     this.selectedId = item.id;
@@ -485,6 +488,7 @@ export class GearScreen {
     const price = state.price;
 
     const run = async (): Promise<void> => {
+      sfx.playSell();
       this.sellPending.add(item.id);
       this.sellErrorById.delete(item.id);
       const priorItems = this.items;

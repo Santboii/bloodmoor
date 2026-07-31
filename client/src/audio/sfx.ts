@@ -397,3 +397,48 @@ export function playPlayerJoin(): void {
   const c2 = { ...c, t: c.t + 0.1 };
   osc(c2, 'triangle', 350, 330, 0.08, lowpass(c2, 1100, 800, 0.08, env(c2, 0.25, 0.002, 0, 0.08)));
 }
+
+// ── Items & skills ──────────────────────────────────────────────────────────
+
+/** Leather-ish thud: item slotted into gear. */
+export function playEquip(): void {
+  const c = sfxCtx();
+  if (!c || throttle('equip', 100)) return;
+  osc(c, 'triangle', jitter(170, 0.08), 90, 0.1, lowpass(c, 700, 300, 0.1, env(c, 0.45, 0.003, 0, 0.1)));
+  noise(c, 0.06, bandpass(c, 500, 350, 0.06, env(c, 0.2, 0.003, 0, 0.06), 1));
+}
+
+/** Lighter reverse of equip: item pulled back out. */
+export function playUnequip(): void {
+  const c = sfxCtx();
+  if (!c || throttle('unequip', 100)) return;
+  osc(c, 'triangle', jitter(110, 0.08), 170, 0.09, lowpass(c, 600, 400, 0.09, env(c, 0.32, 0.003, 0, 0.09)));
+}
+
+/** Coin tick + fading whoosh: sold to the void. */
+export function playSell(): void {
+  const c = sfxCtx();
+  if (!c || throttle('sell', 150)) return;
+  osc(c, 'triangle', 1250, 1100, 0.1, env(c, 0.2, 0.002, 0, 0.1));
+  noise(c, 0.3, bandpass(c, 900, 250, 0.3, env(c, 0.2, 0.02, 0, 0.28), 1));
+}
+
+/** Two coin ticks landing in the till: purchase committed. */
+export function playPurchase(): void {
+  const c = sfxCtx();
+  if (!c || throttle('purchase', 150)) return;
+  for (const dt of [0, 0.08]) {
+    const ci = { ...c, t: c.t + dt };
+    osc(ci, 'triangle', jitter(1150, 0.06), 1000, 0.1, env(ci, 0.22, 0.002, 0, 0.1));
+  }
+  osc(c, 'triangle', 160, 100, 0.09, lowpass(c, 600, 300, 0.09, env(c, 0.3, 0.003, 0, 0.09)));
+}
+
+/** Stone-thunk + faint ember shimmer: a skill point committed. */
+export function playSkillSpend(): void {
+  const c = sfxCtx();
+  if (!c || throttle('skillSpend', 150)) return;
+  osc(c, 'triangle', jitter(140, 0.06), 60, 0.14, lowpass(c, 500, 200, 0.14, env(c, 0.55, 0.003, 0, 0.14)));
+  const c2 = { ...c, t: c.t + 0.1 };
+  noise(c2, 0.25, bandpass(c2, 2400, 3600, 0.25, env(c2, 0.08, 0.03, 0, 0.22), 2.5));
+}

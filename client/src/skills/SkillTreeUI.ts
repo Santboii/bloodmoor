@@ -5,6 +5,7 @@ import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
+import * as sfx from '../audio/sfx';
 
 const NODE_ICONS: Record<NodeId, string> = {
   'fire.fireball':        'fa-fire',
@@ -590,12 +591,14 @@ export class SkillTreeUI {
         if (!isOwned) {
           const canBuyFirst = canUnlock(id, this.ranks) && pts >= node.cost;
           if (canBuyFirst) { this.handleUnlock(id, node.cost); return; }
+          sfx.playDenied();
         } else if (isStackable(node) && currentRank < node.stackable!.softCap) {
           // Below the cap, clicking the node ranks up directly. At/past the
           // cap the node click only selects — the panel's gold Supercharge
           // button is the deliberate CTA for past-cap ranks.
           const cost = rankUpCost(node, currentRank);
           if (pts >= cost) { this.buyNode(id, cost, currentRank + 1); return; }
+          sfx.playDenied();
         }
         // Not buyable from the node: select it so the panel pins its details.
         this.el.querySelectorAll('.st-node-selected').forEach(n => n.classList.remove('st-node-selected'));
@@ -619,6 +622,7 @@ export class SkillTreeUI {
    */
   private buyNode(id: NodeId, cost: number, nextRank: number): void {
     if (!this.characterId) return;
+    sfx.playSkillSpend();
     this.ranks.set(id, nextRank);
     this.skillPoints -= cost;
     this.flashId = id;
@@ -670,6 +674,7 @@ export class SkillTreeUI {
     if (!this.characterId) return;
     const currentRank = this.ranks.get(id) ?? 0;
     if (currentRank === 0 || this.refundBlockReason(id) !== null) return;
+    sfx.playUnequip();
     const refund = rankUpCost(node, currentRank - 1); // what the top rank cost
 
     if (currentRank > 1) this.ranks.set(id, currentRank - 1);
@@ -691,6 +696,7 @@ export class SkillTreeUI {
 
   private handleRespec(): void {
     this.showConfirm('Reset Skills', 'All unlocked skills will be removed and points refunded. Are you sure?', async () => {
+      sfx.playUnequip();
       if (!this.characterId) return;
       const { error } = await supabase.rpc('respec_skills', { p_character_id: this.characterId });
       if (error) { console.error('Respec failed:', error.message); return; }

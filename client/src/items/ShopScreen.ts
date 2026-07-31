@@ -7,6 +7,7 @@ import type { VendorView, VendorSlotView } from '../supabase';
 import { LOOTBOX_PRICES } from '@arena/shared';
 import type { LootboxTier, ItemRow, AffixId, RolledAffix } from '@arena/shared';
 import { RARITY_COLORS, itemBase, itemDisplayName } from './GearScreen';
+import * as sfx from '../audio/sfx';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -270,6 +271,7 @@ export class ShopScreen {
   }
 
   private renderReveal(item: ItemRow): string {
+    sfx.playDropSting(item.rarity);
     const base = itemBase(item);
     if (!base) return '';
     const color = RARITY_COLORS[item.rarity];
@@ -331,7 +333,7 @@ export class ShopScreen {
       const btn = el as HTMLButtonElement;
       const slotIndex = Number(btn.dataset.buySlot);
       btn.addEventListener('click', () => {
-        if (btn.disabled) return;
+        if (btn.disabled) { sfx.playDenied(); return; }
         void this.handleBuySlot(slotIndex);
       });
     });
@@ -380,6 +382,7 @@ export class ShopScreen {
     }
     this.render();
 
+    sfx.playPurchase();
     const result = await buyVendorSlot(slotIndex);
     this.pending.delete(key);
     if (!result.ok) {
@@ -398,6 +401,7 @@ export class ShopScreen {
     if (this.gold !== null) this.gold -= LOOTBOX_PRICES[tier]; // display-only, see reload() below
     this.render();
 
+    sfx.playPurchase();
     const result = await openLootbox(tier);
     this.pending.delete(key);
     if (result.ok) {
