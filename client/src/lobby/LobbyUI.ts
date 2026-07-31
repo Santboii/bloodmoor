@@ -1,3 +1,5 @@
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -55,21 +57,14 @@ interface OpenRoom {
 const STYLES = `
 .bm-overlay{position:fixed;inset:0;z-index:100;}
 .bm-bg{position:absolute;inset:0;overflow:hidden;}
-.bm-sky{position:absolute;inset:0;background:linear-gradient(180deg,#050208 0%,#0d0714 20%,#1a1524 45%,#241d33 65%,#160f22 80%,#0e0b16 100%);}
-.bm-moon{position:absolute;top:6%;left:50%;transform:translateX(-50%);width:80px;height:80px;border-radius:0;background:radial-gradient(circle,#e8d8a0 0%,#c8a850 30%,transparent 70%);box-shadow:0 0 40px 20px rgba(255,179,71,0.15);opacity:0.6;}
-.bm-fog{position:absolute;left:-20%;right:-20%;border-radius:0;filter:blur(40px);animation:bm-drift linear infinite;}
-.bm-fog-1{bottom:28%;height:120px;background:radial-gradient(ellipse,rgba(120,100,170,0.5) 0%,transparent 70%);opacity:0.18;animation-duration:28s;}
-.bm-fog-2{bottom:22%;height:80px;background:radial-gradient(ellipse,rgba(100,80,150,0.4) 0%,transparent 70%);opacity:0.14;animation-duration:38s;animation-delay:-12s;}
-.bm-fog-3{bottom:32%;height:60px;background:radial-gradient(ellipse,rgba(110,90,160,0.3) 0%,transparent 70%);opacity:0.1;animation-duration:22s;animation-delay:-6s;}
-@keyframes bm-drift{0%{transform:translateX(0)}50%{transform:translateX(8%)}100%{transform:translateX(0)}}
-.bm-grain{position:absolute;inset:0;opacity:0.06;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:256px 256px;}
-.bm-vignette{position:absolute;inset:0;background:radial-gradient(ellipse 90% 90% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);}
+.bm-bg.bm-bg-dim .ct-warm:not(.ct-warm-corner),.bm-bg.bm-bg-dim .ct-warm-hot,.bm-bg.bm-bg-dim .ct-ember{display:none;}
+.bm-bg.bm-bg-dim::after{content:'';position:absolute;inset:0;z-index:1;background:rgba(5,6,10,0.42);}
 .bm-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
-.bm-title{font-family:'Press Start 2P',monospace;font-size:40px;color:var(--px-accent);text-shadow:0 0 20px rgba(255,179,71,0.6),3px 3px 0 var(--px-border-dark);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+.bm-title{font-family:'Press Start 2P',monospace;font-size:40px;color:var(--px-accent);text-shadow:0 0 22px rgba(255,122,30,0.4),3px 3px 0 var(--px-border-dark);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
 .bm-subtitle{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-border-light);letter-spacing:2px;text-transform:uppercase;margin-bottom:36px;}
 .bm-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:960px;margin-bottom:28px;}
 .bm-divider-line{flex:1;height:2px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
-.bm-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
+.bm-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,122,30,0.5);}
 .bm-layout{display:flex;gap:24px;width:100%;max-width:960px;align-items:flex-start;}
 .bm-panel{padding:24px;position:relative;}
 .bm-panel-left{flex:0 0 300px;}
@@ -79,7 +74,7 @@ const STYLES = `
 .bm-input{width:100%;font-size:10px;letter-spacing:1px;margin-bottom:20px;}
 .bm-mode-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:20px;}
 .bm-mode{display:flex;align-items:center;justify-content:space-between;gap:12px;font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:0.5px;padding:11px 14px;text-align:left;}
-.bm-mode.active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
+.bm-mode.active{background:#3a3f4b;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .bm-mode.locked{opacity:0.4;cursor:not-allowed;position:relative;}
 .bm-mode.locked::after{content:'Soon';position:absolute;top:3px;right:4px;font-size:7px;color:var(--px-border-light);letter-spacing:0.5px;}
 .bm-mode-label{font-size:10px;flex-shrink:0;}
@@ -95,12 +90,12 @@ const STYLES = `
 .bm-lobby-label{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:var(--px-border-light);text-transform:uppercase;}
 .bm-pulse{width:6px;height:6px;border-radius:0;background:var(--px-success);box-shadow:0 0 6px rgba(111,206,126,0.6);animation:bm-pulse 2s ease-in-out infinite;}
 @keyframes bm-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-.bm-room-row{display:flex;align-items:center;padding:12px 14px;margin-bottom:8px;background:var(--px-border-dark);box-shadow:0 0 0 1px var(--px-border-light),-3px 0 0 0 #453766;transition:all 0.15s;cursor:pointer;}
-.bm-room-row:hover{background:#1c1730;box-shadow:0 0 0 1px var(--px-border-light),-3px 0 0 0 var(--px-accent);}
+.bm-room-row{display:flex;align-items:center;padding:12px 14px;margin-bottom:8px;background:var(--px-border-dark);box-shadow:0 0 0 1px var(--px-border-light),-3px 0 0 0 #3a3f4b;transition:all 0.15s;cursor:pointer;}
+.bm-room-row:hover{background:#15161c;box-shadow:0 0 0 1px var(--px-border-light),-3px 0 0 0 var(--px-accent);}
 .bm-room-info{flex:1;}
 .bm-room-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);}
 .bm-room-meta{font-size:16px;color:var(--px-border-light);margin-top:1px;font-family:'VT323',monospace;}
-.bm-tag{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:0.5px;padding:4px 9px;margin-right:14px;text-transform:uppercase;background:var(--px-border-dark);box-shadow:0 0 0 2px #453766;color:var(--px-accent);}
+.bm-tag{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:0.5px;padding:4px 9px;margin-right:14px;text-transform:uppercase;background:var(--px-border-dark);box-shadow:0 0 0 2px #3a3f4b;color:var(--px-accent);}
 .bm-players{font-size:16px;color:var(--px-border-light);margin-right:12px;white-space:nowrap;font-family:'VT323',monospace;}
 .bm-players b{color:var(--px-text);}
 .bm-btn-green-sm{font-size:8px;letter-spacing:1px;padding:10px 14px;}
@@ -198,70 +193,10 @@ const STYLES = `
 .bm-rematch-countdown{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-accent);letter-spacing:1px;margin-top:8px;text-align:center;animation:bm-pulse 1s ease-in-out infinite;}
 `;
 
-const BG_HTML = `
-<div class="bm-bg">
-  <div class="bm-sky"></div>
-  <div class="bm-moon"></div>
-  <svg viewBox="0 0 1400 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice" style="position:absolute;bottom:0;width:100%;height:auto;opacity:0.85">
-    <defs>
-      <linearGradient id="bm-ground" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#1a1524" stop-opacity="0.9"/>
-        <stop offset="60%" stop-color="#100c1c" stop-opacity="1"/>
-        <stop offset="100%" stop-color="#0a0712" stop-opacity="1"/>
-      </linearGradient>
-    </defs>
-    <rect x="0" y="280" width="1400" height="220" fill="url(#bm-ground)"/>
-    <ellipse cx="700" cy="330" rx="700" ry="40" fill="rgba(26,20,36,0.5)"/>
-    <ellipse cx="420" cy="400" rx="70" ry="18" fill="rgba(90,4,4,0.5)"/>
-    <ellipse cx="860" cy="420" rx="50" ry="12" fill="rgba(70,3,3,0.4)"/>
-    <ellipse cx="1180" cy="390" rx="40" ry="10" fill="rgba(80,4,4,0.45)"/>
-    <g opacity="0.18" fill="#0d0a14">
-      <rect x="0" y="200" width="18" height="120"/><rect x="60" y="190" width="14" height="130"/>
-      <rect x="120" y="205" width="20" height="115"/><rect x="200" y="185" width="16" height="135"/>
-      <rect x="500" y="188" width="14" height="132"/><rect x="700" y="192" width="16" height="128"/>
-      <rect x="900" y="185" width="18" height="135"/><rect x="1060" y="190" width="20" height="130"/>
-      <rect x="1260" y="188" width="14" height="132"/><rect x="1380" y="195" width="12" height="125"/>
-    </g>
-    <g fill="#100a18">
-      <rect x="48" y="120" width="12" height="200"/>
-      <rect x="44" y="130" width="20" height="6" transform="rotate(-20 54 133)"/>
-      <rect x="44" y="155" width="28" height="5" transform="rotate(15 58 157)"/>
-      <rect x="44" y="175" width="22" height="4" transform="rotate(-10 55 177)"/>
-      <rect x="110" y="100" width="16" height="230"/>
-      <rect x="104" y="115" width="32" height="6" transform="rotate(-25 120 118)"/>
-      <rect x="104" y="145" width="36" height="5" transform="rotate(18 122 147)"/>
-      <rect x="104" y="165" width="26" height="4" transform="rotate(-15 117 167)"/>
-      <rect x="116" y="130" width="30" height="5" transform="rotate(30 131 132)"/>
-      <rect x="175" y="150" width="8" height="170"/>
-      <rect x="171" y="165" width="18" height="4" transform="rotate(-18 180 167)"/>
-      <rect x="171" y="188" width="22" height="4" transform="rotate(12 182 190)"/>
-      <rect x="1200" y="110" width="18" height="220"/>
-      <rect x="1193" y="125" width="36" height="6" transform="rotate(22 1209 128)"/>
-      <rect x="1193" y="152" width="40" height="5" transform="rotate(-16 1213 154)"/>
-      <rect x="1208" y="140" width="32" height="5" transform="rotate(-28 1224 142)"/>
-      <rect x="1280" y="130" width="14" height="200"/>
-      <rect x="1274" y="145" width="28" height="5" transform="rotate(-20 1287 147)"/>
-      <rect x="1274" y="170" width="32" height="5" transform="rotate(14 1290 172)"/>
-      <rect x="1355" y="140" width="9" height="180"/>
-      <rect x="1350" y="155" width="20" height="4" transform="rotate(-15 1359 157)"/>
-    </g>
-    <g stroke="#241a30" stroke-width="1.5" opacity="0.6">
-      <line x1="240" y1="340" x2="244" y2="300"/><line x1="248" y1="338" x2="250" y2="305"/>
-      <line x1="650" y1="335" x2="653" y2="305"/><line x1="657" y1="337" x2="659" y2="310"/>
-      <line x1="980" y1="342" x2="983" y2="310"/><line x1="987" y1="340" x2="989" y2="316"/>
-    </g>
-    <rect x="0" y="430" width="1400" height="70" fill="rgba(6,4,10,0.8)"/>
-  </svg>
-  <div class="bm-fog bm-fog-1"></div>
-  <div class="bm-fog bm-fog-2"></div>
-  <div class="bm-fog bm-fog-3"></div>
-  <div class="bm-grain"></div>
-  <div class="bm-vignette"></div>
-</div>`;
-
 export class LobbyUI {
   private el: HTMLElement;
   private ui: HTMLElement;
+  private bg: HTMLElement;
   private pollTimer: number | null = null;
   private pauseOverlay: HTMLElement | null = null;
   private pauseCountdownTimer: number | null = null;
@@ -278,7 +213,12 @@ export class LobbyUI {
 
     this.el = document.createElement('div');
     this.el.className = 'bm-overlay';
-    this.el.innerHTML = BG_HTML;
+
+    injectCastleSceneCss();
+    this.bg = document.createElement('div');
+    this.bg.className = 'bm-bg';
+    this.bg.innerHTML = buildHallScene();
+    this.el.appendChild(this.bg);
 
     this.ui = document.createElement('div');
     this.ui.className = 'bm-ui';
@@ -296,6 +236,7 @@ export class LobbyUI {
   }
 
   showHome(username?: string, points?: number, charClass?: string, level?: number): void {
+    this.setBackdrop('hall');
     this.stopPolling();
     const prefilledCode = new URLSearchParams(window.location.search).get('room') ?? '';
     const hasProfile = username !== undefined || points !== undefined;
@@ -405,17 +346,20 @@ export class LobbyUI {
   }
 
   showWaiting(roomId: string, myDisplayName: string, mode?: string): void {
+    this.setBackdrop('dim');
     this.stopPolling();
     this.renderLobby(roomId, [{ name: myDisplayName, index: 0, ready: false }], mode);
   }
 
   showReady(roomId: string, players: Record<string, string>, _myId: string, mode?: string, readyIds?: Set<string>): void {
+    this.setBackdrop('dim');
     this.stopPolling();
     const slots = Object.entries(players).map(([id, name], i) => ({ name, index: i, ready: readyIds?.has(id) ?? false }));
     this.renderLobby(roomId, slots, mode);
   }
 
   showResult(won: boolean, mode?: string, placement?: number, matchResult?: { xpGained: number; levelsGained: number; newLevel: number }): void {
+    this.setBackdrop('dim');
     this.stopPolling();
     let title: string;
     let subtitle: string;
@@ -512,6 +456,7 @@ export class LobbyUI {
   private rematchInterval: ReturnType<typeof setInterval> | null = null;
 
   showRematchCountdown(countdown: number, isRequester: boolean): void {
+    this.setBackdrop('dim');
     if (this.rematchInterval) clearInterval(this.rematchInterval);
     const btn = this.ui.querySelector('#bm-rematch') as HTMLButtonElement | null;
     if (!btn) return;
@@ -555,6 +500,7 @@ export class LobbyUI {
   }
 
   showDisconnected(): void {
+    this.setBackdrop('dim');
     this.stopPolling();
     this.ui.innerHTML = `
       <div class="bm-title px-title" style="font-size:22px;letter-spacing:3px">Blood Moor</div>
@@ -635,6 +581,10 @@ export class LobbyUI {
       this.pauseOverlay.remove();
       this.pauseOverlay = null;
     }
+  }
+
+  private setBackdrop(mode: 'hall' | 'dim'): void {
+    this.bg.classList.toggle('bm-bg-dim', mode === 'dim');
   }
 
   private stopPolling(): void {
