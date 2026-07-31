@@ -1,5 +1,6 @@
 import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA } from '@arena/shared';
 import { Minimap } from './Minimap';
+import * as sfx from '../audio/sfx';
 
 // Same Font Awesome glyphs the skill tree uses for these spells' nodes.
 const SPELL_ICONS: Record<number, string> = {
@@ -191,6 +192,12 @@ export class HUD {
       this.lastLowPulse = lowPulse;
     }
 
+    const prevMe = this.prevHp[this.myId];
+    if (prevMe !== undefined && me.hp < prevMe) {
+      if (prevMe > 0 && me.hp <= 0) sfx.playDeath();
+      else sfx.playHitTaken();
+    }
+
     for (const [key, entry] of this.slotEls) {
       const active = key === activeSpell;
       if (active !== entry.lastActive) {
@@ -201,6 +208,8 @@ export class HUD {
       const maxCd = SPELL_CONFIG[key].cooldownTicks;
       const pct = maxCd > 0 ? Math.round((cd / maxCd) * 1000) / 10 : 0;
       if (pct !== entry.lastPct) {
+        // A slot that just finished cooling gives a soft ready tick.
+        if (entry.lastPct > 0 && pct === 0) sfx.playCooldownReady();
         entry.cd.style.height = `${pct}%`;
         entry.slot.classList.toggle('cooling', pct > 0);
         entry.lastPct = pct;
@@ -249,6 +258,7 @@ export class HUD {
       if (player.hp !== entry.lastHp) {
         // White blink on damage — reads as a hit even at a glance.
         if (entry.lastHp >= 0 && player.hp < entry.lastHp) {
+          sfx.playHitDealt();
           entry.row.classList.add('hit');
           clearTimeout(entry.flashTimer);
           entry.flashTimer = window.setTimeout(() => entry!.row.classList.remove('hit'), 140);
@@ -260,6 +270,7 @@ export class HUD {
 
       const prev = this.prevHp[id];
       if (prev !== undefined && prev > 0 && player.hp <= 0) {
+        sfx.playDeath();
         this.showElimination(player.displayName);
       }
     }

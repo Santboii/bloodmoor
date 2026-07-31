@@ -689,6 +689,16 @@ scene.startRenderLoop(() => {
   while (inputAccumulator >= INPUT_STEP_MS) {
     inputAccumulator -= INPUT_STEP_MS;
     const frame = inputHandler.buildInputFrame();
+    // Cast attempted without the mana: the server will silently ignore it,
+    // so give local feedback. Cooldown-blocked casts stay silent — the
+    // grayed slot already communicates those.
+    if (frame.castSpell) {
+      const me = stateBuffer.getLatest()?.players[myId];
+      if (me && me.hp > 0 && (me.cooldowns[frame.castSpell] ?? 0) <= 0
+          && me.mana < SPELL_CONFIG[frame.castSpell].manaCost) {
+        sfx.playNoMana();
+      }
+    }
     if (predictor) {
       const latest = stateBuffer.getLatest();
       const me = latest?.players[myId];

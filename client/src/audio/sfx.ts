@@ -258,3 +258,45 @@ export function stopFireWallLoop(id: string): void {
 export function stopAllSpellLoops(): void {
   for (const [id] of spellLoops) stopFireWallLoop(id);
 }
+
+// ── Combat feedback ─────────────────────────────────────────────────────────
+
+/** Dull mid thump, darker than the enemy-hit crack: you got hurt. */
+export function playHitTaken(): void {
+  const c = sfxCtx();
+  if (!c || throttle('hitTaken', 150)) return;
+  osc(c, 'triangle', jitter(120, 0.1), 55, 0.14, lowpass(c, 500, 200, 0.14, env(c, 0.6, 0.003, 0, 0.14)));
+  noise(c, 0.08, lowpass(c, 900, 300, 0.08, env(c, 0.25, 0.002, 0, 0.08)));
+}
+
+/** Sharper, lighter crack: your damage landed. */
+export function playHitDealt(): void {
+  const c = sfxCtx();
+  if (!c || throttle('hitDealt', 150)) return;
+  osc(c, 'triangle', jitter(260, 0.1), 110, 0.08, lowpass(c, 1400, 500, 0.08, env(c, 0.4, 0.002, 0, 0.08)));
+  noise(c, 0.05, bandpass(c, 1600, 900, 0.05, env(c, 0.2, 0.002, 0, 0.05), 1.5));
+}
+
+/** Low boom + falling-pitch groan. */
+export function playDeath(): void {
+  const c = sfxCtx();
+  if (!c || throttle('death', 300)) return;
+  osc(c, 'sine', 90, 30, 0.8, env(c, 0.7, 0.005, 0.1, 0.7));
+  const groan = env(c, 0.3, 0.02, 0.1, 0.7);
+  osc(c, 'sawtooth', 140, 60, 0.8, lowpass(c, 400, 120, 0.8, groan), -10);
+  osc(c, 'sawtooth', 143, 62, 0.8, lowpass(c, 400, 120, 0.8, groan), 10);
+}
+
+/** Barely-there tick when a cooldown finishes. */
+export function playCooldownReady(): void {
+  const c = sfxCtx();
+  if (!c || throttle('cdReady', 120)) return;
+  osc(c, 'triangle', 480, 380, 0.05, lowpass(c, 1200, 800, 0.05, env(c, 0.12, 0.002, 0, 0.05)));
+}
+
+/** Dead thud: cast attempted without the mana for it. */
+export function playNoMana(): void {
+  const c = sfxCtx();
+  if (!c || throttle('noMana', 400)) return;
+  osc(c, 'triangle', 90, 80, 0.07, lowpass(c, 350, 250, 0.07, env(c, 0.4, 0.002, 0, 0.07)));
+}
