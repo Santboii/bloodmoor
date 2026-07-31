@@ -1,6 +1,7 @@
 // client/src/network/SocketClient.ts  — full file
 import { io, Socket } from 'socket.io-client';
 import { GameState, InputFrame } from '@arena/shared';
+import type { ItemRow } from '@arena/shared';
 
 export type RoomJoinedPayload = { roomId: string; yourId: string; players: Record<string, string>; mode: string; teams: Record<string, string>; readyPlayerIds?: string[] };
 export type ChatMessagePayload = { senderId: string; displayName: string; text: string };
@@ -45,7 +46,7 @@ export class SocketClient {
     this.socket.off('game-state');
     this.socket.on('game-state', cb);
   }
-  onDuelEnded(cb: (payload: { winnerId: string | null; gameMode: string; matchResults?: Record<string, { xpGained: number; levelsGained: number; newLevel: number; newXp: number }> }) => void): void {
+  onDuelEnded(cb: (payload: { winnerId: string | null; gameMode: string; matchResults?: Record<string, { xpGained: number; levelsGained: number; newLevel: number; newXp: number; goldGained: number; droppedItem?: ItemRow }> }) => void): void {
     this.socket.off('duel-ended');
     this.socket.on('duel-ended', cb);
   }

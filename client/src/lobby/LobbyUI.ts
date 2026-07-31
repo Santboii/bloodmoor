@@ -1,3 +1,6 @@
+import type { ItemRow } from '@arena/shared';
+import { RARITY_COLORS, itemBase, itemDisplayName } from '../items/GearScreen';
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -11,6 +14,7 @@ export type LobbyCallbacks = {
   onSendChatMessage: (text: string) => void;
   onOpenSkills: () => void;
   onOpenGear: () => void;
+  onOpenShop: () => void;
   onSwitchCharacter: () => void;
   onLogout: () => void;
   onShowCredits: () => void;
@@ -139,6 +143,10 @@ const STYLES = `
 .bm-result-xp-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;opacity:0;animation:bm-rise 0.5s ease-out 0.9s forwards;color:var(--px-border-light);}
 .bm-result-levelup{font-family:'Press Start 2P',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--px-success);margin-bottom:24px;opacity:0;animation:bm-lvlpop 0.7s cubic-bezier(0.16,1,0.3,1) 1.1s forwards;text-shadow:0 0 20px rgba(111,206,126,0.5);}
 .bm-result-levelup-num{font-size:16px;color:var(--px-success);}
+.bm-result-gold{font-family:'Press Start 2P',monospace;font-size:12px;letter-spacing:1px;margin-bottom:16px;opacity:0;animation:bm-rise 0.5s ease-out forwards;color:var(--px-accent);display:flex;align-items:center;justify-content:center;gap:8px;}
+.bm-result-spoils{max-width:280px;margin:0 auto 20px;padding:12px 16px;background:var(--px-border-dark);opacity:0;animation:bm-rise 0.5s ease-out forwards;}
+.bm-result-spoils-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;color:var(--px-border-light);margin-bottom:8px;}
+.bm-result-spoils-item{display:flex;align-items:center;justify-content:center;gap:8px;font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:0.5px;}
 .bm-result-buttons{display:flex;flex-direction:column;gap:8px;opacity:0;animation:bm-rise 0.5s ease-out forwards;}
 .bm-btn-rematch{width:100%;padding:13px 40px;font-size:9px;letter-spacing:1px;}
 .bm-btn-return{width:100%;padding:12px 40px;background:transparent;font-size:8px;letter-spacing:1px;}
@@ -154,6 +162,8 @@ const STYLES = `
 .bm-char-name{font-size:11px;color:var(--px-accent);letter-spacing:1px;}
 .bm-char-meta{font-size:7px;color:var(--px-border-light);letter-spacing:1px;text-transform:uppercase;margin-top:4px;font-family:'Press Start 2P',monospace;}
 .bm-char-meta b{color:var(--px-text);}
+.bm-gold-pill{display:flex;align-items:center;gap:6px;padding:8px 14px;flex-shrink:0;background:var(--px-border-dark);box-shadow:0 0 0 2px var(--px-accent);color:var(--px-accent);font-size:11px;letter-spacing:1px;white-space:nowrap;}
+.bm-gold-pill i{font-size:12px;}
 .bm-char-actions{display:flex;gap:8px;align-items:center;}
 .bm-btn-ghost{background:transparent;font-size:7px;letter-spacing:1px;}
 .bm-btn-ghost:hover{color:var(--px-accent);}
@@ -243,6 +253,11 @@ export class LobbyUI {
   // independently re-check `profiles.is_admin` server-side (see task-2's
   // migration), so hiding this button is not the actual security boundary.
   private isAdminFlag = false;
+  // Account gold balance, always a fresh server read (see supabase.ts's
+  // fetchGold) — never computed client-side. null means "no signed-in
+  // session" (guests get no gold pill), as opposed to an authed account
+  // legitimately sitting at 0 gold.
+  private goldAmount: number | null = null;
 
   constructor(container: HTMLElement, private cb: LobbyCallbacks) {
     const style = document.createElement('style');
@@ -268,6 +283,24 @@ export class LobbyUI {
     this.isAdminFlag = isAdmin;
   }
 
+  /** Called by main.ts's refreshGold() on lobby show/return and after
+   * duel-ended processing (Tasks 5/6's shop/sell actions call it too). Pass
+   * null for "no session" (guests) — the pill hides entirely rather than
+   * showing 0. Patches the pill in place when it's already on screen;
+   * showHome() also reads the cached value on its next full re-render. */
+  setGold(gold: number | null): void {
+    this.goldAmount = gold;
+    const pill = this.ui.querySelector('#bm-gold-pill') as HTMLElement | null;
+    if (!pill) return;
+    if (gold === null) {
+      pill.style.display = 'none';
+      return;
+    }
+    pill.style.display = '';
+    const amountEl = pill.querySelector('#bm-gold-amount');
+    if (amountEl) amountEl.textContent = String(gold);
+  }
+
   showHome(username?: string, points?: number, charClass?: string, level?: number): void {
     this.stopPolling();
     const prefilledCode = new URLSearchParams(window.location.search).get('room') ?? '';
@@ -283,9 +316,13 @@ export class LobbyUI {
              <div class="bm-char-name">${escapeHtml(username ?? '')}</div>
              <div class="bm-char-meta">${charClass ? `${escapeHtml(charClass)}` : ''}${level !== undefined ? ` · Lvl <b>${level}</b>` : ''}${points !== undefined ? ` · <b>${points}</b> Skill Pts` : ''}</div>
            </div>
+           <div id="bm-gold-pill" class="bm-gold-pill" style="display:${this.goldAmount === null ? 'none' : ''}">
+             <i class="fa fa-coins"></i><span id="bm-gold-amount">${this.goldAmount ?? 0}</span>
+           </div>
            <div class="bm-char-actions">
              <button id="bm-skills" class="bm-btn-ghost px-btn">✦ Skills</button>
              <button id="bm-gear" class="bm-btn-ghost px-btn">⚔ Gear</button>
+             <button id="bm-shop" class="bm-btn-ghost px-btn">⚖ Shop</button>
              <button id="bm-switch-char" class="bm-btn-ghost px-btn">⇄ Switch</button>
              <button id="bm-logout" class="bm-btn-logout px-btn">Sign Out</button>
            </div>
@@ -331,6 +368,9 @@ export class LobbyUI {
 
     const gearBtn = this.ui.querySelector('#bm-gear');
     if (gearBtn) gearBtn.addEventListener('click', () => this.cb.onOpenGear());
+
+    const shopBtn = this.ui.querySelector('#bm-shop');
+    if (shopBtn) shopBtn.addEventListener('click', () => this.cb.onOpenShop());
 
     const switchCharBtn = this.ui.querySelector('#bm-switch-char');
     if (switchCharBtn) switchCharBtn.addEventListener('click', () => this.cb.onSwitchCharacter());
@@ -387,7 +427,7 @@ export class LobbyUI {
     this.renderLobby(roomId, slots, mode);
   }
 
-  showResult(won: boolean, mode?: string, placement?: number, matchResult?: { xpGained: number; levelsGained: number; newLevel: number }): void {
+  showResult(won: boolean, mode?: string, placement?: number, matchResult?: { xpGained: number; levelsGained: number; newLevel: number; goldGained: number; droppedItem?: ItemRow }): void {
     this.stopPolling();
     let title: string;
     let subtitle: string;
@@ -410,7 +450,6 @@ export class LobbyUI {
     }
     const panelClass = won ? 'bm-win' : 'bm-lose';
     const hasLevelUp = matchResult && matchResult.levelsGained > 0;
-    const btnDelay = !matchResult ? '0.8s' : hasLevelUp ? '1.4s' : '1.1s';
 
     const xpHtml = matchResult
       ? `<div class="bm-result-divider">
@@ -422,6 +461,32 @@ export class LobbyUI {
          <div class="bm-result-xp-label">Experience Gained</div>
          ${hasLevelUp ? `<div class="bm-result-levelup">Level Up <span class="bm-result-levelup-num">${matchResult.newLevel}</span></div>` : ''}`
       : '';
+
+    // Sequenced to appear after the XP/level-up beats above (bm-rise fades
+    // in each block); the buttons' own delay is pushed out to clear
+    // whichever of gold/spoils renders last, matching the pre-existing
+    // hasLevelUp-based push for the XP block.
+    let rewardDelay = hasLevelUp ? 1.1 : 0.8;
+    let goldHtml = '';
+    if (matchResult && matchResult.goldGained > 0) {
+      goldHtml = `<div class="bm-result-gold" style="animation-delay:${rewardDelay}s">+${matchResult.goldGained} <i class="fa fa-coins"></i> Gold</div>`;
+      rewardDelay += 0.3;
+    }
+
+    let spoilsHtml = '';
+    const droppedItem = matchResult?.droppedItem;
+    const droppedBase = droppedItem ? itemBase(droppedItem) : undefined;
+    if (droppedItem && droppedBase) {
+      const color = RARITY_COLORS[droppedItem.rarity];
+      const name = itemDisplayName(droppedItem, droppedBase);
+      spoilsHtml = `<div class="bm-result-spoils" style="animation-delay:${rewardDelay}s;box-shadow:inset 0 0 0 2px ${color}">
+        <div class="bm-result-spoils-label">War Spoils</div>
+        <div class="bm-result-spoils-item"><i class="fa ${droppedBase.icon}" style="color:${color}"></i><span style="color:${color}">${escapeHtml(name)}</span></div>
+      </div>`;
+      rewardDelay += 0.3;
+    }
+
+    const btnDelay = !matchResult ? '0.8s' : `${Math.max(rewardDelay, hasLevelUp ? 1.4 : 1.1)}s`;
 
     this.ui.innerHTML = `
       <div class="bm-title px-title" style="font-size:22px;letter-spacing:3px">Blood Moor</div>
@@ -436,6 +501,8 @@ export class LobbyUI {
         <div class="bm-result-title">${title}</div>
         <div class="bm-result-sub">${subtitle}</div>
         ${xpHtml}
+        ${goldHtml}
+        ${spoilsHtml}
         <div class="bm-result-buttons" style="animation-delay:${btnDelay}">
           <button id="bm-rematch" class="bm-btn-rematch px-btn">⚔ Rematch</button>
           <button id="bm-return-lobby" class="bm-btn-return px-btn">Return to Lobby</button>
