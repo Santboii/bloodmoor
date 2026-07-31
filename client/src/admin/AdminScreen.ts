@@ -278,6 +278,7 @@ export class AdminScreen {
       onNavigate: (key) => this.hide(key),
       onCredits: () => this.navHandlers.onCredits(),
       onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
     });
     this.el.querySelectorAll('[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {

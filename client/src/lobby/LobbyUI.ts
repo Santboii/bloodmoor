@@ -36,6 +36,7 @@ export type LobbyCallbacks = {
   onLogout: () => void;
   onShowCredits: () => void;
   onOpenAdmin: () => void;
+  onOpenSettings: () => void;
 };
 
 interface OpenRoom {
@@ -329,6 +330,7 @@ export class LobbyUI {
       },
       onCredits: () => this.cb.onShowCredits(),
       onLogout: () => this.cb.onLogout(),
+      onSettings: () => this.cb.onOpenSettings(),
     });
 
     const chooseBtn = this.ui.querySelector('#bm-choose-champion');

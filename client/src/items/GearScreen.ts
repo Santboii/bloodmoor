@@ -261,6 +261,7 @@ export class GearScreen {
       onNavigate: (key) => this.hide(key),
       onCredits: () => this.navHandlers.onCredits(),
       onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
     });
     this.attachItemListeners();
     this.renderDetails(this.selectedId);

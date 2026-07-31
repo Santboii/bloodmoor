@@ -23,6 +23,7 @@ import { LoadingScreen } from './loading/LoadingScreen';
 import type { NavContext, NavKey } from './ui/navBar';
 import { injectPixelTheme } from './ui/pixelTheme';
 import { CreditsScreen } from './ui/CreditsScreen';
+import { SettingsPopover } from './audio/settingsPopover';
 import { audio } from './audio/AudioEngine';
 import * as sfx from './audio/sfx';
 import { setScene, setDueling } from './audio/ambience';
@@ -48,6 +49,7 @@ uiOverlay.addEventListener('click', (e) => {
 
 const loadingScreen = new LoadingScreen(uiOverlay);
 const creditsScreen = new CreditsScreen(uiOverlay);
+const settingsPopover = new SettingsPopover(uiOverlay);
 
 const scene = new Scene(container);
 
@@ -146,6 +148,7 @@ function navContext(): NavContext {
 const navAccountHandlers = {
   onCredits: () => { void creditsScreen.show(); },
   onLogout: () => { void handleLogout(); },
+  onSettings: () => { settingsPopover.show(); },
 };
 
 /** Sign out and return to the auth screen. Shared by the lobby's account
@@ -443,6 +446,7 @@ const lobby = new LobbyUI(uiOverlay, {
     void creditsScreen.show();
   },
   onOpenAdmin: () => { void openSection('admin'); },
+  onOpenSettings: () => { settingsPopover.show(); },
 });
 lobby.hide();
 

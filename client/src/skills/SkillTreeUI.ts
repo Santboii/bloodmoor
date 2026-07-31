@@ -339,6 +339,7 @@ export class SkillTreeUI {
       onNavigate: (key) => this.hide(key),
       onCredits: () => this.navHandlers.onCredits(),
       onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
     });
     this.el.querySelector('#st-respec')!.addEventListener('click', () => this.handleRespec());
 

@@ -6,7 +6,7 @@ import { injectStylesOnce } from './castleTheme';
 
 export type NavKey = 'arena' | 'skills' | 'gear' | 'shop' | 'admin';
 
-export type AccountMenuItem = { id: 'credits' | 'admin' | 'logout'; label: string };
+export type AccountMenuItem = { id: 'credits' | 'admin' | 'settings' | 'logout'; label: string };
 
 /** Account dropdown contents. Admin is a cosmetic gate — every admin RPC
  * re-checks `profiles.is_admin` server-side. */
@@ -15,6 +15,7 @@ export function accountMenuItems(isAdmin: boolean): AccountMenuItem[] {
     { id: 'credits', label: 'Credits' },
   ];
   if (isAdmin) items.push({ id: 'admin', label: '⚙ Admin' });
+  items.push({ id: 'settings', label: 'Settings' });
   items.push({ id: 'logout', label: 'Sign Out' });
   return items;
 }
@@ -73,8 +74,8 @@ export type NavContext = {
   isAdmin?: boolean;
 };
 
-/** The two account-menu actions that aren't section navigation. */
-export type NavAccountHandlers = { onCredits: () => void; onLogout: () => void };
+/** The account-menu actions that aren't section navigation. */
+export type NavAccountHandlers = { onCredits: () => void; onLogout: () => void; onSettings: () => void };
 
 export type NavBarOptions = {
   active: NavKey;
@@ -128,6 +129,7 @@ export type NavHandlers = {
   onNavigate: (key: NavKey) => void;
   onCredits: () => void;
   onLogout: () => void;
+  onSettings: () => void;
 };
 
 /**
@@ -156,6 +158,7 @@ export function wireNavBar(root: ParentNode, handlers: NavHandlers): () => void 
   const menuActions: Record<string, () => void> = {
     credits: () => handlers.onCredits(),
     admin: () => handlers.onNavigate('admin'),
+    settings: () => handlers.onSettings(),
     logout: () => handlers.onLogout(),
   };
   acctMenu.querySelectorAll('.bm-acct-item').forEach(btn => {
