@@ -68,6 +68,39 @@ const decoding = new Set<SampleId>();
 const warned = new Set<SampleId>();
 let started = false;
 
+// ── Dev-only audition overrides ─────────────────────────────────────────────
+// The scratch audition tool (client/src/audition.ts, untracked) writes
+// per-sample candidate picks here; dev builds fetch the override URL instead
+// of the shipped file and scale gain/rate at play time, so candidates can be
+// judged inside the real game. The import.meta.env.DEV guard makes this a
+// no-op in production bundles. One-shots hot-swap on the cross-tab storage
+// event; looping samples (ambience, fire wall) pick up a change on the next
+// loop start (scene change or game-tab reload).
+const OVERRIDES_KEY = 'bloodmoor.audition.overrides.v1';
+type AuditionOverride = { url: string; gain?: number; rate?: number };
+
+function readOverrides(): Partial<Record<SampleId, AuditionOverride>> {
+  if (!import.meta.env.DEV) return {};
+  try {
+    return JSON.parse(localStorage.getItem(OVERRIDES_KEY) ?? '{}') as Partial<Record<SampleId, AuditionOverride>>;
+  } catch {
+    return {};
+  }
+}
+
+let overrides: Partial<Record<SampleId, AuditionOverride>> = {};
+
+function sampleUrl(id: SampleId): string {
+  return overrides[id]?.url ?? SAMPLE_MANIFEST[id].path;
+}
+
+function fetchSample(id: SampleId): void {
+  fetch(sampleUrl(id))
+    .then(res => { if (!res.ok) throw new Error(String(res.status)); return res.arrayBuffer(); })
+    .then(buf => { raw.set(id, buf); tryDecode(id); })
+    .catch(() => { warnMissing(id); });
+}
+
 function warnMissing(id: SampleId): void {
   if (warned.has(id)) return;
   warned.add(id);
@@ -113,14 +146,31 @@ function tryDecode(id: SampleId): void {
 export function initSampleBank(): void {
   if (started) return;
   started = true;
+  overrides = readOverrides();
   const ids = Object.keys(SAMPLE_MANIFEST) as SampleId[];
-  for (const id of ids) {
-    fetch(SAMPLE_MANIFEST[id].path)
-      .then(res => { if (!res.ok) throw new Error(String(res.status)); return res.arrayBuffer(); })
-      .then(buf => { raw.set(id, buf); tryDecode(id); })
-      .catch(() => { warnMissing(id); });
-  }
+  for (const id of ids) fetchSample(id);
   audio.onUnlock(() => { for (const id of ids) tryDecode(id); });
+  if (import.meta.env.DEV) {
+    // Cross-tab hot swap: the audition tool's writes land here. Refetch and
+    // re-decode only the ids whose effective URL actually changed.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== OVERRIDES_KEY) return;
+      const next = readOverrides();
+      for (const id of ids) {
+        const before = overrides[id]?.url ?? SAMPLE_MANIFEST[id].path;
+        const after = next[id]?.url ?? SAMPLE_MANIFEST[id].path;
+        if (before !== after) {
+          buffers.delete(id);
+          raw.delete(id);
+          warned.delete(id);
+        }
+      }
+      overrides = next;
+      for (const id of ids) {
+        if (!buffers.has(id) && !raw.has(id) && !decoding.has(id)) fetchSample(id);
+      }
+    });
+  }
 }
 
 type Bus = 'sfx' | 'music';
@@ -145,11 +195,12 @@ export function playSample(
   const manifest = SAMPLE_MANIFEST[id];
   const src = ctx.createBufferSource();
   src.buffer = buf;
+  const ov = overrides[id];
   const jitterPct = opts.rateJitter ?? 0.04;
-  const baseRate = opts.rate ?? 1;
+  const baseRate = (opts.rate ?? 1) * (ov?.rate ?? 1);
   src.playbackRate.value = baseRate * (1 + (Math.random() * 2 - 1) * jitterPct);
   const gain = ctx.createGain();
-  gain.gain.value = opts.gain ?? manifest.gain ?? 1;
+  gain.gain.value = (opts.gain ?? manifest.gain ?? 1) * (ov?.gain ?? 1);
   src.connect(gain);
   gain.connect(out);
   src.start(ctx.currentTime + (opts.delayS ?? 0));
@@ -173,13 +224,14 @@ export function startSampleLoop(
   if (!ctx || !out) return null;
   const buf = buffers.get(id);
   if (!buf) return null;
+  const ov = overrides[id];
   const gain = ctx.createGain();
-  gain.gain.value = initialGain;
+  gain.gain.value = initialGain * (ov?.gain ?? 1);
   gain.connect(out);
   const src = ctx.createBufferSource();
   src.buffer = buf;
   src.loop = true;
-  src.playbackRate.value = rate;
+  src.playbackRate.value = rate * (ov?.rate ?? 1);
   src.connect(gain);
   src.start(ctx.currentTime);
   let stopped = false;
