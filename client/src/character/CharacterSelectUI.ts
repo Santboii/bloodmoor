@@ -136,12 +136,13 @@ export class CharacterSelectUI {
         </div>`;
     }).join('');
 
-    const emptySlots = Math.max(0, MAX_CHARACTERS_PER_ACCOUNT - this.characters.length);
-    const emptySlotsHtml = Array.from({ length: emptySlots }, () => `
+    const slotsLeft = Math.max(0, MAX_CHARACTERS_PER_ACCOUNT - this.characters.length);
+    const emptySlotsHtml = slotsLeft === 0 ? '' : `
       <div class="cs-slot cs-slot-empty px-panel" data-action="create">
         <div class="cs-empty-plus">+</div>
         <div class="cs-empty-text px-label">Create Character</div>
-      </div>`).join('');
+        <div class="cs-empty-text px-label" style="opacity:0.6">${slotsLeft} slot${slotsLeft === 1 ? '' : 's'} left</div>
+      </div>`;
 
     this.ui.innerHTML = `
       <button class="cs-btn-logout px-btn" id="cs-logout">Sign Out</button>
