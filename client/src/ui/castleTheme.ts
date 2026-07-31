@@ -160,6 +160,15 @@ const torchDef = (p: string) => `
 <g id="${p}-torch">
   <circle class="ct-glow" cx="63" cy="52" r="54" fill="url(#${p}-glowgrad)"/>
   <circle class="ct-glow ct-glow-hot" cx="63" cy="58" r="22" fill="url(#${p}-glowgrad)"/>
+  <!-- near-black silhouette underlay: 1px outline so the iron separates from
+       the same-value bricks behind it -->
+  <rect x="49" y="63" width="28" height="8" fill="#0a0b0f"/>
+  <rect x="51" y="69" width="24" height="8" fill="#0a0b0f"/>
+  <rect x="55" y="75" width="16" height="8" fill="#0a0b0f"/>
+  <rect x="59" y="81" width="8" height="6" fill="#0a0b0f"/>
+  <rect x="60" y="85" width="6" height="15" fill="#0a0b0f"/>
+  <rect x="58" y="91" width="10" height="5" fill="#0a0b0f"/>
+  <rect x="57" y="97" width="12" height="22" fill="#0a0b0f"/>
   <!-- mounting plate bolted to the wall -->
   <rect x="58" y="98" width="10" height="20" fill="#20232b"/>
   <rect x="58" y="98" width="10" height="2" fill="#3a3f4b"/>
@@ -172,15 +181,19 @@ const torchDef = (p: string) => `
   <rect x="61" y="86" width="4" height="14" fill="#2c2f38"/>
   <rect x="61" y="86" width="1" height="14" fill="#3d414d"/>
   <rect x="59" y="92" width="8" height="3" fill="#343845"/>
-  <rect x="59" y="92" width="8" height="1" fill="#454c5c"/>
+  <rect x="59" y="92" width="8" height="1" fill="#5c5340"/>
   <!-- flared iron cresset basket -->
   <rect x="60" y="82" width="6" height="4" fill="#23262e"/>
   <rect x="56" y="76" width="14" height="6" fill="#262a33"/>
+  <rect x="56" y="76" width="14" height="1" fill="#3d372c"/>
   <rect x="52" y="70" width="22" height="6" fill="#2a2e38"/>
+  <rect x="52" y="70" width="22" height="1" fill="#4a4030"/>
   <rect x="50" y="66" width="26" height="4" fill="#343a46"/>
-  <rect x="50" y="66" width="26" height="1" fill="#4d5566"/>
+  <rect x="50" y="66" width="26" height="1" fill="#8a6f45"/>
   <rect x="50" y="64" width="3" height="2" fill="#343a46"/><rect x="57" y="64" width="3" height="2" fill="#343a46"/>
   <rect x="66" y="64" width="3" height="2" fill="#343a46"/><rect x="73" y="64" width="3" height="2" fill="#343a46"/>
+  <rect x="50" y="64" width="3" height="1" fill="#7a5f38"/><rect x="57" y="64" width="3" height="1" fill="#7a5f38"/>
+  <rect x="66" y="64" width="3" height="1" fill="#7a5f38"/><rect x="73" y="64" width="3" height="1" fill="#7a5f38"/>
   <rect x="55" y="72" width="2" height="2" fill="#3f4552"/><rect x="59" y="75" width="2" height="2" fill="#3f4552"/>
   <rect x="63" y="78" width="2" height="2" fill="#3f4552"/><rect x="69" y="72" width="2" height="2" fill="#3b414d"/>
   <rect x="66" y="75" width="2" height="2" fill="#3b414d"/>
