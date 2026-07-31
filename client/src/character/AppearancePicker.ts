@@ -1,13 +1,12 @@
 // Appearance picker: cycle-style option rows plus a live animated sprite
 // preview. The preview is a plain 2D canvas blitting sub-rects of the
 // composited walk sheet — no Three.js scene needed for a UI widget.
-import type { CanvasTexture } from 'three';
 import {
   Appearance, APPEARANCE_OPTIONS, CharacterClass, CLASS_DEFAULT_APPEARANCE,
-  LpcAnimation, randomAppearance,
+  randomAppearance,
 } from '@arena/shared';
-import { compositeAppearance, disposeComposite } from '../renderer/sprites/SpriteCompositor';
-import { FRAME, frameRect, animationFrame, LpcDirection } from '../renderer/sprites/lpc';
+import { SpritePreview } from '../renderer/sprites/SpritePreview';
+import type { LpcDirection } from '../renderer/sprites/lpc';
 
 type FieldKey = 'body' | 'skin' | 'hairStyle' | 'hairColor' | 'torsoColor' | 'legsColor';
 
@@ -75,14 +74,8 @@ export class AppearancePicker {
   private appearance: Appearance;
   private el: HTMLElement;
   private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private preview: SpritePreview;
   private valueEls = new Map<FieldKey, HTMLElement>();
-
-  private composite: Record<LpcAnimation, CanvasTexture | null> | null = null;
-  private requestId = 0;
-  private rafId: number | null = null;
-  private animStart: number | null = null;
-  private disposed = false;
 
   constructor(container: HTMLElement, private charClass: CharacterClass, initial?: Appearance) {
     injectStyles();
@@ -126,14 +119,11 @@ export class AppearancePicker {
     right.className = 'ap-right';
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'ap-canvas';
-    this.canvas.width = FRAME;
-    this.canvas.height = FRAME;
-    this.ctx = this.canvas.getContext('2d')!;
     right.appendChild(this.canvas);
     this.el.appendChild(right);
 
-    this.recomposite();
-    this.rafId = requestAnimationFrame(this.loop);
+    this.preview = new SpritePreview(this.canvas, PREVIEW_DIR);
+    void this.preview.setAppearance(this.appearance);
   }
 
   getAppearance(): Appearance {
@@ -141,15 +131,7 @@ export class AppearancePicker {
   }
 
   dispose(): void {
-    this.disposed = true;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-    if (this.composite) {
-      disposeComposite(this.composite);
-      this.composite = null;
-    }
+    this.preview.dispose();
     this.el.remove();
   }
 
@@ -160,7 +142,7 @@ export class AppearancePicker {
     const nextValue = row.options[nextIdx];
     this.appearance = { ...this.appearance, [key]: nextValue } as Appearance;
     this.valueEls.get(key)!.textContent = rowValueLabel(key, nextValue, row.options);
-    this.recomposite();
+    void this.preview.setAppearance(this.appearance);
     this.onChange?.(this.getAppearance());
   }
 
@@ -169,40 +151,8 @@ export class AppearancePicker {
     for (const row of ROWS) {
       this.valueEls.get(row.key)!.textContent = rowValueLabel(row.key, this.appearance[row.key] as string | null, row.options);
     }
-    this.recomposite();
+    void this.preview.setAppearance(this.appearance);
     this.onChange?.(this.getAppearance());
   }
 
-  // Dispose the previous composite immediately (its GPU/texture resources
-  // are freed even though the last-rendered frame stays on-screen until the
-  // new one resolves) and guard the async resolution with a request counter
-  // so a slow composite from a stale pick can never overwrite a newer one.
-  private recomposite(): void {
-    const reqId = ++this.requestId;
-    if (this.composite) {
-      disposeComposite(this.composite);
-      this.composite = null;
-    }
-    this.animStart = null;
-    compositeAppearance(this.appearance).then(tex => {
-      if (this.disposed || reqId !== this.requestId) {
-        disposeComposite(tex);
-        return;
-      }
-      this.composite = tex;
-      this.animStart = null;
-    });
-  }
-
-  private loop = (now: number): void => {
-    this.rafId = requestAnimationFrame(this.loop);
-    const tex = this.composite?.walk;
-    if (!tex) return;
-    if (this.animStart === null) this.animStart = now;
-    const elapsed = (now - this.animStart) / 1000;
-    const frame = animationFrame('walk', elapsed, true);
-    const { sx, sy } = frameRect('walk', PREVIEW_DIR, frame);
-    this.ctx.clearRect(0, 0, FRAME, FRAME);
-    this.ctx.drawImage(tex.image as HTMLCanvasElement, sx, sy, FRAME, FRAME, 0, 0, FRAME, FRAME);
-  };
 }
