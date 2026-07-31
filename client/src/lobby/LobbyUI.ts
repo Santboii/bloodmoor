@@ -199,10 +199,10 @@ const STYLES = `
 .bm-hero-name{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--px-accent);letter-spacing:1px;}
 .bm-hero-meta{font-family:'VT323',monospace;font-size:17px;color:var(--px-border-light);margin-top:5px;}
 .bm-hero-meta b{color:var(--px-text);}
-.bm-hero-canvas{width:192px;height:192px;image-rendering:pixelated;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.6));}
+.bm-hero-canvas{width:192px;height:192px;image-rendering:pixelated;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.6));margin-bottom:14px;}
 .bm-hero-empty{width:170px;min-height:180px;outline:2px dashed var(--px-border-light);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;line-height:1.8;text-align:center;padding:14px;}
 .bm-hero-empty .px-btn{font-size:8px;}
-.bm-hero-switch{margin-top:14px;font-size:8px;letter-spacing:1px;padding:10px 16px;}
+.bm-hero-switch{margin-top:0;font-size:8px;letter-spacing:1px;padding:10px 16px;}
 .bm-pause-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;}
 .bm-pause-title{font-size:20px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;text-shadow:0 0 20px rgba(224,91,91,0.6);}
 .bm-pause-countdown{font-size:48px;color:var(--px-accent);letter-spacing:2px;margin-bottom:24px;text-shadow:0 0 30px rgba(255,179,71,0.4);}
@@ -309,11 +309,11 @@ export class LobbyUI {
       .join('');
 
     const heroHtml = hasSprite
-      ? `<div class="bm-hero-plate">
+      ? `<canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>
+         <div class="bm-hero-plate">
            <div class="bm-hero-name">${nameValue}</div>
            <div class="bm-hero-meta">${heroMetaHtml(charClass, level, points)}</div>
          </div>
-         <canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>
          <button id="bm-choose-champion" class="bm-hero-switch px-btn">⇄ Switch Character</button>`
       : `<div class="bm-hero-plate">
            <div class="bm-hero-name">${nameValue || 'Wanderer'}</div>
