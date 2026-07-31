@@ -107,7 +107,7 @@ const STYLES = `
 .sh-sold{opacity:0.55;}
 .sh-sold-badge{position:absolute;top:6px;right:6px;font-family:'Press Start 2P',monospace;font-size:6px;letter-spacing:0.05em;color:var(--px-danger);}
 .sh-buy-btn{width:100%;font-size:6px;padding:8px 6px;margin-top:2px;}
-.sh-buy-btn:disabled{opacity:0.5;cursor:not-allowed;}
+.sh-buy-btn:disabled,.sh-buy-btn-blocked{opacity:0.5;cursor:not-allowed;}
 .sh-lootbox{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;}
 .sh-lootbox-icon{font-size:2rem;color:var(--px-accent);}
 .sh-lootbox-name{font-family:'Press Start 2P',monospace;font-size:9px;line-height:1.5;}
@@ -232,7 +232,13 @@ export class ShopScreen {
     const state = slotDisplayState(slot, this.gold);
     const pendingKey = `vendor:${slot.slotIndex}`;
     const pending = this.pending.has(pendingKey);
-    const disabled = state !== 'available' || pending;
+    // Deliberately NOT a native `disabled` attribute: a disabled <button>
+    // never dispatches a click event at all (the browser suppresses it
+    // before any JS runs), which would make a denied-purchase sound
+    // unreachable. Instead this stays a plain enabled button, styled to
+    // look blocked via a class, and the click handler below recomputes the
+    // slot's live state to decide whether to buy or play the deny sound.
+    const blocked = state !== 'available' || pending;
     const label = state === 'sold' ? 'Sold' : pending ? 'Buying…' : state === 'unaffordable' ? "Can't Afford" : 'Buy';
     const notice = this.noticeBySlot.get(slot.slotIndex);
 
@@ -245,7 +251,7 @@ export class ShopScreen {
         <div class="sh-vslot-price"><i class="fa fa-coins"></i> ${slot.price}</div>
         ${slot.crossClass ? '<div class="sh-crossclass">⚠ No current class can use this</div>' : ''}
         ${notice ? `<div class="sh-notice">${esc(notice)}</div>` : ''}
-        <button class="sh-buy-btn px-btn px-btn-primary" data-buy-slot="${slot.slotIndex}" ${disabled ? 'disabled' : ''}>${esc(label)}</button>
+        <button class="sh-buy-btn px-btn px-btn-primary${blocked ? ' sh-buy-btn-blocked' : ''}" data-buy-slot="${slot.slotIndex}" aria-disabled="${blocked}">${esc(label)}</button>
       </div>`;
   }
 
@@ -271,7 +277,6 @@ export class ShopScreen {
   }
 
   private renderReveal(item: ItemRow): string {
-    sfx.playDropSting(item.rarity);
     const base = itemBase(item);
     if (!base) return '';
     const color = RARITY_COLORS[item.rarity];
@@ -333,7 +338,15 @@ export class ShopScreen {
       const btn = el as HTMLButtonElement;
       const slotIndex = Number(btn.dataset.buySlot);
       btn.addEventListener('click', () => {
-        if (btn.disabled) { sfx.playDenied(); return; }
+        // Button is never natively `disabled` (see renderVendorCard) so the
+        // click always reaches here; the slot's live state is recomputed
+        // from current instance fields rather than trusting a stale
+        // render-time boolean.
+        const key = `vendor:${slotIndex}`;
+        if (this.pending.has(key)) return;
+        const slot = this.vendor?.slots.find(s => s.slotIndex === slotIndex);
+        const state = slot ? slotDisplayState(slot, this.gold) : 'unaffordable';
+        if (state !== 'available') { sfx.playDenied(); return; }
         void this.handleBuySlot(slotIndex);
       });
     });
@@ -406,6 +419,7 @@ export class ShopScreen {
     this.pending.delete(key);
     if (result.ok) {
       this.reveal = { tier, item: result.item };
+      sfx.playDropSting(result.item.rarity);
     } else {
       this.lootboxNotice.set(tier, noticeForError(result.status, result.error));
     }
