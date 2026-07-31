@@ -104,7 +104,7 @@ export async function fetchItems(): Promise<ItemRow[]> {
   if (!user) return [];
   const { data, error } = await supabase
     .from('items')
-    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot')
+    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (error) { console.error('fetchItems failed:', error.message); return []; }

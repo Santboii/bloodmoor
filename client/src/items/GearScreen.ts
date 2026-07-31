@@ -1,6 +1,6 @@
-import { fetchItems, equipItem, unequipItem } from '../supabase';
+import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
-  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree,
+  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree, sellPriceFor,
 } from '@arena/shared';
 import type {
   ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass,
@@ -86,12 +86,25 @@ export function canEquip(item: ItemRow, charLevel: number, charClass: CharacterC
   return { ok: true };
 }
 
+export type SellState = { sellable: true; price: number } | { sellable: false; reason: string };
+
+/** Pure sell-affordance derivation for the stash details panel — mirrors
+ * the sell_item RPC's non-starter precondition (the RPC also enforces
+ * ownership and unequipped-ness, which the caller here has already gated
+ * on by only calling this for stash items). Price always comes from
+ * shared economy.ts's sellPriceFor, never a hardcoded UI number. */
+export function sellStateFor(item: ItemRow): SellState {
+  if (item.source === 'starter') return { sellable: false, reason: 'Starter gear — cannot be sold' };
+  return { sellable: true, price: sellPriceFor(item.rarity, item.level_req) };
+}
+
 const STYLES = `
 .gr-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .gr-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .gr-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 .gr-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:900px;margin-bottom:16px;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .gr-title{font-size:11px;letter-spacing:0.05em;}
+.gr-gold{font-size:14px;color:var(--px-accent);display:flex;align-items:center;gap:6px;white-space:nowrap;}
 .gr-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
 .gr-columns{display:flex;gap:24px;width:100%;max-width:900px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .gr-col-doll{flex:0 0 340px;}
@@ -122,6 +135,19 @@ const STYLES = `
 .gr-ok{color:var(--px-success);}
 .gr-bad{color:var(--px-danger);}
 .gr-details-status{margin-top:10px;font-size:16px;}
+.gr-sell-price{color:var(--px-accent);margin-top:10px;}
+.gr-sell-btn{width:100%;font-size:6px;padding:8px 6px;margin-top:6px;}
+.gr-sell-btn:disabled{opacity:0.5;cursor:not-allowed;}
+/* confirm modal — mirrors SkillTreeUI's st-confirm-* (Reset Skills), kept
+ * as its own gr-prefixed copy rather than reusing st-confirm's classes so
+ * GearScreen doesn't depend on another screen's <style> having been
+ * injected into the document first. */
+.gr-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
+.gr-confirm-panel{padding:28px 32px;max-width:340px;text-align:center;}
+.gr-confirm-title{margin-bottom:8px;}
+.gr-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;white-space:pre-line;}
+.gr-confirm-buttons{display:flex;gap:12px;justify-content:center;}
+.gr-confirm-yes,.gr-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
 `;
 
 export class GearScreen {
@@ -132,6 +158,15 @@ export class GearScreen {
   private charLevel = 1;
   private selectedId: string | null = null;
   private closeResolver: (() => void) | null = null;
+  // Fresh server gold, optionally patched with a DISPLAY-ONLY optimistic
+  // bump between firing a sell and its reload() reconcile — see Global
+  // Constraints: never trust this for anything but rendering.
+  private gold: number | null = null;
+  // In-flight sell item ids — the double-submit guard, checked from the
+  // very first synchronous line of handleSell (the AdminScreen/Shop lesson:
+  // disable before the first await, not after).
+  private sellPending = new Set<string>();
+  private sellErrorById = new Map<string, string>();
 
   constructor(container: HTMLElement) {
     const style = document.createElement('style');
@@ -148,6 +183,8 @@ export class GearScreen {
     this.charClass = charClass;
     this.charLevel = charLevel;
     this.selectedId = null;
+    this.sellPending.clear();
+    this.sellErrorById.clear();
     this.el.style.display = 'block';
     await this.reload();
     await new Promise<void>(resolve => { this.closeResolver = resolve; });
@@ -159,8 +196,14 @@ export class GearScreen {
     this.closeResolver = null;
   }
 
+  /** Fresh items + gold read — the only source of truth for the stash and
+   * the header's gold display. Called on open and after every sell,
+   * success or failure, so an optimistic bump never lingers past its
+   * request (Global Constraints). */
   private async reload(): Promise<void> {
-    this.items = await fetchItems();
+    const [items, gold] = await Promise.all([fetchItems(), fetchGold()]);
+    this.items = items;
+    this.gold = gold;
     this.render();
   }
 
@@ -182,6 +225,7 @@ export class GearScreen {
       <div class="gr-ui">
         <div class="gr-header">
           <div class="gr-title px-title">${esc(this.charClass)} Lvl ${this.charLevel} — Gear</div>
+          <div class="gr-gold"><i class="fa fa-coins"></i> ${this.gold ?? 0}</div>
           <button id="gr-close" class="gr-btn px-btn px-btn-primary">Back to Lobby</button>
         </div>
         <div class="gr-columns">
@@ -362,6 +406,26 @@ export class GearScreen {
         ? `<div class="gr-details-status gr-ok">Click to equip</div>`
         : `<div class="gr-details-status gr-bad">${esc(check.reason ?? 'Cannot equip')}</div>`;
 
+    // Sell affordance is stash-only — an equipped item (on any character)
+    // never shows it, matching the sell_item RPC's own unequipped
+    // precondition.
+    let sellHtml = '';
+    if (item.equipped_by === null) {
+      const sellError = this.sellErrorById.get(item.id);
+      const errorHtml = sellError ? `<div class="gr-details-row gr-bad">${esc(sellError)}</div>` : '';
+      const state = sellStateFor(item);
+      if (state.sellable) {
+        const pending = this.sellPending.has(item.id);
+        sellHtml = `
+          <div class="gr-details-row gr-sell-price">Sell: ${state.price} gold</div>
+          ${errorHtml}
+          <button class="gr-sell-btn px-btn px-btn-primary" data-sell="${item.id}" ${pending ? 'disabled' : ''}>${pending ? 'Selling…' : 'Sell'}</button>
+        `;
+      } else {
+        sellHtml = `<div class="gr-details-row gr-dim">${esc(state.reason)}</div>${errorHtml}`;
+      }
+    }
+
     panel.innerHTML = `
       <div class="gr-details-head">
         <div class="gr-details-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
@@ -376,6 +440,73 @@ export class GearScreen {
       ${levelReqHtml}
       ${classHtml}
       ${statusHtml}
+      ${sellHtml}
     `;
+
+    const sellBtn = panel.querySelector('[data-sell]') as HTMLButtonElement | null;
+    sellBtn?.addEventListener('click', () => {
+      if (sellBtn.disabled) return;
+      this.handleSell(item);
+    });
+  }
+
+  /**
+   * Sells a stash item. Uniques get an st-confirm-style dialog first (the
+   * SkillTreeUI respec pattern); everything else sells immediately.
+   * Optimistic: the card is removed from the stash and the header gold
+   * bumped by the (shared-economy-derived) price before the RPC resolves,
+   * then reload() always overwrites both from a fresh server read — on
+   * success that's a no-op re-render, on failure it restores the item and
+   * shows an inline error (Global Constraints: gold/ownership are never
+   * asserted client-side).
+   */
+  private handleSell(item: ItemRow): void {
+    if (this.sellPending.has(item.id)) return;
+    const state = sellStateFor(item);
+    if (!state.sellable) return;
+    const price = state.price;
+
+    const run = async (): Promise<void> => {
+      this.sellPending.add(item.id);
+      this.sellErrorById.delete(item.id);
+      const priorItems = this.items;
+      this.items = this.items.filter(i => i.id !== item.id);
+      this.selectedId = null;
+      if (this.gold !== null) this.gold += price;
+      this.render();
+
+      const result = await sellItem(item.id);
+      this.sellPending.delete(item.id);
+      if (result === null) {
+        this.items = priorItems;
+        this.selectedId = item.id;
+        this.sellErrorById.set(item.id, 'Sell failed — please try again.');
+      }
+      await this.reload();
+    };
+
+    if (item.rarity === 'unique') {
+      this.showConfirm('Sell Unique Item', `Sell this unique item for ${price} gold? This cannot be undone.`, () => { void run(); });
+      return;
+    }
+    void run();
+  }
+
+  private showConfirm(title: string, text: string, onConfirm: () => void): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'gr-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="gr-confirm-panel px-panel">
+        <div class="gr-confirm-title px-title">${esc(title)}</div>
+        <div class="gr-confirm-text">${esc(text)}</div>
+        <div class="gr-confirm-buttons">
+          <button class="gr-confirm-yes px-btn px-btn-primary">Confirm</button>
+          <button class="gr-confirm-no px-btn">Cancel</button>
+        </div>
+      </div>
+    `;
+    this.el.appendChild(overlay);
+    overlay.querySelector('.gr-confirm-yes')!.addEventListener('click', () => { overlay.remove(); onConfirm(); });
+    overlay.querySelector('.gr-confirm-no')!.addEventListener('click', () => overlay.remove());
   }
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS } from '../src/items/GearScreen';
+import { ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS, sellStateFor } from '../src/items/GearScreen';
+import { sellPriceFor } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
 function makeItem(overrides: Partial<ItemRow> = {}): ItemRow {
@@ -107,5 +108,32 @@ describe('itemDisplayName', () => {
 describe('RARITY_COLORS', () => {
   it('has an entry for every item rarity', () => {
     expect(Object.keys(RARITY_COLORS).sort()).toEqual(['basic', 'magic', 'rare', 'unique']);
+  });
+});
+
+// Gates the Gear screen's stash sell affordance (Task 6). Ownership and
+// unequipped-ness are the RPC's job / the caller's stash-only gate — this
+// only covers the starter-gear precondition it mirrors for UX, plus price
+// derivation, which must always come from shared economy.ts and never be
+// hardcoded in the UI.
+describe('sellStateFor', () => {
+  it('rejects starter gear with a fixed reason, regardless of rarity', () => {
+    const item = makeItem({ source: 'starter', rarity: 'rare', level_req: 7 });
+    expect(sellStateFor(item)).toEqual({ sellable: false, reason: 'Starter gear — cannot be sold' });
+  });
+
+  it('is sellable for a non-starter item, at the shared sellPriceFor price', () => {
+    const item = makeItem({ source: 'drop', rarity: 'magic', level_req: 4 });
+    expect(sellStateFor(item)).toEqual({ sellable: true, price: sellPriceFor('magic', 4) });
+  });
+
+  it('is sellable when source is absent (older/unselected rows default to non-starter)', () => {
+    const item = makeItem({ rarity: 'basic', level_req: 1 }); // makeItem's baseline has no source
+    expect(sellStateFor(item)).toEqual({ sellable: true, price: sellPriceFor('basic', 1) });
+  });
+
+  it('derives the unique sell price from level_req, matching sellPriceFor exactly', () => {
+    const item = makeItem({ source: 'lootbox', rarity: 'unique', level_req: 10 });
+    expect(sellStateFor(item)).toEqual({ sellable: true, price: sellPriceFor('unique', 10) });
   });
 });
