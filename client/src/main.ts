@@ -23,11 +23,26 @@ import { LoadingScreen } from './loading/LoadingScreen';
 import type { NavContext, NavKey } from './ui/navBar';
 import { injectPixelTheme } from './ui/pixelTheme';
 import { CreditsScreen } from './ui/CreditsScreen';
+import { audio } from './audio/AudioEngine';
+import * as sfx from './audio/sfx';
 
 injectPixelTheme();
 
+audio.installUnlockListener();
+
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
+
+// One delegated listener covers every button in the app: all clickable
+// chrome shares the px-btn / bm-nav-tab / bm-acct-item classes. Capture
+// phase so screens that stopPropagation still make a sound.
+uiOverlay.addEventListener('click', (e) => {
+  const btn = (e.target as Element | null)?.closest?.('.px-btn, .bm-acct-item');
+  if (!btn) return;
+  const kind = sfx.uiSoundForClasses(btn.className);
+  if (kind === 'tab') sfx.playUiTab();
+  else if (kind === 'click') sfx.playUiClick();
+}, true);
 
 const loadingScreen = new LoadingScreen(uiOverlay);
 const creditsScreen = new CreditsScreen(uiOverlay);
