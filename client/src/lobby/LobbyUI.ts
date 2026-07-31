@@ -2,6 +2,33 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+export type AccountMenuItem = { id: 'switch' | 'credits' | 'admin' | 'logout'; label: string };
+
+/** Account dropdown contents. Admin is a cosmetic gate — see isAdminFlag. */
+export function accountMenuItems(isAdmin: boolean): AccountMenuItem[] {
+  const items: AccountMenuItem[] = [
+    { id: 'switch', label: '⇄ Switch Character' },
+    { id: 'credits', label: 'Credits' },
+  ];
+  if (isAdmin) items.push({ id: 'admin', label: '⚙ Admin' });
+  items.push({ id: 'logout', label: 'Sign Out' });
+  return items;
+}
+
+/** Unspent-points badge for the Skills tab; empty string when none. */
+export function skillsBadge(points?: number): string {
+  return points && points > 0 ? `✦${points}` : '';
+}
+
+/** Nameplate meta line. Returns safe HTML (class string is escaped). */
+export function heroMetaHtml(charClass?: string, level?: number, points?: number): string {
+  const parts: string[] = [];
+  if (charClass) parts.push(escapeHtml(charClass.charAt(0).toUpperCase() + charClass.slice(1)));
+  if (level !== undefined) parts.push(`Lv <b>${level}</b>`);
+  if (points && points > 0) parts.push(`<b>✦${points}</b> skill pts`);
+  return parts.join(' · ');
+}
+
 export type LobbyCallbacks = {
   onCreateRoom: (displayName: string, mode: string) => void;
   onJoinRoom: (roomId: string, displayName: string, teamId?: string) => void;
