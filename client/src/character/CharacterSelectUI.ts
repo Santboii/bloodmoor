@@ -27,7 +27,7 @@ const STYLES = `
 .cs-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
 .cs-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
 .cs-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;width:100%;max-width:700px;margin-bottom:24px;}
-.cs-grid>.cs-slot{flex:0 0 calc((100% - 32px)/3);}
+.cs-grid>.cs-slot{flex:0 0 calc((100% - 34px)/3);}
 .cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
 .cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06);}
 .cs-slot-empty{align-items:center;justify-content:center;box-shadow:none;outline:2px dashed var(--px-border-light);}
