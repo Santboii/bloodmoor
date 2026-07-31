@@ -47,7 +47,12 @@ interface OpenRoom {
 
 const STYLES = `
 .bm-overlay{position:fixed;inset:0;z-index:100;}
-.bm-bg{position:absolute;inset:0;overflow:hidden;}
+/* z-index:0 is load-bearing: without it .bm-bg forms no stacking context, so
+   the hall's .ct-vig (z-index:2) escapes into .bm-overlay's context and paints
+   over .bm-ui (z-index:1) — the vignette is darkest at the edges, which dimmed
+   the nav bar and made the lobby header look darker than every sub-screen's.
+   The sub-screens' backdrop divs already pin themselves to z-index:0. */
+.bm-bg{position:absolute;inset:0;overflow:hidden;z-index:0;}
 .bm-bg.bm-bg-dim{--ct-amb-vis:hidden;}
 .bm-bg.bm-bg-dim::after{content:'';position:absolute;inset:0;z-index:1;background:rgba(5,6,10,0.42);}
 .bm-ui{position:relative;z-index:1;min-height:calc(100vh / var(--ui-zoom, 1));display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);}
