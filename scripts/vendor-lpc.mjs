@@ -75,6 +75,7 @@ function candidates(layer, anim) {
   return [
     `${BASE}/${dir}/${anim}/${color}.png`, // colored layout
     `${BASE}/${layer}/${anim}.png`,        // plain layout
+    `${BASE}/${layer}.png`,                // anim baked into the path (bow walk overrides)
   ];
 }
 
