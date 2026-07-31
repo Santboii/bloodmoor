@@ -5,13 +5,14 @@ import {
 import type {
   ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 const RARITY_COLORS: Record<ItemRow['rarity'], string> = {
-  basic: '#e8dff5',
+  basic: '#e2e2e6',
   magic: '#4a6fc4',
   rare: '#ddb84a',
   unique: '#ffb347',
@@ -98,7 +99,7 @@ const STYLES = `
 .gr-col-side{flex:1 1 380px;min-width:320px;max-width:460px;display:flex;flex-direction:column;gap:14px;}
 .gr-doll-label,.gr-stash-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--px-border-light);text-align:center;margin-bottom:8px;}
 .gr-doll-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-areas:"ring1 helmet ring2" "weapon armor amulet" ". leggings .";gap:10px;}
-.gr-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 6px;min-height:96px;cursor:pointer;background:#1c1730;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
+.gr-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 6px;min-height:96px;cursor:pointer;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
 .gr-slot:hover{transform:scale(1.04);}
 .gr-slot-empty{outline:2px dashed var(--px-border-light);box-shadow:none;cursor:default;color:var(--px-border-light);opacity:0.7;}
 .gr-slot-empty:hover{transform:none;}
@@ -107,13 +108,13 @@ const STYLES = `
 .gr-slot-name{font-family:'Press Start 2P',monospace;font-size:8px;text-align:center;line-height:1.5;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
 .gr-selected{outline:2px solid #fff;outline-offset:2px;}
 .gr-stash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;padding:4px;}
-.gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#1c1730;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
+.gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
 .gr-card:hover{transform:scale(1.04);}
 .gr-empty{grid-column:1 / -1;color:var(--px-border-light);font-size:15px;text-align:center;padding:20px 0;}
 .gr-details{padding:16px 18px;min-height:220px;box-sizing:border-box;}
 .gr-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}
 .gr-details-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
-.gr-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#120e1c;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
+.gr-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .gr-details-name{font-family:'Press Start 2P',monospace;font-size:9px;line-height:1.5;}
 .gr-details-kind{font-size:14px;color:var(--px-border-light);letter-spacing:0.04em;}
 .gr-flavor{font-size:15px;font-style:italic;color:var(--px-border-light);margin-bottom:8px;line-height:1.4;}
@@ -134,6 +135,7 @@ export class GearScreen {
   private closeResolver: (() => void) | null = null;
 
   constructor(container: HTMLElement) {
+    injectCastleSceneCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -178,6 +180,7 @@ export class GearScreen {
       : `<div class="gr-empty">Stash is empty.</div>`;
 
     this.el.innerHTML = `
+      <div class="gr-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('gr')}</div>
       <div class="gr-vignette"></div>
       <div class="gr-ui">
         <div class="gr-header">

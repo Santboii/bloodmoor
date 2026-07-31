@@ -7,6 +7,7 @@ import { ITEM_BASES, UNIQUE_ITEMS, rollItem } from '@arena/shared';
 import type {
   ItemBaseSlot, ItemRarity, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 
 // This screen renders OTHER accounts' data (owner usernames, equipped
 // character names) — every DB-originated string must go through esc()
@@ -19,7 +20,7 @@ function esc(s: string): string {
 }
 
 const RARITY_COLORS: Record<ItemRarity, string> = {
-  basic: '#e8dff5',
+  basic: '#e2e2e6',
   magic: '#4a6fc4',
   rare: '#ddb84a',
   unique: '#ffb347',
@@ -101,16 +102,16 @@ const STYLES = `
 .ad-title{font-size:11px;letter-spacing:0.05em;}
 .ad-tabs{display:flex;gap:6px;flex-wrap:wrap;}
 .ad-tab{font-size:8px;letter-spacing:0.05em;padding:10px 16px;}
-.ad-tab-active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
+.ad-tab-active{background:#3a3f4b;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .ad-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 .ad-body{width:100%;max-width:1100px;}
 .ad-filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
 .ad-search{flex:1 1 220px;font-size:14px;padding:8px 10px;}
 .ad-filters select{font-size:13px;padding:8px 10px;min-width:130px;}
 .ad-cap-note{font-size:14px;color:var(--px-border-light);margin-bottom:8px;font-style:italic;min-height:1.2em;}
-.ad-table-wrap{max-height:520px;overflow-y:auto;background:#1c1730;box-shadow:inset 0 0 0 2px var(--px-border-dark);margin-bottom:20px;}
+.ad-table-wrap{max-height:520px;overflow-y:auto;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);margin-bottom:20px;}
 .ad-table{width:100%;border-collapse:collapse;font-size:15px;}
-.ad-table th{position:sticky;top:0;background:#241d33;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:0.05em;text-transform:uppercase;color:var(--px-border-light);text-align:left;padding:9px 10px;box-shadow:0 2px 0 0 var(--px-border-dark);}
+.ad-table th{position:sticky;top:0;background:#1e2026;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:0.05em;text-transform:uppercase;color:var(--px-border-light);text-align:left;padding:9px 10px;box-shadow:0 2px 0 0 var(--px-border-dark);}
 .ad-table td{padding:7px 10px;border-bottom:1px solid var(--px-border-dark);vertical-align:top;}
 .ad-table tr:hover td{background:rgba(255,255,255,0.03);}
 .ad-empty{text-align:center;color:var(--px-border-light);padding:20px 0 !important;font-style:italic;}
@@ -129,7 +130,7 @@ const STYLES = `
 .ad-rarity-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
 .ad-rarity-btn{font-size:8px;letter-spacing:0.05em;text-transform:uppercase;padding:8px 12px;}
 .ad-rarity-active{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
-.ad-preview{background:#1c1730;box-shadow:inset 0 0 0 2px var(--px-border-dark);padding:14px 16px;min-height:80px;}
+.ad-preview{background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);padding:14px 16px;min-height:80px;}
 .ad-preview-empty{color:var(--px-border-light);font-style:italic;text-align:center;padding:20px 0;}
 .ad-preview-name{font-family:'Press Start 2P',monospace;font-size:10px;margin-bottom:8px;}
 .ad-preview-row{font-size:16px;line-height:1.5;}
@@ -188,6 +189,7 @@ export class AdminScreen {
   private dropErrors = new Map<string, string>();
 
   constructor(container: HTMLElement) {
+    injectCastleSceneCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -247,6 +249,7 @@ export class AdminScreen {
     else bodyHtml = this.renderDropRatesTab();
 
     this.el.innerHTML = `
+      <div class="ad-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('ad')}</div>
       <div class="ad-vignette"></div>
       <div class="ad-ui">
         <div class="ad-header">

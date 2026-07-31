@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass } from '@arena/shared';
 import type { CharacterClass } from '@arena/shared';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 
 const NODE_ICONS: Record<NodeId, string> = {
   'fire.fireball':        'fa-fire',
@@ -96,7 +97,7 @@ const STYLES = `
 /* ── header bar ─────────────────────────────────────────────────────── */
 .st-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:1060px;margin-bottom:16px;flex-wrap:wrap;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .st-title{font-size:11px;letter-spacing:0.05em;}
-.st-points-pill{display:flex;align-items:center;gap:10px;background:#120e1c;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
+.st-points-pill{display:flex;align-items:center;gap:10px;background:#101117;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
 .st-points-gem{width:10px;height:10px;background:var(--px-success);transform:rotate(45deg);box-shadow:0 0 8px rgba(111,206,126,0.7);}
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
@@ -148,12 +149,12 @@ const STYLES = `
 .st-details{padding:16px 18px;min-height:300px;box-sizing:border-box;}
 .st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}
 .st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
-.st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#120e1c;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
+.st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .st-details-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);line-height:1.5;}
 .st-details-kind{font-size:14px;color:var(--px-border-light);letter-spacing:0.08em;text-transform:uppercase;}
 .st-details-desc{font-size:17px;line-height:1.45;color:var(--px-text);margin:10px 0;}
 .st-rank-track{display:flex;gap:3px;margin:8px 0;}
-.st-rank-seg{height:8px;flex:1;background:#221a30;box-shadow:inset 0 0 0 1px var(--px-border-dark);}
+.st-rank-seg{height:8px;flex:1;background:#1a1b21;box-shadow:inset 0 0 0 1px var(--px-border-dark);}
 .st-rank-seg.filled{background:#e86020;}
 .st-rank-seg.past-cap{background:#ddb84a;}
 .st-rank-line{font-size:15px;color:var(--px-border-light);margin-bottom:4px;}
@@ -195,6 +196,7 @@ export class SkillTreeUI {
   private flashId: NodeId | null = null;
 
   constructor(container: HTMLElement) {
+    injectCastleSceneCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
@@ -282,6 +284,7 @@ export class SkillTreeUI {
     const mainContainerHeight = isRanger ? '560px' : '640px';
 
     this.el.innerHTML = `
+      <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('st')}</div>
       <div class="st-vignette"></div>
       <div class="st-ui">
         <div class="st-header">
@@ -422,7 +425,7 @@ export class SkillTreeUI {
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #444;background:#151515;"></span>Locked</div>
           <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#120e1c;"></span>Right-click a skill: refund 1 rank</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
         </div>
       `;
       return;
