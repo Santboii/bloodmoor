@@ -31,6 +31,7 @@ export type SkillNode = {
   isSpell: boolean;
   description: string;
   stackable?: StackableConfig;
+  keystone?: { name: string; description: string };
 };
 
 export type Gate = { requiresAll?: NodeId[]; requiresAny?: NodeId[]; mutuallyExclusive?: NodeId[] };
@@ -98,22 +99,32 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'utility.phantom_step', name: 'Phantom Step',    tree: 'utility', tier: 3, cost: 3, isSpell: false, description: 'Next cast is instant within 2s of teleporting.' },
   // Archer tree
   { id: 'archer.power_shot',      name: 'Power Shot',      tree: 'archer', tier: 1, cost: 1, isSpell: true,  description: 'Fast arrow projectile. 60–90 damage.' },
-  { id: 'archer.guided',          name: 'Guided',          tree: 'archer', tier: 2, cost: 2, isSpell: false, description: 'Power Shot snaps toward the nearest enemy after 0.5s. Extra ranks add more redirects (max 4).', stackable: { softCap: 4, baseEffect: 1 } },
+  { id: 'archer.guided',          name: 'Guided',          tree: 'archer', tier: 2, cost: 2, isSpell: false, description: 'Power Shot snaps toward the nearest enemy after 0.5s. Extra ranks add more redirects (max 4). Each completed redirect adds +5% damage.', stackable: { softCap: 4, baseEffect: 1 },
+    keystone: { name: 'Relentless', description: 'Redirects never run out — the arrow re-acquires until it hits something.' } },
   { id: 'archer.multishot',       name: 'Multi-shot',      tree: 'archer', tier: 2, cost: 2, isSpell: true,  description: 'Fire 3 arrows in a spread. 40–60 damage each.' },
-  { id: 'archer.homing',          name: 'Homing',          tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Guided redirects happen sooner per rank.', stackable: { softCap: 3, baseEffect: 2 } },
-  { id: 'archer.barrage',         name: 'Barrage',         tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Multi-shot gains extra arrows per rank.', stackable: { softCap: 5, baseEffect: 2 } },
+  { id: 'archer.homing',          name: 'Homing',          tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Guided redirects happen sooner per rank.', stackable: { softCap: 3, baseEffect: 6 },
+    keystone: { name: 'Predator', description: 'Redirects lead the target, aiming where they are moving.' } },
+  { id: 'archer.barrage',         name: 'Barrage',         tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Multi-shot gains extra arrows per rank.', stackable: { softCap: 5, baseEffect: 2 },
+    keystone: { name: 'Echo Volley', description: '0.25s after Multi-shot, a second volley fires at the same angles for 50% damage.' } },
   { id: 'archer.rain_of_arrows',  name: 'Rain of Arrows',  tree: 'archer', tier: 4, cost: 2, isSpell: true,  description: 'Mark a zone. Arrows rain after 1.5s. 150–220 AoE damage.' },
-  { id: 'archer.sustained_rain',  name: 'Sustained Rain',  tree: 'archer', tier: 5, cost: 1, isSpell: false, description: 'Rain zone lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.15 } },
-  { id: 'archer.piercing_rain',   name: 'Piercing Rain',   tree: 'archer', tier: 5, cost: 2, isSpell: false, description: 'Rain damage increases per rank.', stackable: { softCap: 3, baseEffect: 0.25 } },
-  { id: 'archer.wide_rain',       name: 'Wide Rain',       tree: 'archer', tier: 5, cost: 1, isSpell: false, description: '+15% Rain of Arrows radius per rank.', stackable: { softCap: 5, baseEffect: 0.15 } },
-  { id: 'archer.burn',            name: 'Burn',            tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows burn. More damage per rank.', stackable: { softCap: 5, baseEffect: 8 } },
-  { id: 'archer.freeze',          name: 'Freeze',          tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows freeze. Stronger slow per rank.', stackable: { softCap: 5, baseEffect: 0.06 } },
-  { id: 'archer.poison',          name: 'Poison',          tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows poison. More damage and mana drain per rank.', stackable: { softCap: 5, baseEffect: 5 } },
+  { id: 'archer.sustained_rain',  name: 'Sustained Rain',  tree: 'archer', tier: 5, cost: 1, isSpell: false, description: 'Rain zone lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.35 },
+    keystone: { name: 'Stormcall', description: 'The rain zone slowly drifts toward the nearest enemy.' } },
+  { id: 'archer.piercing_rain',   name: 'Piercing Rain',   tree: 'archer', tier: 5, cost: 2, isSpell: false, description: 'Rain damage increases per rank.', stackable: { softCap: 3, baseEffect: 0.25 },
+    keystone: { name: 'Exposed', description: 'Enemies inside your rain zone take +15% damage from all your attacks.' } },
+  { id: 'archer.wide_rain',       name: 'Wide Rain',       tree: 'archer', tier: 5, cost: 1, isSpell: false, description: '+15% Rain of Arrows radius per rank.', stackable: { softCap: 5, baseEffect: 0.15 },
+    keystone: { name: 'Twin Storm', description: 'Casting also marks a half-size zone on the enemy\'s position.' } },
+  { id: 'archer.burn',            name: 'Burn',            tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows burn. More damage per rank.', stackable: { softCap: 3, baseEffect: 12 },
+    keystone: { name: 'Ignite', description: 'Hitting a burning enemy detonates the burn for 40 burst damage.' } },
+  { id: 'archer.freeze',          name: 'Freeze',          tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows freeze. Stronger slow per rank.', stackable: { softCap: 3, baseEffect: 0.09 },
+    keystone: { name: 'Deep Freeze', description: 'The first freeze roots the target for 0.4s (once per 6s per target).' } },
+  { id: 'archer.poison',          name: 'Poison',          tree: 'archer', tier: 6, cost: 3, isSpell: false, description: 'Arrows poison. More damage and mana drain per rank.', stackable: { softCap: 3, baseEffect: 7 },
+    keystone: { name: 'Withering Venom', description: 'Poison also drains 10 mana per second.' } },
   // Archer utility tree
   { id: 'archer_utility.evade',        name: 'Evade',        tree: 'archer_utility', tier: 1, cost: 1, isSpell: true,  description: 'Short dash with invulnerability frames (~0.3s).' },
   { id: 'archer_utility.combat_roll',  name: 'Combat Roll',  tree: 'archer_utility', tier: 2, cost: 2, isSpell: false, description: 'Fire an arrow at the nearest enemy during evade.' },
   { id: 'archer_utility.shadowstep',   name: 'Shadowstep',   tree: 'archer_utility', tier: 2, cost: 2, isSpell: false, description: 'Become invisible for 0.5s after evading.' },
-  { id: 'archer_utility.acrobatics',   name: 'Acrobatics',   tree: 'archer_utility', tier: 3, cost: 3, isSpell: false, description: 'Evade cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 } },
+  { id: 'archer_utility.acrobatics',   name: 'Acrobatics',   tree: 'archer_utility', tier: 3, cost: 3, isSpell: false, description: 'Evade cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
+    keystone: { name: 'Second Wind', description: 'Evade holds 2 charges.' } },
 ];
 
 // ── Spell bindings ──────────────────────────────────────────────────────────
@@ -182,6 +193,15 @@ export function deriveElement(effRanks: Map<NodeId, number>): ArrowElement {
 
 export function isStackable(node: SkillNode): boolean {
   return node.stackable !== undefined;
+}
+
+/** True when this rank has pushed the node past its soft cap and it has a
+ *  keystone — the supercharge payoff. Rank must be the MERGED (tree + item
+ *  affix) rank. */
+export function hasKeystone(id: NodeId, rank: number): boolean {
+  const node = SKILL_NODES.find(n => n.id === id);
+  if (!node?.stackable || !node.keystone) return false;
+  return rank > node.stackable.softCap;
 }
 
 export function rankUpCost(node: SkillNode, currentRank: number): number {

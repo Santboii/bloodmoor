@@ -167,10 +167,23 @@ export const MULTISHOT_SPREAD_5 = Math.PI / 9;
 export const RAIN_DELAY_TICKS = Math.round(0.75 * TICK_RATE);
 export const RAIN_AOE_RADIUS = 70;
 export const RAIN_SUSTAINED_TICKS = 3 * TICK_RATE;
-export const RAIN_DAMAGE_PER_TICK = 30 / TICK_RATE;
+export const RAIN_DAMAGE_PER_TICK = 45 / TICK_RATE;
 export const EVADE_RANGE = 300;
 export const EVADE_DURATION_TICKS = Math.round(0.15 * TICK_RATE);
 export const EVADE_INVULN_TICKS = EVADE_DURATION_TICKS;
+
+// ── Ranger keystone constants (supercharge payoffs) ───────────────────────
+export const GUIDED_MOMENTUM_PER_REDIRECT = 0.05;
+export const ECHO_VOLLEY_DELAY_TICKS = Math.round(0.25 * TICK_RATE); // 15
+export const ECHO_VOLLEY_DAMAGE_RATIO = 0.5;
+export const STORMCALL_DRIFT_SPEED = 60;  // units/sec
+export const EXPOSED_DAMAGE_MULT = 1.15;
+export const TWIN_STORM_RADIUS_RATIO = 0.5;
+export const IGNITE_BURST_DAMAGE = 40;
+export const DEEP_FREEZE_ROOT_TICKS = Math.round(0.4 * TICK_RATE);   // 24
+export const DEEP_FREEZE_COOLDOWN_TICKS = 6 * TICK_RATE;             // 360
+export const WITHERING_VENOM_MANA_DRAIN = 10;  // mana/sec
+export const EVADE_MAX_CHARGES = 2;
 
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },
