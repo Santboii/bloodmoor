@@ -6,7 +6,7 @@ export class LoadingScreen {
     this.el = document.createElement('div');
     this.el.style.cssText =
       'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-      'background:radial-gradient(ellipse at center,#1a1524 0%,#0e0b16 60%,#0e0b16 100%);z-index:300;font-family:"VT323",monospace;transition:opacity 0.6s ease;';
+      'background:radial-gradient(ellipse at center,#181a21 0%,#0a0b0f 60%,#0a0b0f 100%);z-index:300;font-family:"VT323",monospace;transition:opacity 0.6s ease;';
 
     this.el.innerHTML = `
       <style>
