@@ -5,7 +5,7 @@ import {
 import type {
   ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass,
 } from '@arena/shared';
-import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
+import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
@@ -104,7 +104,6 @@ export function sellStateFor(item: ItemRow): SellState {
 
 const STYLES = `
 .gr-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-.gr-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
 .gr-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 .gr-title{font-size:11px;letter-spacing:0.05em;}
 .gr-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
@@ -165,6 +164,8 @@ export class GearScreen {
   // bump between firing a sell and its reload() reconcile — see Global
   // Constraints: never trust this for anything but rendering.
   private gold: number | null = null;
+  /** True between show() painting the chrome and the first reload() landing. */
+  private loading = false;
   // In-flight sell item ids — the double-submit guard, checked from the
   // very first synchronous line of handleSell (the AdminScreen/Shop lesson:
   // disable before the first await, not after).
@@ -195,6 +196,13 @@ export class GearScreen {
     this.sellPending.clear();
     this.sellErrorById.clear();
     this.el.style.display = 'block';
+    // Paint chrome first so the switch is instant; reload() re-renders with
+    // data. Stale items/gold from the previous visit are cleared rather than
+    // shown, so nothing on screen is ever a lie.
+    this.items = [];
+    this.gold = null;
+    this.loading = true;
+    this.render();
     await this.reload();
     return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
   }
@@ -217,6 +225,7 @@ export class GearScreen {
     const [items, gold] = await Promise.all([fetchItems(), fetchGold()]);
     this.items = items;
     this.gold = gold;
+    this.loading = false;
     this.render();
   }
 
@@ -234,13 +243,13 @@ export class GearScreen {
       : `<div class="gr-empty">Stash is empty.</div>`;
 
     this.el.innerHTML = `
-      <div class="gr-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildDimBackdrop('gr')}</div>
-      <div class="gr-vignette"></div>
+      <div class="gr-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('gr')}</div>
       <div class="gr-ui">
         ${buildNavBar({ active: 'gear', ...this.navCtx(), gold: this.gold })}
         <div class="bm-subhead">
           <div class="gr-title px-title">${esc(this.charClass)} Lvl ${this.charLevel} — Gear</div>
         </div>
+        ${this.loading ? `<div class="bm-loading">Loading gear…</div>` : `
         <div class="gr-columns">
           <div class="gr-col-doll">
             <div class="gr-doll-label">Equipped</div>
@@ -251,7 +260,7 @@ export class GearScreen {
             <div class="gr-stash-label">Stash (${stashItems.length})</div>
             <div class="gr-stash-grid">${stashHtml}</div>
           </div>
-        </div>
+        </div>`}
       </div>
     `;
 
