@@ -99,8 +99,8 @@ const STYLES = `
 .st-points-pill{display:flex;align-items:center;gap:10px;background:#120e1c;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
 .st-points-gem{width:10px;height:10px;background:var(--px-success);transform:rotate(45deg);box-shadow:0 0 8px rgba(111,206,126,0.7);}
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
-.st-points-label{font-family:'Press Start 2P',monospace;font-size:6px;color:var(--px-border-light);letter-spacing:0.1em;}
-.st-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
+.st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
+.st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 .st-header-buttons{display:flex;gap:10px;}
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
@@ -135,9 +135,9 @@ const STYLES = `
 .st-node-supercharged .st-node-icon{color:#ddb84a;}
 .st-node-supercharged .st-node-name{color:#ddb84a;}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
-.st-node-name{font-family:'Press Start 2P',monospace;font-size:6px;text-align:center;max-width:76px;margin-top:5px;line-height:1.4;}
+.st-node-name{font-family:'Press Start 2P',monospace;font-size:7px;text-align:center;max-width:84px;margin-top:6px;line-height:1.5;}
 /* corner badges replace the old cost/rank text rows */
-.st-badge{position:absolute;right:-10px;top:-8px;font-family:'Press Start 2P',monospace;font-size:6px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
+.st-badge{position:absolute;right:-10px;top:-8px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
 .st-badge-cost{color:var(--px-accent);}
 .st-badge-rank{color:#e87040;}
 .st-badge-rank.st-past-cap{color:#ddb84a;}

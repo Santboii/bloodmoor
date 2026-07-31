@@ -92,7 +92,7 @@ const STYLES = `
 .gr-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 .gr-header{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;max-width:900px;margin-bottom:16px;background:var(--px-panel);padding:12px 18px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);box-sizing:border-box;}
 .gr-title{font-size:11px;letter-spacing:0.05em;}
-.gr-btn{padding:7px 14px;font-size:6px;letter-spacing:0.05em;}
+.gr-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 .gr-columns{display:flex;gap:24px;width:100%;max-width:900px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .gr-col-doll{flex:0 0 340px;}
 .gr-col-side{flex:1 1 380px;min-width:320px;max-width:460px;display:flex;flex-direction:column;gap:14px;}
@@ -103,8 +103,8 @@ const STYLES = `
 .gr-slot-empty{outline:2px dashed var(--px-border-light);box-shadow:none;cursor:default;color:var(--px-border-light);opacity:0.7;}
 .gr-slot-empty:hover{transform:none;}
 .gr-slot-icon{font-size:1.3rem;}
-.gr-slot-label{font-family:'Press Start 2P',monospace;font-size:6px;letter-spacing:0.05em;text-transform:uppercase;text-align:center;color:var(--px-border-light);}
-.gr-slot-name{font-family:'Press Start 2P',monospace;font-size:6px;text-align:center;line-height:1.4;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gr-slot-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:0.05em;text-transform:uppercase;text-align:center;color:var(--px-border-light);}
+.gr-slot-name{font-family:'Press Start 2P',monospace;font-size:8px;text-align:center;line-height:1.5;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
 .gr-selected{outline:2px solid #fff;outline-offset:2px;}
 .gr-stash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;padding:4px;}
 .gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#1c1730;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}

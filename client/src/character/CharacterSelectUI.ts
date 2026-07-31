@@ -53,7 +53,7 @@ const STYLES = `
 .cs-class-option svg{flex-shrink:0;}
 .cs-class-option.active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .cs-class-option.disabled{opacity:0.4;cursor:not-allowed;position:relative;}
-.cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:7px;color:var(--px-border-light);}
+.cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:8px;color:var(--px-border-light);}
 .cs-appearance-wrap{margin-bottom:20px;}
 .cs-btn-create{width:100%;}
 .cs-btn-cancel{width:100%;margin-top:8px;}
