@@ -3,6 +3,7 @@
 // volume sliders, for tuning sounds by ear at http://localhost:5173/audition.html
 import { audio } from './audio/AudioEngine';
 import * as sfx from './audio/sfx';
+import { setScene, setDueling } from './audio/ambience';
 
 audio.installUnlockListener();
 
@@ -38,4 +39,20 @@ for (const [label, get, set] of [
   slider.addEventListener('input', () => set(Number(slider.value)));
   wrap.appendChild(slider);
   root.appendChild(wrap);
+}
+
+const ambHeader = document.createElement('h2');
+ambHeader.textContent = 'Ambience';
+root.appendChild(ambHeader);
+for (const scene of ['hall', 'arena', 'off'] as const) {
+  const btn = document.createElement('button');
+  btn.textContent = `scene: ${scene}`;
+  btn.addEventListener('click', () => setScene(scene));
+  root.appendChild(btn);
+}
+for (const d of [true, false]) {
+  const btn = document.createElement('button');
+  btn.textContent = `dueling: ${d}`;
+  btn.addEventListener('click', () => setDueling(d));
+  root.appendChild(btn);
 }
