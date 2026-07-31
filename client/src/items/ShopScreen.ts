@@ -169,10 +169,16 @@ export class ShopScreen {
     this.reveal = null;
     this.staleNotice = null;
     this.el.style.display = 'block';
-    // Chrome first, data second — see GearScreen.show.
-    this.vendor = null;
+    // Stale-while-revalidate — see GearScreen.show for the rationale, and for
+    // why gold specifically is never cached.
+    //
+    // The cached vendor view can be a UTC day out of date, which would show
+    // yesterday's stock with stale SOLD overlays for the round trip until
+    // reload() lands. That's already a handled case rather than a new one:
+    // handleBuySlot re-checks the day before submitting and aborts into
+    // staleNotice, and the server is the real authority on both.
     this.gold = null;
-    this.loading = true;
+    this.loading = this.vendor === null;
     this.render();
     await this.reload();
     return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
@@ -186,6 +192,14 @@ export class ShopScreen {
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
+  }
+
+  /** Drop the stale-while-revalidate cache. Must be called on sign-out — the
+   * vendor view carries per-account `purchased` flags. */
+  reset(): void {
+    this.vendor = null;
+    this.gold = null;
+    this.selectedSlotIndex = null;
   }
 
   /** Fresh vendor + gold read — the only source of truth for purchased

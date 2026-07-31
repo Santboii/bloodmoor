@@ -196,12 +196,16 @@ export class GearScreen {
     this.sellPending.clear();
     this.sellErrorById.clear();
     this.el.style.display = 'block';
-    // Paint chrome first so the switch is instant; reload() re-renders with
-    // data. Stale items/gold from the previous visit are cleared rather than
-    // shown, so nothing on screen is ever a lie.
-    this.items = [];
+    // Stale-while-revalidate: repaint the last-known stash immediately so the
+    // switch is instant, then reconcile when reload() lands a round trip
+    // later. The loader is only for a genuinely cold screen.
+    //
+    // Gold is pointedly NOT cached. It's money and it moves out-of-band (shop,
+    // lootboxes, match rewards), so a stale balance is worse than no balance —
+    // the pill stays hidden until this visit's own read returns. Same reason
+    // reload() is the sole source of truth for it.
     this.gold = null;
-    this.loading = true;
+    this.loading = this.items.length === 0;
     this.render();
     await this.reload();
     return await new Promise<NavKey>(resolve => { this.closeResolver = resolve; });
@@ -215,6 +219,15 @@ export class GearScreen {
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
+  }
+
+  /** Drop the stale-while-revalidate cache. Must be called on sign-out: the
+   * stash is account-scoped, and without this the next account to sign in on
+   * this tab would see the previous one's items until its first fetch lands. */
+  reset(): void {
+    this.items = [];
+    this.gold = null;
+    this.selectedId = null;
   }
 
   /** Fresh items + gold read — the only source of truth for the stash and
