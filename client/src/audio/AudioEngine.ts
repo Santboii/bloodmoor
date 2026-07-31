@@ -94,6 +94,13 @@ export class AudioEngine {
       this.sfx_ = this.ctx_.createGain();
       this.sfx_.connect(this.master);
       this.applyVolumes();
+      // Safari/iOS can hand back a context already 'suspended' despite this
+      // running inside a user gesture, and can suspend a running context
+      // when the tab backgrounds without ever auto-resuming it.
+      if (this.ctx_.state === 'suspended') void this.ctx_.resume();
+      window.addEventListener('pointerdown', () => {
+        if (this.ctx_ && this.ctx_.state === 'suspended') void this.ctx_.resume();
+      }, true);
       const cbs = this.unlockCbs;
       this.unlockCbs = [];
       for (const cb of cbs) cb();
@@ -106,9 +113,13 @@ export class AudioEngine {
 
   private applyVolumes(): void {
     if (!this.ctx_ || !this.master || !this.music_ || !this.sfx_) return;
-    const t = this.ctx_.currentTime + VOLUME_RAMP_S;
+    const t0 = this.ctx_.currentTime;
+    const t = t0 + VOLUME_RAMP_S;
+    this.master.gain.setValueAtTime(this.master.gain.value, t0);
     this.master.gain.linearRampToValueAtTime(this.settings.muted ? 0 : 1, t);
+    this.music_.gain.setValueAtTime(this.music_.gain.value, t0);
     this.music_.gain.linearRampToValueAtTime(volToGain(this.settings.musicVol), t);
+    this.sfx_.gain.setValueAtTime(this.sfx_.gain.value, t0);
     this.sfx_.gain.linearRampToValueAtTime(volToGain(this.settings.sfxVol), t);
   }
 

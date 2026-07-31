@@ -343,8 +343,8 @@ export class GearScreen {
    * background refetch — success is a no-op re-render, failure reverts.
    */
   private equipOptimistic(item: ItemRow, targetSlot: EquipSlot): void {
-    sfx.playEquip();
     if (!this.characterId) return;
+    sfx.playEquip();
     const characterId = this.characterId;
 
     for (const other of this.items) {

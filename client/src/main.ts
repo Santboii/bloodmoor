@@ -622,6 +622,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
   });
 
   socket.onRoomNotFound(() => {
+    setScene('hall');
     if (activeCharacter) {
       lobby.showHome(
         activeCharacter.name,

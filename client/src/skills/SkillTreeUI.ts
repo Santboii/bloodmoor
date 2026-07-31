@@ -697,8 +697,8 @@ export class SkillTreeUI {
 
   private handleRespec(): void {
     this.showConfirm('Reset Skills', 'All unlocked skills will be removed and points refunded. Are you sure?', async () => {
-      sfx.playUnequip();
       if (!this.characterId) return;
+      sfx.playUnequip();
       const { error } = await supabase.rpc('respec_skills', { p_character_id: this.characterId });
       if (error) { console.error('Respec failed:', error.message); return; }
       await this.reload();

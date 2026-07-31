@@ -260,7 +260,8 @@ export class ShopScreen {
     const pendingKey = `lootbox:${tier}`;
     const pending = this.pending.has(pendingKey);
     const afford = canAfford(this.gold, price);
-    const disabled = pending || !afford;
+    // Deliberately NOT a native `disabled` attribute — see renderVendorCard.
+    const blocked = pending || !afford;
     const label = pending ? 'Opening…' : afford ? 'Open' : "Can't Afford";
     const notice = this.lootboxNotice.get(tier);
     const revealHtml = this.reveal && this.reveal.tier === tier ? this.renderReveal(this.reveal.item) : '';
@@ -271,7 +272,7 @@ export class ShopScreen {
         <div class="sh-lootbox-name">${tier === 'basic' ? 'Basic' : 'Premium'} Loot Box</div>
         <div class="sh-lootbox-price"><i class="fa fa-coins"></i> ${price}</div>
         ${notice ? `<div class="sh-notice">${esc(notice)}</div>` : ''}
-        <button class="sh-open-btn px-btn px-btn-primary" data-open-lootbox="${tier}" ${disabled ? 'disabled' : ''}>${esc(label)}</button>
+        <button class="sh-open-btn px-btn px-btn-primary${blocked ? ' sh-buy-btn-blocked' : ''}" data-open-lootbox="${tier}" aria-disabled="${blocked}">${esc(label)}</button>
         ${revealHtml}
       </div>`;
   }
@@ -356,7 +357,14 @@ export class ShopScreen {
       const btn = el as HTMLButtonElement;
       const tier = btn.dataset.openLootbox as LootboxTier;
       btn.addEventListener('click', () => {
-        if (btn.disabled) return;
+        // Button is never natively `disabled` (see renderLootboxCard) so the
+        // click always reaches here; live state is recomputed from current
+        // instance fields rather than trusting a stale render-time boolean.
+        const key = `lootbox:${tier}`;
+        if (this.pending.has(key) || !canAfford(this.gold, LOOTBOX_PRICES[tier])) {
+          sfx.playDenied();
+          return;
+        }
         void this.handleOpenLootbox(tier);
       });
     });

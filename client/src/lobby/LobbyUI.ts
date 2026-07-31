@@ -194,6 +194,7 @@ export class LobbyUI {
   private pollTimer: number | null = null;
   private heroPreview: SpritePreview | null = null;
   private navTeardown: (() => void) | null = null;
+  private resultSoundTimers: number[] = [];
   private pauseOverlay: HTMLElement | null = null;
   private pauseCountdownTimer: number | null = null;
   // Cosmetic gate only — the admin button simply isn't rendered for
@@ -250,6 +251,10 @@ export class LobbyUI {
   /** Home-screen chrome (sprite raf loop, account-menu document listener)
    * must not outlive the home render. */
   private teardownHome(): void {
+    // Result-screen sting timers must not fire against a screen the player
+    // has already left.
+    for (const id of this.resultSoundTimers) window.clearTimeout(id);
+    this.resultSoundTimers = [];
     if (this.heroPreview) {
       this.heroPreview.dispose();
       this.heroPreview = null;
@@ -494,11 +499,11 @@ export class LobbyUI {
 
     // Sound beats mirror the visual reveal sequence above.
     sfx.playResultSwell(won);
-    if (hasLevelUp) window.setTimeout(() => sfx.playLevelUp(), 900);
-    if (goldDelay > 0) window.setTimeout(() => sfx.playGoldGain(), goldDelay * 1000);
+    if (hasLevelUp) this.resultSoundTimers.push(window.setTimeout(() => sfx.playLevelUp(), 900));
+    if (goldDelay > 0) this.resultSoundTimers.push(window.setTimeout(() => sfx.playGoldGain(), goldDelay * 1000));
     if (droppedItem && spoilsDelay > 0) {
       const rarity = droppedItem.rarity;
-      window.setTimeout(() => sfx.playDropSting(rarity), spoilsDelay * 1000);
+      this.resultSoundTimers.push(window.setTimeout(() => sfx.playDropSting(rarity), spoilsDelay * 1000));
     }
 
     if (matchResult && matchResult.xpGained > 0) {
