@@ -308,47 +308,70 @@ export async function fetchVendorView(): Promise<VendorView | null> {
   }
 }
 
+// Discriminated result type mirroring server/src/economy/service.ts's own
+// VendorBuyResult/LootboxOpenResult (status + error, not just a null
+// "it didn't work"). Task 5 deferred-review fix: the original ItemRow|null
+// return type collapsed every failure mode — already-purchased (400),
+// insufficient gold (402), and server error (500) — into a single null,
+// which made it impossible for the Shop screen to show an insufficient-gold-
+// specific inline notice as required. status/error are surfaced so the
+// caller can branch on the reason.
+export type EconomyPurchaseResult =
+  | { ok: true; item: ItemRow }
+  | { ok: false; status: number; error: string };
+
 /** POST /economy/vendor/buy — purchases a vendor slot for the signed-in
- * account. Returns the granted item on success, run through validateItemRow
- * like fetchItems; returns null with no session, on a network failure, or
- * if the server rejects the purchase (already bought, insufficient gold —
- * the server logs the specific reason, this just surfaces "it didn't work"
- * to the caller). */
-export async function buyVendorSlot(slotIndex: number): Promise<ItemRow | null> {
+ * account. Returns the granted item on success (run through validateItemRow
+ * like fetchItems); on failure (no session, network error, or a non-2xx
+ * response) returns the status/error so callers can distinguish e.g.
+ * insufficient gold (402) from an already-purchased slot (400). */
+export async function buyVendorSlot(slotIndex: number): Promise<EconomyPurchaseResult> {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
+  if (!session) return { ok: false, status: 401, error: 'not signed in' };
   try {
     const res = await fetch(`${GAME_SERVER_URL}/economy/vendor/buy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ slotIndex }),
     });
-    if (!res.ok) { console.error('buyVendorSlot failed:', res.status); return null; }
-    const { item } = await res.json();
-    return validateItemRow(item);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = typeof body?.error === 'string' ? body.error : 'purchase failed';
+      console.error('buyVendorSlot failed:', res.status, error);
+      return { ok: false, status: res.status, error };
+    }
+    const item = validateItemRow(body.item);
+    if (!item) { console.error('buyVendorSlot: server item failed validation', body.item); return { ok: false, status: 500, error: 'invalid item from server' }; }
+    return { ok: true, item };
   } catch (err) {
     console.error('buyVendorSlot failed:', err);
-    return null;
+    return { ok: false, status: 0, error: 'network error' };
   }
 }
 
 /** POST /economy/lootbox/open — opens a loot box of the given tier for the
  * signed-in account. Same return/validation/error-handling shape as
  * buyVendorSlot above. */
-export async function openLootbox(tier: LootboxTier): Promise<ItemRow | null> {
+export async function openLootbox(tier: LootboxTier): Promise<EconomyPurchaseResult> {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
+  if (!session) return { ok: false, status: 401, error: 'not signed in' };
   try {
     const res = await fetch(`${GAME_SERVER_URL}/economy/lootbox/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ tier }),
     });
-    if (!res.ok) { console.error('openLootbox failed:', res.status); return null; }
-    const { item } = await res.json();
-    return validateItemRow(item);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = typeof body?.error === 'string' ? body.error : 'lootbox open failed';
+      console.error('openLootbox failed:', res.status, error);
+      return { ok: false, status: res.status, error };
+    }
+    const item = validateItemRow(body.item);
+    if (!item) { console.error('openLootbox: server item failed validation', body.item); return { ok: false, status: 500, error: 'invalid item from server' }; }
+    return { ok: true, item };
   } catch (err) {
     console.error('openLootbox failed:', err);
-    return null;
+    return { ok: false, status: 0, error: 'network error' };
   }
 }
