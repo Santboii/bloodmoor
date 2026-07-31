@@ -36,7 +36,7 @@ const STYLES = `
 .cs-char-class svg{flex-shrink:0;}
 .cs-char-level{font-size:16px;color:var(--px-text);margin-bottom:8px;}
 .cs-xp-bar{width:100%;height:8px;background:var(--px-border-dark);border-radius:0;overflow:hidden;margin-bottom:8px;box-shadow:0 0 0 2px var(--px-border-dark);}
-.cs-xp-fill{height:100%;background:repeating-linear-gradient(90deg,var(--px-accent) 0 6px,#c97a26 6px 12px);border-radius:0;transition:width 0.3s;}
+.cs-xp-fill{height:100%;background:repeating-linear-gradient(90deg,var(--px-accent) 0 6px,#c98a3a 6px 12px);border-radius:0;transition:width 0.3s;}
 .cs-xp-text{font-size:16px;color:var(--px-border-light);margin-bottom:auto;}
 .cs-slot-actions{display:flex;gap:8px;margin-top:12px;}
 .cs-btn-select{flex:1;}

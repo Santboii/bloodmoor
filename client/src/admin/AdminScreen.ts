@@ -327,7 +327,7 @@ export class AdminScreen {
   private renderItemRow(item: AdminItemRow): string {
     const base = ITEM_BASES.find(b => b.id === item.base_id);
     const baseName = base?.name ?? item.base_id;
-    const color = RARITY_COLORS[item.rarity as ItemRarity] ?? '#e8dff5';
+    const color = RARITY_COLORS[item.rarity as ItemRarity] ?? '#e2e2e6';
     const owner = this.usernames.get(item.user_id) ?? item.user_id;
     const equippedLabel = item.equipped_by
       ? (this.charNames.get(item.equipped_by) ?? item.equipped_by)

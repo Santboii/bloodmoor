@@ -56,7 +56,7 @@ const STYLES = `
 .ap-value{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);min-width:96px;text-align:center;}
 .ap-randomize{margin-top:4px;}
 .ap-right{flex:0 0 auto;display:flex;align-items:center;justify-content:center;margin:0 auto;}
-.ap-canvas{width:128px;height:128px;image-rendering:pixelated;background:#120e1c;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);}
+.ap-canvas{width:128px;height:128px;image-rendering:pixelated;background:#101117;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);}
 `;
 
 let stylesInjected = false;
