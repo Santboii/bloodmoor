@@ -2,6 +2,7 @@ import { fetchCharacters, createCharacter, deleteCharacter, updateAppearance } f
 import type { CharacterRecord, CharacterClass, Appearance } from '@arena/shared';
 import { MAX_CHARACTERS_PER_ACCOUNT, CHARACTER_CLASSES, xpToNextLevel, appearanceToRow, appearanceFromRow } from '@arena/shared';
 import { AppearancePicker } from './AppearancePicker';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -18,7 +19,7 @@ export type CharacterSelectCallbacks = {
 };
 
 const STYLES = `
-.cs-overlay{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at center,#1a1524 0%,#0e0b16 60%,#0e0b16 100%);}
+.cs-overlay{position:fixed;inset:0;z-index:100;background:#12141b;}
 .cs-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
 .cs-title{font-size:28px;letter-spacing:2px;margin-bottom:4px;}
 .cs-subtitle{font-size:9px;margin-bottom:36px;}
@@ -29,7 +30,7 @@ const STYLES = `
 .cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
 .cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06);}
 .cs-slot-empty{align-items:center;justify-content:center;box-shadow:none;outline:2px dashed var(--px-border-light);}
-.cs-slot-empty:hover{background:#2c2440;box-shadow:none;outline:2px dashed var(--px-accent);}
+.cs-slot-empty:hover{background:#23252c;box-shadow:none;outline:2px dashed var(--px-accent);}
 .cs-char-name{margin-bottom:4px;}
 .cs-char-class{margin-bottom:12px;display:flex;align-items:center;gap:6px;}
 .cs-char-class svg{flex-shrink:0;}
@@ -49,9 +50,9 @@ const STYLES = `
 .cs-input{width:100%;margin-bottom:16px;}
 .cs-input::placeholder{color:var(--px-border-light);}
 .cs-class-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:20px;}
-.cs-class-option{padding:12px;background:#33294a;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:10px;cursor:pointer;border:0;border-radius:0;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.cs-class-option{padding:12px;background:#2a2d36;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:10px;cursor:pointer;border:0;border-radius:0;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:8px;}
 .cs-class-option svg{flex-shrink:0;}
-.cs-class-option.active{background:#453766;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
+.cs-class-option.active{background:#3a3f4b;color:var(--px-accent);box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent);}
 .cs-class-option.disabled{opacity:0.4;cursor:not-allowed;position:relative;}
 .cs-class-option.disabled::after{content:'Coming Soon';position:absolute;top:50%;right:12px;transform:translateY(-50%);font-size:8px;color:var(--px-border-light);}
 .cs-appearance-wrap{margin-bottom:20px;}
@@ -82,12 +83,14 @@ export class CharacterSelectUI {
   private activePicker: AppearancePicker | null = null;
 
   constructor(container: HTMLElement, private cb: CharacterSelectCallbacks) {
+    injectCastleSceneCss();
     const style = document.createElement('style');
     style.textContent = STYLES;
     document.head.appendChild(style);
 
     this.el = document.createElement('div');
     this.el.className = 'cs-overlay';
+    this.el.innerHTML = `<div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('cs')}</div>`;
 
     this.ui = document.createElement('div');
     this.ui.className = 'cs-ui';

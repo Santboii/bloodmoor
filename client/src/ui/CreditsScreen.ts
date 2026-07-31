@@ -8,7 +8,7 @@ export class CreditsScreen {
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
-    this.el.style.cssText = 'position:fixed;inset:0;z-index:500;display:none;background:rgba(14,11,22,0.9);overflow-y:auto;';
+    this.el.style.cssText = 'position:fixed;inset:0;z-index:500;display:none;background:rgba(8,9,13,0.9);overflow-y:auto;';
     this.el.innerHTML = `
       <div class="px-panel" style="max-width:640px;margin:48px auto;padding:24px">
         <div class="px-title" style="margin-bottom:12px">Art Credits</div>

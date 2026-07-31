@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { injectCastleSceneCss, buildDimBackdrop } from '../ui/castleTheme';
 
 type AuthCallbacks = {
   onAuthed: (username: string, accessToken: string) => void;
@@ -13,8 +14,9 @@ export class AuthUI {
   private el: HTMLElement;
 
   constructor(container: HTMLElement, private cb: AuthCallbacks) {
+    injectCastleSceneCss();
     this.el = document.createElement('div');
-    this.el.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#1a1524 0%,#0e0b16 60%,#0e0b16 100%);z-index:200;font-family:"VT323",monospace;color:var(--px-text)';
+    this.el.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#12141b;z-index:200;font-family:"VT323",monospace;color:var(--px-text)';
     container.appendChild(this.el);
     this.checkSession();
   }
@@ -30,7 +32,7 @@ export class AuthUI {
 
   private showLogin(error = ''): void {
     this.el.innerHTML = `
-      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at center bottom,rgba(255,179,71,0.06),transparent 60%);pointer-events:none"></div>
+      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('au')}</div>
       <div style="text-align:center;position:relative;z-index:1">
         <h1 class="px-title" style="font-size:28px;margin-bottom:8px">BLOODMOOR</h1>
         <p class="px-label" style="margin-bottom:6px">Arena PvP</p>
@@ -60,7 +62,7 @@ export class AuthUI {
 
   private showRegister(error = ''): void {
     this.el.innerHTML = `
-      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at center bottom,rgba(255,179,71,0.06),transparent 60%);pointer-events:none"></div>
+      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none">${buildDimBackdrop('au')}</div>
       <div style="text-align:center;position:relative;z-index:1">
         <h1 class="px-title" style="font-size:22px;margin-bottom:8px">CREATE ACCOUNT</h1>
         <p style="font-family:'VT323',monospace;font-style:italic;color:var(--px-border-light);font-size:16px;letter-spacing:0.1em;padding-left:0.1em;margin-bottom:28px">Join the arena</p>
