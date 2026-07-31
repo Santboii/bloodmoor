@@ -12,7 +12,6 @@ export type AccountMenuItem = { id: 'switch' | 'credits' | 'admin' | 'logout'; l
 /** Account dropdown contents. Admin is a cosmetic gate — see isAdminFlag. */
 export function accountMenuItems(isAdmin: boolean): AccountMenuItem[] {
   const items: AccountMenuItem[] = [
-    { id: 'switch', label: '⇄ Switch Character' },
     { id: 'credits', label: 'Credits' },
   ];
   if (isAdmin) items.push({ id: 'admin', label: '⚙ Admin' });
@@ -203,6 +202,7 @@ const STYLES = `
 .bm-hero-canvas{width:192px;height:192px;image-rendering:pixelated;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.6));}
 .bm-hero-empty{width:170px;min-height:180px;outline:2px dashed var(--px-border-light);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--px-border-light);font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;line-height:1.8;text-align:center;padding:14px;}
 .bm-hero-empty .px-btn{font-size:8px;}
+.bm-hero-switch{margin-top:14px;font-size:8px;letter-spacing:1px;padding:10px 16px;}
 .bm-pause-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;}
 .bm-pause-title{font-size:20px;color:var(--px-danger);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;text-shadow:0 0 20px rgba(224,91,91,0.6);}
 .bm-pause-countdown{font-size:48px;color:var(--px-accent);letter-spacing:2px;margin-bottom:24px;text-shadow:0 0 30px rgba(255,179,71,0.4);}
@@ -313,7 +313,8 @@ export class LobbyUI {
            <div class="bm-hero-name">${nameValue}</div>
            <div class="bm-hero-meta">${heroMetaHtml(charClass, level, points)}</div>
          </div>
-         <canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>`
+         <canvas id="bm-hero-canvas" class="bm-hero-canvas"></canvas>
+         <button id="bm-choose-champion" class="bm-hero-switch px-btn">⇄ Switch Character</button>`
       : `<div class="bm-hero-plate">
            <div class="bm-hero-name">${nameValue || 'Wanderer'}</div>
            ${hasChar ? `<div class="bm-hero-meta">${heroMetaHtml(charClass, level, points)}</div>` : ''}
@@ -381,7 +382,6 @@ export class LobbyUI {
     this.docClickHandler = () => acctMenu.classList.remove('open');
     document.addEventListener('click', this.docClickHandler);
     const menuActions: Record<string, () => void> = {
-      switch: () => this.cb.onSwitchCharacter(),
       credits: () => this.cb.onShowCredits(),
       admin: () => this.cb.onOpenAdmin(),
       logout: () => this.cb.onLogout(),
@@ -398,7 +398,7 @@ export class LobbyUI {
 
     if (hasSprite) {
       const canvas = this.ui.querySelector('#bm-hero-canvas') as HTMLCanvasElement;
-      const preview = new SpritePreview(canvas);
+      const preview = new SpritePreview(canvas, 2, 'idle');
       this.heroPreview = preview;
       preview.setAppearance(appearance!).then(ok => {
         if (!ok && this.heroPreview === preview) {
