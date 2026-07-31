@@ -345,6 +345,7 @@ const lobby = new LobbyUI(uiOverlay, {
     void refreshGold();
   },
   onOpenShop: async () => {
+    if (!activeCharacter) return;
     lobby.hide();
     await shopScreen.show();
     lobby.show();

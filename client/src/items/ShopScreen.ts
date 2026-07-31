@@ -50,6 +50,25 @@ function noticeForError(status: number, error: string): string {
   return status === 402 ? 'Not enough gold.' : error;
 }
 
+/** Client-side UTC calendar day, matching the server's utcDayString()
+ * format ('YYYY-MM-DD') and VendorView.utcDay — used only to detect a
+ * midnight-UTC rollover, never to compute gold/prices (those stay
+ * server-only). Takes `now` as a parameter (default real Date.now()) so the
+ * rollover check below is deterministic in tests. */
+export function currentUtcDay(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/** True once the vendor view's utcDay no longer matches "now": the vendor
+ * stock has been (or is about to be) silently re-derived server-side for a
+ * new day (stock is stateless and deterministic per (user, day) — Task 3
+ * scope). Buying against a stale view risks paying for/receiving a
+ * different item than what's on screen at the exact midnight-UTC boundary;
+ * callers must abort and refetch instead of submitting the purchase. */
+export function vendorViewIsStale(vendorUtcDay: string, nowUtcDay: string): boolean {
+  return vendorUtcDay !== nowUtcDay;
+}
+
 const STYLES = `
 .sh-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .sh-vignette{position:fixed;inset:0;background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 40%,rgba(0,0,0,0.85) 100%);pointer-events:none;z-index:151;}
@@ -77,8 +96,10 @@ const STYLES = `
 .sh-vslot-icon{font-size:1.3rem;}
 .sh-vslot-name{font-family:'Press Start 2P',monospace;font-size:6px;text-align:center;line-height:1.4;}
 .sh-vslot-price{font-size:15px;color:var(--px-accent);display:flex;align-items:center;gap:4px;}
+.sh-crossclass-dim{opacity:0.65;}
 .sh-crossclass{font-size:11px;color:var(--px-accent);opacity:0.85;text-align:center;line-height:1.3;}
 .sh-notice{font-size:12px;color:var(--px-danger);text-align:center;line-height:1.3;}
+.sh-stale-notice{font-size:14px;color:var(--px-accent);text-align:center;font-style:italic;margin-bottom:10px;}
 .sh-sold{opacity:0.55;}
 .sh-sold-badge{position:absolute;top:6px;right:6px;font-family:'Press Start 2P',monospace;font-size:6px;letter-spacing:0.05em;color:var(--px-danger);}
 .sh-buy-btn{width:100%;font-size:6px;padding:8px 6px;margin-top:2px;}
@@ -114,6 +135,10 @@ export class ShopScreen {
   private noticeBySlot = new Map<number, string>();
   private lootboxNotice = new Map<LootboxTier, string>();
   private reveal: { tier: LootboxTier; item: ItemRow } | null = null;
+  // Set when a buy is aborted by the UTC-day-rollover guard in
+  // handleBuySlot; cleared on the next screen open or successful buy
+  // attempt against fresh stock.
+  private staleNotice: string | null = null;
 
   constructor(container: HTMLElement) {
     const style = document.createElement('style');
@@ -131,6 +156,7 @@ export class ShopScreen {
     this.noticeBySlot.clear();
     this.lootboxNotice.clear();
     this.reveal = null;
+    this.staleNotice = null;
     this.el.style.display = 'block';
     await this.reload();
     await new Promise<void>(resolve => { this.closeResolver = resolve; });
@@ -169,6 +195,7 @@ export class ShopScreen {
         <div class="sh-columns">
           <div class="sh-col-vendor">
             <div class="sh-col-label">Vendor<span class="sh-countdown">new stock at midnight UTC</span></div>
+            ${this.staleNotice ? `<div class="sh-stale-notice">${esc(this.staleNotice)}</div>` : ''}
             <div id="sh-details" class="sh-details px-panel"></div>
             <div class="sh-vendor-grid">${vendorHtml}</div>
           </div>
@@ -193,8 +220,9 @@ export class ShopScreen {
     const label = state === 'sold' ? 'Sold' : pending ? 'Buying…' : state === 'unaffordable' ? "Can't Afford" : 'Buy';
     const notice = this.noticeBySlot.get(slot.slotIndex);
 
+    const cardClass = `sh-vslot${state === 'sold' ? ' sh-sold' : ''}${slot.crossClass ? ' sh-crossclass-dim' : ''}`;
     return `
-      <div class="sh-vslot${state === 'sold' ? ' sh-sold' : ''}" data-slot="${slot.slotIndex}" style="box-shadow:inset 0 0 0 2px ${color}">
+      <div class="${cardClass}" data-slot="${slot.slotIndex}" style="box-shadow:inset 0 0 0 2px ${color}">
         ${state === 'sold' ? '<div class="sh-sold-badge">SOLD</div>' : ''}
         <div class="sh-vslot-icon" style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
         <div class="sh-vslot-name" style="color:${color}">${esc(slot.base.name)}</div>
@@ -301,6 +329,24 @@ export class ShopScreen {
   private async handleBuySlot(slotIndex: number): Promise<void> {
     const key = `vendor:${slotIndex}`;
     if (this.pending.has(key)) return;
+
+    // UTC-day-rollover guard: the vendor view on screen was fetched for a
+    // specific day, and stock is stateless/deterministic per (user, day) —
+    // if "now" has crossed into a new UTC day since that fetch, the server
+    // has already (or is about to have) re-derived different stock at the
+    // same slot indices. Buying against a stale view could silently grant a
+    // different item at a different price than what's displayed, so abort
+    // and refetch instead of ever submitting the purchase. This shrinks the
+    // substitution window to the sub-second race between this check and the
+    // request below, which the server's own re-derivation keeps
+    // financially consistent regardless.
+    if (!this.vendor || vendorViewIsStale(this.vendor.utcDay, currentUtcDay())) {
+      this.staleNotice = 'New stock has arrived — refreshed.';
+      await this.reload();
+      return;
+    }
+    this.staleNotice = null;
+
     this.pending.add(key);
     this.noticeBySlot.delete(slotIndex);
 
