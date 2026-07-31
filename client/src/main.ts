@@ -25,10 +25,12 @@ import { injectPixelTheme } from './ui/pixelTheme';
 import { CreditsScreen } from './ui/CreditsScreen';
 import { audio } from './audio/AudioEngine';
 import * as sfx from './audio/sfx';
+import { setScene, setDueling } from './audio/ambience';
 
 injectPixelTheme();
 
 audio.installUnlockListener();
+setScene('hall');
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
@@ -151,6 +153,7 @@ const navAccountHandlers = {
 async function handleLogout(): Promise<void> {
     try { await supabase.auth.signOut(); } catch { /* proceed anyway */ }
     stopGame();
+    setScene('hall');
     accessToken = '';
     activeCharacter = null;
     handlersRegistered = false;
@@ -405,6 +408,7 @@ const lobby = new LobbyUI(uiOverlay, {
   onReady: () => socket.ready(),
   onRematch: () => socket.rematch(),
   onReturnToLobby: () => {
+    setScene('hall');
     stopGame();
     socket.disconnect();
     handlersRegistered = false;
@@ -446,11 +450,13 @@ function setupSocketHandlers(_myDisplayName: string): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
 
-  socket.onChatMessage(({ senderId, displayName, text }) =>
-    lobby.appendChatMessage(senderId, displayName, text)
-  );
+  socket.onChatMessage(({ senderId, displayName, text }) => {
+    if (senderId !== myId) sfx.playChatTick();
+    lobby.appendChatMessage(senderId, displayName, text);
+  });
 
   socket.onPlayerJoined(({ id, displayName }) => {
+    sfx.playPlayerJoin();
     allPlayerNames[id] = displayName;
     currentPlayers[id] = displayName;
     lobby.showReady(currentRoomId, currentPlayers, myId, currentMode, readyPlayers);
@@ -645,6 +651,9 @@ function startGame(): void {
     : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
   hud.buildSpellSlots(slotSpells);
   hud.show();
+  setScene('arena');
+  setDueling(true);
+  sfx.playDuelBegin();
   lobby.hide();
 }
 
@@ -656,6 +665,7 @@ function stopGame(): void {
   for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
   playerMeshes.clear();
   hud.hide();
+  setDueling(false);
   stateBuffer.clear();
   // A killing-blow cast latched on the final tick must not survive into a
   // rematch, whose startGame() path bypasses onGameState's clear.

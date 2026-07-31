@@ -300,3 +300,100 @@ export function playNoMana(): void {
   if (!c || throttle('noMana', 400)) return;
   osc(c, 'triangle', 90, 80, 0.07, lowpass(c, 350, 250, 0.07, env(c, 0.4, 0.002, 0, 0.07)));
 }
+
+// ── Match flow & meta stingers ──────────────────────────────────────────────
+
+/** Brass-ish swell: detuned saws under an opening lowpass. Victory lifts a
+ * major third at the crest; defeat slumps a semitone. */
+export function playResultSwell(won: boolean): void {
+  const c = sfxCtx();
+  if (!c || throttle('result', 500)) return;
+  const root = 87.3; // F2
+  const g = env(c, 0.5, 0.6, 0.4, 1.2);
+  const lp = lowpass(c, 200, 1400, 1.0, g, 0.9);
+  for (const [mult, det] of [[1, -7], [1, 7], [1.5, 0]] as const) {
+    const o = c.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(root * mult, c.t);
+    const shift = won ? Math.pow(2, 4 / 12) : Math.pow(2, -1 / 12);
+    o.frequency.linearRampToValueAtTime(root * mult * shift, c.t + 1.2);
+    o.detune.value = det;
+    o.connect(lp);
+    o.start(c.t);
+    o.stop(c.t + 2.3);
+    o.onended = () => o.disconnect();
+  }
+}
+
+/** Rising two-note dark chime. */
+export function playLevelUp(): void {
+  const c = sfxCtx();
+  if (!c || throttle('levelUp', 300)) return;
+  osc(c, 'triangle', 220, 220, 0.25, lowpass(c, 1200, 900, 0.25, env(c, 0.4, 0.01, 0.05, 0.2)));
+  const c2 = { ...c, t: c.t + 0.18 };
+  osc(c2, 'triangle', 330, 330, 0.4, lowpass(c2, 1600, 1100, 0.4, env(c2, 0.45, 0.01, 0.1, 0.35)));
+}
+
+/** Two coin-like metallic ticks. */
+export function playGoldGain(): void {
+  const c = sfxCtx();
+  if (!c || throttle('gold', 200)) return;
+  for (const dt of [0, 0.09]) {
+    const ci = { ...c, t: c.t + dt };
+    const g = env(ci, 0.25, 0.002, 0, 0.12);
+    osc(ci, 'triangle', jitter(1250, 0.05), 1100, 0.12, g);
+    osc(ci, 'triangle', jitter(1930, 0.05), 1700, 0.1, g); // inharmonic partner
+  }
+}
+
+/** Pure rarity → pitch-lift map for the drop sting. */
+export function dropStingSemitones(rarity: string): number {
+  switch (rarity) {
+    case 'magic': return 3;
+    case 'rare': return 7;
+    case 'unique': return 12;
+    default: return 0; // 'basic' and anything unknown
+  }
+}
+
+/** Metallic strike with inharmonic partials; brighter with rarity. */
+export function playDropSting(rarity: string): void {
+  const c = sfxCtx();
+  if (!c || throttle('drop', 300)) return;
+  const lift = Math.pow(2, dropStingSemitones(rarity) / 12);
+  const g = env(c, 0.45, 0.005, 0.05, 0.8);
+  for (const partial of [1, 2.76, 5.4]) { // bell-like inharmonic series
+    osc(c, 'triangle', 392 * lift * partial, 392 * lift * partial, 0.85, g);
+  }
+}
+
+/** Single deep tom hit: the duel begins. */
+export function playDuelBegin(): void {
+  const c = sfxCtx();
+  if (!c || throttle('duelBegin', 500)) return;
+  osc(c, 'sine', 130, 45, 0.4, env(c, 0.8, 0.004, 0.03, 0.38));
+  noise(c, 0.12, lowpass(c, 800, 200, 0.12, env(c, 0.3, 0.003, 0, 0.12)));
+}
+
+/** Deep tom tick for each countdown second. */
+export function playCountdownTick(): void {
+  const c = sfxCtx();
+  if (!c || throttle('cdTick', 300)) return;
+  osc(c, 'sine', 110, 60, 0.18, env(c, 0.5, 0.004, 0, 0.18));
+}
+
+/** Low woodblock-ish tick: chat message / player joined. */
+export function playChatTick(): void {
+  const c = sfxCtx();
+  if (!c || throttle('chat', 150)) return;
+  osc(c, 'triangle', jitter(340, 0.06), 250, 0.06, lowpass(c, 1100, 700, 0.06, env(c, 0.22, 0.002, 0, 0.06)));
+}
+
+/** Slightly warmer double-tick: someone entered the lobby. */
+export function playPlayerJoin(): void {
+  const c = sfxCtx();
+  if (!c || throttle('join', 200)) return;
+  osc(c, 'triangle', 280, 260, 0.07, lowpass(c, 1000, 700, 0.07, env(c, 0.25, 0.002, 0, 0.07)));
+  const c2 = { ...c, t: c.t + 0.1 };
+  osc(c2, 'triangle', 350, 330, 0.08, lowpass(c2, 1100, 800, 0.08, env(c2, 0.25, 0.002, 0, 0.08)));
+}

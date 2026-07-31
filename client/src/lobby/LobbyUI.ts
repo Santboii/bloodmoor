@@ -7,6 +7,7 @@ export { accountMenuItems, skillsBadge } from '../ui/navBar';
 export type { AccountMenuItem, NavKey } from '../ui/navBar';
 import { SpritePreview } from '../renderer/sprites/SpritePreview';
 import { RARITY_COLORS, itemBase, itemDisplayName } from '../items/GearScreen';
+import * as sfx from '../audio/sfx';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -444,15 +445,19 @@ export class LobbyUI {
     // hasLevelUp-based push for the XP block.
     let rewardDelay = hasLevelUp ? 1.1 : 0.8;
     let goldHtml = '';
+    let goldDelay = 0;
     if (matchResult && matchResult.goldGained > 0) {
+      goldDelay = rewardDelay;
       goldHtml = `<div class="bm-result-gold" style="animation-delay:${rewardDelay}s">+${matchResult.goldGained} <i class="fa fa-coins"></i> Gold</div>`;
       rewardDelay += 0.3;
     }
 
     let spoilsHtml = '';
+    let spoilsDelay = 0;
     const droppedItem = matchResult?.droppedItem;
     const droppedBase = droppedItem ? itemBase(droppedItem) : undefined;
     if (droppedItem && droppedBase) {
+      spoilsDelay = rewardDelay;
       const color = RARITY_COLORS[droppedItem.rarity];
       const name = itemDisplayName(droppedItem, droppedBase);
       spoilsHtml = `<div class="bm-result-spoils" style="animation-delay:${rewardDelay}s;box-shadow:inset 0 0 0 2px ${color}">
@@ -484,6 +489,15 @@ export class LobbyUI {
           <button id="bm-return-lobby" class="bm-btn-return px-btn">Return to Lobby</button>
         </div>
       </div>`;
+
+    // Sound beats mirror the visual reveal sequence above.
+    sfx.playResultSwell(won);
+    if (hasLevelUp) window.setTimeout(() => sfx.playLevelUp(), 900);
+    if (goldDelay > 0) window.setTimeout(() => sfx.playGoldGain(), goldDelay * 1000);
+    if (droppedItem && spoilsDelay > 0) {
+      const rarity = droppedItem.rarity;
+      window.setTimeout(() => sfx.playDropSting(rarity), spoilsDelay * 1000);
+    }
 
     if (matchResult && matchResult.xpGained > 0) {
       const xpEl = this.ui.querySelector('#bm-xp-count');
@@ -533,6 +547,7 @@ export class LobbyUI {
     if (!btn) return;
 
     let remaining = countdown;
+    sfx.playCountdownTick();
 
     if (isRequester) {
       btn.classList.add('waiting');
@@ -560,6 +575,7 @@ export class LobbyUI {
         }
         return;
       }
+      sfx.playCountdownTick();
       if (btn) {
         if (isRequester) {
           btn.textContent = `Waiting... (${remaining}s)`;
