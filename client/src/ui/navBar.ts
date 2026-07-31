@@ -58,6 +58,14 @@ const NAV_CSS = `
 /* Sub-screens put their own title/actions in a row under the nav. */
 .bm-subhead{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;width:100%;max-width:1060px;margin-bottom:16px;box-sizing:border-box;}
 .bm-subhead-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+/* Shown in a screen's content region while its first fetch is in flight. Each
+   screen paints its chrome (backdrop, nav, subhead) synchronously on show()
+   and swaps this for real content when the data lands — before, show() set
+   display:block on a still-empty element and awaited the network, so the whole
+   load was a blank screen. */
+.bm-loading{font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px;color:var(--px-text-dim,#8a8f9c);padding:40px 0;text-align:center;animation:bm-loading-pulse 1.1s ease-in-out infinite;}
+@keyframes bm-loading-pulse{0%,100%{opacity:0.35;}50%{opacity:0.75;}}
+@media (prefers-reduced-motion: reduce){.bm-loading{animation:none;opacity:0.6;}}
 `;
 
 export function injectNavBarCss(): void {
