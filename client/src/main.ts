@@ -479,7 +479,12 @@ function setupSocketHandlers(_myDisplayName: string): void {
     const now = performance.now();
     stateBuffer.push(state, now);
     for (const [id, p] of Object.entries(state.players)) {
-      if (p.castingSpell !== null) pendingCastAnim.add(id);
+      if (p.castingSpell !== null) {
+        pendingCastAnim.add(id);
+        // Cast audio fires here, not in the render loop — the same one-tick
+        // latch reasoning as the animation (see pendingCastAnim above).
+        sfx.playCast(p.castingSpell);
+      }
     }
 
     if (!predictor && state.players[myId]) {

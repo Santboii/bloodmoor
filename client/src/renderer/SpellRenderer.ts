@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
+import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
@@ -157,6 +158,7 @@ export class SpellRenderer {
   private detectTeleports(state: GameState): void {
     for (const player of Object.values(state.players)) {
       if (player.teleported) {
+        sfx.playTeleport();
         this.teleportEffects.push(new TeleportEffect(this.scene, player.teleported.x, player.teleported.y, this.particles));
         this.teleportEffects.push(new TeleportEffect(this.scene, player.position.x, player.position.y, this.particles));
       }
@@ -192,6 +194,7 @@ export class SpellRenderer {
       if (!activeFireballIds.has(id)) {
         const last = this.prevFireballPositions.get(id);
         if (last) this.particles.emitExplosion(last.x, last.y, last.z, last.radius);
+        sfx.playFireballExplode();
         this.scene.remove(mesh);
         disposeObject3D(mesh);
         this.fireballs.delete(id);
@@ -203,6 +206,7 @@ export class SpellRenderer {
       if (fb.type !== 'fireball') continue;
 
       if (!this.fireballs.has(fb.id)) {
+        sfx.playFireballWhoosh();
         const r = fb.radius ?? 10;
         const mesh = new THREE.Mesh(FIREBALL_GEO, FIREBALL_CORE_MAT);
         mesh.scale.setScalar(r * 0.8);
@@ -247,6 +251,7 @@ export class SpellRenderer {
       if (arrow.type !== 'arrow') continue;
 
       if (!this.arrows.has(arrow.id)) {
+        sfx.playArrowSpawn();
         const group = new THREE.Group();
         const color = arrow.ownerId === this.myId
           ? ELEMENT_COLORS[this.arrowElement]
@@ -284,6 +289,7 @@ export class SpellRenderer {
         this.scene.remove(group);
         disposeObject3D(group);
         this.fireWalls.delete(id);
+        sfx.stopFireWallLoop(id);
         const rainVisual = this.rainZoneArrows.get(id);
         if (rainVisual) {
           this.scene.remove(rainVisual.arrowGroup);
@@ -297,6 +303,7 @@ export class SpellRenderer {
       const isRainZone = fw.id.startsWith('rain_zone_');
 
       if (!this.fireWalls.has(fw.id)) {
+        if (!isRainZone) sfx.startFireWallLoop(fw.id);
         const group = new THREE.Group();
         if (fw.shape === 'circle' && fw.center && fw.radius) {
           const disc = new THREE.Mesh(
@@ -354,12 +361,14 @@ export class SpellRenderer {
         disposeObject3D(entry.ring);
         disposeObject3D(entry.rock);
         this.particles.emitMeteorImpact(entry.target.x, 0, entry.target.y);
+        sfx.playMeteorImpact();
         this.meteors.delete(id);
       }
     }
 
     for (const meteor of state.meteors) {
       if (!this.meteors.has(meteor.id)) {
+        sfx.playMeteorFall();
         const s = meteor.aoeRadius / METEOR_AOE_RADIUS;
         // Ring material is per-instance (opacity pulses); geometry is shared
         // and the size multiplier is applied via scale in the update below.
@@ -413,12 +422,14 @@ export class SpellRenderer {
         disposeObject3D(entry.circle);
         disposeObject3D(entry.arrowGroup);
         this.particles.emitRainImpact(entry.target.x, 0, entry.target.y, entry.radius);
+        sfx.playRainImpact();
         this.rainOfArrows.delete(id);
       }
     }
 
     for (const rain of state.rainOfArrows) {
       if (!this.rainOfArrows.has(rain.id)) {
+        sfx.playRainVolley();
         const color = ELEMENT_COLORS[this.arrowElement];
         const disc = new THREE.Mesh(
           new THREE.CircleGeometry(rain.radius, 48),
@@ -448,6 +459,7 @@ export class SpellRenderer {
   }
 
   dispose(): void {
+    sfx.stopAllSpellLoops();
     for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     for (const entry of this.arrows.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const group of this.fireWalls.values()) { this.scene.remove(group); disposeObject3D(group); }
