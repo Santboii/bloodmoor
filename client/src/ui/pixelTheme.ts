@@ -2,7 +2,12 @@
 // classes so the "chunky bordered panel" look stays consistent.
 
 const CSS = `
+/* Global UI scale: every screen mounts under #ui-overlay. Overlay roots
+   using viewport units divide by --ui-zoom (zoom does not scale vh/vw). */
+#ui-overlay { zoom: var(--ui-zoom); }
+
 :root {
+  --ui-zoom: 1.18;
   --px-bg: #12141b;
   --px-panel: #1e2026;
   --px-border-light: #4e5462;

@@ -20,13 +20,14 @@ export type CharacterSelectCallbacks = {
 
 const STYLES = `
 .cs-overlay{position:fixed;inset:0;z-index:100;background:#12141b;}
-.cs-ui{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
+.cs-ui{position:relative;z-index:1;min-height:calc(100vh / var(--ui-zoom, 1));display:flex;flex-direction:column;align-items:center;padding:32px 24px;font-family:'VT323',monospace;color:var(--px-text);}
 .cs-title{font-size:28px;letter-spacing:2px;margin-bottom:4px;}
 .cs-subtitle{font-size:9px;margin-bottom:36px;}
 .cs-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:700px;margin-bottom:28px;}
 .cs-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--px-border-dark),transparent);}
 .cs-divider-gem{width:10px;height:10px;background:var(--px-accent);transform:rotate(45deg);box-shadow:0 0 8px rgba(255,179,71,0.6);}
-.cs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:700px;margin-bottom:24px;}
+.cs-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;width:100%;max-width:700px;margin-bottom:24px;}
+.cs-grid>.cs-slot{flex:0 0 calc((100% - 32px)/3);}
 .cs-slot{padding:20px;cursor:pointer;transition:all 0.15s;min-height:140px;display:flex;flex-direction:column;}
 .cs-slot:hover{box-shadow:0 -2px 0 0 var(--px-accent),0 2px 0 0 var(--px-accent),-2px 0 0 0 var(--px-accent),2px 0 0 0 var(--px-accent),inset 0 2px 0 0 rgba(255,255,255,0.06);}
 .cs-slot-empty{align-items:center;justify-content:center;box-shadow:none;outline:2px dashed var(--px-border-light);}
