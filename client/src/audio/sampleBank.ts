@@ -74,15 +74,35 @@ function warnMissing(id: SampleId): void {
   console.warn(`sampleBank: missing/undecoded sample "${id}"`);
 }
 
+// Fired once per id, right after its AudioBuffer lands in `buffers` — lets
+// consumers that raced the decode (an ambience layer or a fire-wall loop
+// that tried to start before its sample was ready) retry instead of staying
+// silent for the rest of the session.
+type DecodeListener = (id: SampleId) => void;
+const decodeListeners: DecodeListener[] = [];
+
+/** Subscribe to per-id decode completions. Call-site retries on this instead
+ * of polling; a "not decoded yet" attempt is not a failure and must not warn. */
+export function onSampleDecoded(cb: DecodeListener): void {
+  decodeListeners.push(cb);
+}
+
+function notifyDecoded(id: SampleId): void {
+  for (const cb of decodeListeners) cb(id);
+}
+
 function tryDecode(id: SampleId): void {
   const ctx = audio.ctx;
   const data = raw.get(id);
   if (!ctx || !data || buffers.has(id) || decoding.has(id)) return;
   decoding.add(id);
-  // decodeAudioData detaches/consumes the buffer, so hand it a copy — the
-  // raw bytes stay available in case decode needs retrying.
+  // decodeAudioData detaches/consumes the buffer, so hand it a copy.
   ctx.decodeAudioData(data.slice(0))
-    .then(buf => { buffers.set(id, buf); })
+    .then(buf => {
+      buffers.set(id, buf);
+      raw.delete(id); // decoded successfully — nothing left to retry it with
+      notifyDecoded(id);
+    })
     .catch(() => { warnMissing(id); })
     .finally(() => { decoding.delete(id); });
 }
@@ -109,8 +129,10 @@ function busNode(bus: Bus): GainNode | null {
   return bus === 'music' ? audio.musicBus : audio.sfxBus;
 }
 
-/** Play a decoded sample once on the given bus. No-ops (plus one warn per
- * missing id) if the engine isn't unlocked or the sample never decoded. */
+/** Play a decoded sample once on the given bus. No-ops if the engine isn't
+ * unlocked or the sample hasn't decoded yet (or ever) — a failed fetch/decode
+ * already warned once from initSampleBank; a merely-not-decoded-yet buffer is
+ * not a failure and doesn't warn again here. */
 export function playSample(
   id: SampleId,
   opts: { rate?: number; rateJitter?: number; gain?: number; bus?: Bus; delayS?: number } = {},
@@ -119,7 +141,7 @@ export function playSample(
   const out = busNode(opts.bus ?? 'sfx');
   if (!ctx || !out) return;
   const buf = buffers.get(id);
-  if (!buf) { warnMissing(id); return; }
+  if (!buf) return;
   const manifest = SAMPLE_MANIFEST[id];
   const src = ctx.createBufferSource();
   src.buffer = buf;
@@ -136,8 +158,10 @@ export function playSample(
 
 /** Start a looping decoded sample on the given bus at an optional playback
  * rate (e.g. slowed down for a deep-rumble variant). Returns a handle whose
- * `stop()` fades the gain out before disconnecting, or null (plus one warn
- * per missing id) if the engine isn't unlocked or the sample never decoded. */
+ * `stop()` fades the gain out before disconnecting, or null if the engine
+ * isn't unlocked or the sample hasn't decoded yet (or ever — see playSample
+ * for why this doesn't warn on its own). Callers that want to survive a
+ * decode race should subscribe via `onSampleDecoded` and retry when it fires. */
 export function startSampleLoop(
   id: SampleId,
   bus: Bus,
@@ -148,7 +172,7 @@ export function startSampleLoop(
   const out = busNode(bus);
   if (!ctx || !out) return null;
   const buf = buffers.get(id);
-  if (!buf) { warnMissing(id); return null; }
+  if (!buf) return null;
   const gain = ctx.createGain();
   gain.gain.value = initialGain;
   gain.connect(out);

@@ -3,7 +3,7 @@
 // scenes cost no CPU. Routed to the music bus (the "Music" slider governs
 // it).
 import { audio } from './AudioEngine';
-import { startSampleLoop } from './sampleBank';
+import { startSampleLoop, onSampleDecoded, type SampleId } from './sampleBank';
 
 export type SceneId = 'hall' | 'arena' | 'off';
 export type LayerId = 'base' | 'torch' | 'wind' | 'pulse';
@@ -33,12 +33,24 @@ const layers = new Map<LayerId, Layer>();
 // Guards the stop-after-fade timer against a scene change mid-fade.
 const generations = new Map<LayerId, number>();
 let unlockHooked = false;
+// Unlock can fire before a layer's sample has finished decoding (decode is
+// promise-deferred past the synchronous onUnlock callback) — startLayer
+// returns null in that case and the layer never gets into `layers`, so
+// without this it would stay silent for the rest of the session since
+// nothing else re-runs apply(). Re-apply as soon as the specific sample a
+// layer needs decodes so a layer that raced the decode gets a second chance.
+const LAYER_SAMPLE_IDS: ReadonlySet<SampleId> = new Set(['hall_base', 'hall_torch', 'arena_wind']);
+let decodeHooked = false;
 
 export function setScene(scene: SceneId): void {
   desired = scene;
   if (!unlockHooked) {
     unlockHooked = true;
     audio.onUnlock(() => apply());
+  }
+  if (!decodeHooked) {
+    decodeHooked = true;
+    onSampleDecoded(id => { if (LAYER_SAMPLE_IDS.has(id)) apply(); });
   }
   apply();
 }

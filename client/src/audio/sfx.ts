@@ -3,7 +3,7 @@
 // playSample call against a vendored sample instead of synthesized DSP.
 // Every function no-ops until the engine is unlocked.
 import { audio } from './AudioEngine';
-import { playSample, startSampleLoop, type SampleId } from './sampleBank';
+import { playSample, startSampleLoop, onSampleDecoded, type SampleId } from './sampleBank';
 import type { SpellId } from '@arena/shared';
 
 function ready(): boolean {
@@ -113,20 +113,43 @@ export function playTeleport(): void {
 
 // ── Looping spell zones (fire walls) ────────────────────────────────────────
 const spellLoops = new Map<string, { gain: GainNode; stop: () => void }>();
+// Wall ids that tried to start before firewall_loop finished decoding (unlock
+// fires synchronously, decode is promise-deferred past it) — retried once
+// the sample decodes so a wall cast right after unlock isn't silent forever.
+const pendingWalls = new Set<string>();
+let wallDecodeHooked = false;
+
+function tryStartWall(id: string): void {
+  if (spellLoops.has(id)) return;
+  const loop = startSampleLoop('firewall_loop', 'sfx', 0.25);
+  if (loop) {
+    spellLoops.set(id, loop);
+    pendingWalls.delete(id);
+  } else {
+    pendingWalls.add(id);
+  }
+}
 
 export function startFireWallLoop(id: string): void {
   if (!ready() || spellLoops.has(id)) return;
-  const loop = startSampleLoop('firewall_loop', 'sfx', 0.25);
-  if (loop) spellLoops.set(id, loop);
+  if (!wallDecodeHooked) {
+    wallDecodeHooked = true;
+    onSampleDecoded(decodedId => {
+      if (decodedId !== 'firewall_loop') return;
+      for (const pendingId of [...pendingWalls]) tryStartWall(pendingId);
+    });
+  }
+  tryStartWall(id);
 }
 
 export function stopFireWallLoop(id: string): void {
+  pendingWalls.delete(id);
   spellLoops.get(id)?.stop();
   spellLoops.delete(id);
 }
 
 export function stopAllSpellLoops(): void {
-  for (const [id] of spellLoops) stopFireWallLoop(id);
+  for (const id of new Set([...spellLoops.keys(), ...pendingWalls])) stopFireWallLoop(id);
 }
 
 // ── Combat feedback ─────────────────────────────────────────────────────────

@@ -53,7 +53,6 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private music_: GainNode | null = null;
   private sfx_: GainNode | null = null;
-  private noise_: AudioBuffer | null = null;
   private unlockCbs: (() => void)[] = [];
 
   constructor() {
@@ -143,19 +142,6 @@ export class AudioEngine {
     this.settings.muted = m;
     this.applyVolumes();
     this.save();
-  }
-
-  /** Shared 2s white-noise buffer — every noise-based sound loops a random
-   * offset into this instead of allocating its own. */
-  noiseBuffer(): AudioBuffer | null {
-    if (!this.ctx_) return null;
-    if (!this.noise_) {
-      const len = this.ctx_.sampleRate * 2;
-      this.noise_ = this.ctx_.createBuffer(1, len, this.ctx_.sampleRate);
-      const d = this.noise_.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    }
-    return this.noise_;
   }
 }
 
