@@ -1,4 +1,5 @@
 import type { Appearance } from './appearance.js';
+import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
@@ -52,6 +53,7 @@ export type PlayerState = {
   // Shadowstep
   invisibleUntil?: number;
   appearance?: Appearance;
+  gear?: GearVisuals;
 };
 
 export type Projectile = {

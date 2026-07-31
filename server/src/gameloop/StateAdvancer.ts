@@ -6,6 +6,7 @@ import {
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK,
   computeLoadout,
+  gearVisualsFor,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
@@ -71,6 +72,7 @@ export function makeInitialState(
       cooldowns: {},
       teamId: teamLookup[p.id],
       appearance: p.appearance ?? CLASS_DEFAULT_APPEARANCE[p.charClass],
+      gear: gearVisualsFor(p.items ?? []),
     };
   }
   return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
