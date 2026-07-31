@@ -27,11 +27,13 @@ import { SettingsPopover } from './audio/settingsPopover';
 import { audio } from './audio/AudioEngine';
 import * as sfx from './audio/sfx';
 import { setScene, setDueling } from './audio/ambience';
+import { initSampleBank } from './audio/sampleBank';
 
 injectPixelTheme();
 
 audio.installUnlockListener();
 setScene('hall');
+initSampleBank();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
