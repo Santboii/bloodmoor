@@ -3,12 +3,12 @@
 
 const CSS = `
 :root {
-  --px-bg: #1a1524;
-  --px-panel: #241d33;
-  --px-border-light: #6d5a8f;
-  --px-border-dark: #0e0b16;
-  --px-text: #e8dff5;
-  --px-accent: #ffb347;
+  --px-bg: #12141b;
+  --px-panel: #1e2026;
+  --px-border-light: #4e5462;
+  --px-border-dark: #0a0b0f;
+  --px-text: #e2e2e6;
+  --px-accent: #ffa03c;
   --px-danger: #e05b5b;
   --px-success: #6fce7e;
 }
@@ -40,7 +40,7 @@ const CSS = `
 .px-label {
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
-  color: var(--px-border-light);
+  color: #9aa0ae;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -50,7 +50,7 @@ const CSS = `
   font-size: 10px;
   text-transform: uppercase;
   color: var(--px-text);
-  background: #33294a;
+  background: #2a2d36;
   border: 0;
   border-radius: 0;
   padding: 12px 16px;
@@ -61,14 +61,14 @@ const CSS = `
     -2px 0 0 0 var(--px-border-light),
     2px 0 0 0 var(--px-border-dark);
 }
-.px-btn:hover { background: #453766; }
+.px-btn:hover { background: #3a3f4b; }
 .px-btn:active { transform: translateY(2px); box-shadow:
     0 -2px 0 0 var(--px-border-dark),
     0 2px 0 0 var(--px-border-light),
     -2px 0 0 0 var(--px-border-dark),
     2px 0 0 0 var(--px-border-light); }
-.px-btn-primary { background: #a85f1a; color: #ffe9c9; }
-.px-btn-primary:hover { background: #c97a26; }
+.px-btn-primary { background: #8f5a1e; color: #ffe9c9; }
+.px-btn-primary:hover { background: #c98a3a; }
 
 .px-input {
   font-family: 'VT323', monospace;
