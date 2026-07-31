@@ -33,6 +33,37 @@ const LAYERS = [
   'hair/long/adult',
   'hair/curly_short/adult',
   'hair/bangs/adult',
+  // ── Phase 3 visible gear (see docs/superpowers/specs/2026-07-31-visible-gear-design.md) ──
+  'hat/cloth/leather_cap/adult/leather',
+  'hat/helmet/barbuta/male',
+  'hat/helmet/barbuta/female',
+  'torso/armour/leather/male',
+  'torso/armour/leather/female',
+  'torso/chainmail/male',
+  'torso/chainmail/female',
+  'legs/leggings/male',
+  'legs/leggings/thin',
+  'weapon/magic/simple/background/simple',
+  'weapon/magic/simple/foreground/simple',
+  'weapon/magic/gnarled/universal/background/gnarled',
+  'weapon/magic/gnarled/universal/foreground/gnarled',
+  'weapon/magic/crystal/universal/background/purple',
+  'weapon/magic/crystal/universal/foreground/purple',
+  // Bows keep their walk sheets in a sibling subtree (walk/{background,
+  // foreground}/<color>.png) instead of under universal/ — srcByAnim points
+  // the walk fetch there while shoot/hurt use the dest path as usual.
+  { dest: 'weapon/ranged/bow/normal/universal/background/normal',
+    srcByAnim: { walk: 'weapon/ranged/bow/normal/walk/background/normal' } },
+  { dest: 'weapon/ranged/bow/normal/universal/foreground/normal',
+    srcByAnim: { walk: 'weapon/ranged/bow/normal/walk/foreground/normal' } },
+  { dest: 'weapon/ranged/bow/recurve/universal/background/recurve',
+    srcByAnim: { walk: 'weapon/ranged/bow/recurve/walk/background/recurve' } },
+  { dest: 'weapon/ranged/bow/recurve/universal/foreground/recurve',
+    srcByAnim: { walk: 'weapon/ranged/bow/recurve/walk/foreground/recurve' } },
+  { dest: 'weapon/ranged/bow/great/universal/background/great',
+    srcByAnim: { walk: 'weapon/ranged/bow/great/walk/background/great' } },
+  { dest: 'weapon/ranged/bow/great/universal/foreground/great',
+    srcByAnim: { walk: 'weapon/ranged/bow/great/walk/foreground/great' } },
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)
@@ -49,21 +80,26 @@ function candidates(layer, anim) {
 
 let ok = 0, missing = [];
 const saved = new Set(); // `${layer}/${anim}` for every sheet actually written to disk
-for (const layer of [...new Set(LAYERS)]) {
+const entries = LAYERS.map(l => typeof l === 'string' ? { dest: l, srcByAnim: {} } : l);
+const seen = new Set();
+for (const entry of entries) {
+  if (seen.has(entry.dest)) continue;
+  seen.add(entry.dest);
   for (const anim of ANIMS) {
-    const dest = join(OUT, layer, `${anim}.png`);
+    const srcLayer = entry.srcByAnim[anim] ?? entry.dest;
+    const dest = join(OUT, entry.dest, `${anim}.png`);
     let wasSaved = false;
-    for (const url of candidates(layer, anim)) {
+    for (const url of candidates(srcLayer, anim)) {
       const res = await fetch(url);
       if (res.ok) {
         await mkdir(dirname(dest), { recursive: true });
         await writeFile(dest, Buffer.from(await res.arrayBuffer()));
         ok++; wasSaved = true;
-        saved.add(`${layer}/${anim}`);
+        saved.add(`${srcLayer}/${anim}`);
         break;
       }
     }
-    if (!wasSaved) missing.push(`${layer}/${anim}`);
+    if (!wasSaved) missing.push(`${srcLayer}/${anim}`);
   }
 }
 console.log(`saved ${ok} sheets`);
