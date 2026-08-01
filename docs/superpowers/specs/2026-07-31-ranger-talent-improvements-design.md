@@ -30,7 +30,7 @@ into its keystone. This is deliberate — gear can complete a build.
 |---|---|---|
 | Guided (4) | **Relentless** | Redirects repeat until the arrow hits a player, pillar, or wall (no redirect budget). |
 | Homing (3) | **Predator** | Each redirect leads the target: aim at `enemyPos + enemyVel × (dist / arrowSpeed)` instead of current position. |
-| Barrage (5) | **Echo Volley** | 0.25s (15 ticks) after a Multi-shot cast, a second volley fires from the caster's current position at the same world-space angles, 50% damage. No extra mana or cooldown. |
+| Barrage (5) | **Echo Volley** | 0.25s (15 ticks) after a Multi-shot cast, a second volley fires from the caster's current position at the same world-space angles, 35% damage. No extra mana or cooldown. |
 | Sustained Rain (5) | **Stormcall** | The rain zone drifts toward the nearest living enemy at 60 u/s while active. |
 | Piercing Rain (3) | **Exposed** | Enemies inside the caster's rain zone take +15% damage from all of that caster's sources (arrows, zone ticks, echo volleys). |
 | Wide Rain (5) | **Twin Storm** | Casting Rain of Arrows also marks a second zone, 0.5× radius, centered on the nearest enemy's position at cast time. Same delay and duration; damage does not stack with the primary zone on overlap. |
@@ -47,12 +47,20 @@ and get no keystones.
 Reaching a keystone costs `softCap × cost + (cost + 1)`:
 Barrage 13, Acrobatics 13, elements 13 (after §3's cap change), Guided 11,
 Homing 9 (requires Guided ≥1 first), rain talents 7–9. With the level-30 /
-~30-point cap, a build fits roughly **two keystones plus support** — e.g.
-Echo Volley (Multi-shot 2 + Barrage 13) + Predator (Guided 2 + Homing 9) +
-Evade 1 + Combat Roll 2 = 29 points. The expensive pairs (an element
-keystone plus Second Wind is 32+ with prerequisites) only close with
-item-granted talent ranks, and three keystones never fit. That tension —
-supercharge depth vs. utility breadth — is the point.
+~30-point cap, a build fits **two of the expensive keystones plus support** —
+e.g. Echo Volley (Multi-shot 2 + Barrage 13) + Predator (Guided 2 + Homing 9)
++ Evade 1 + Combat Roll 2 = 29 points. An element keystone plus Second Wind
+is 32+ with prerequisites and only closes with item-granted talent ranks.
+
+**Correction (verified post-implementation).** An earlier draft claimed three
+keystones never fit. That is wrong: the three rain keystones are the cheapest
+(7/9/7) *and* share one prerequisite chain, so Stormcall + Exposed + Twin
+Storm closes at exactly **34 points** — a complete, gearless level-30 build.
+Measured, it underperforms badly (a fleeing target takes 0 damage: 0.75s
+telegraph and 60 u/s zone drift against 200 u/s player speed; the
+stationary-target ceiling is ~573 over 6.7s), so this is a break in the
+intended cost tension rather than a power outlier. Re-costing the rain
+talents is the open lever if that tension matters.
 
 ## 2. Dead-value fixes
 

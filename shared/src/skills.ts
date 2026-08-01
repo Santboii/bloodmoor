@@ -105,7 +105,7 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'archer.homing',          name: 'Homing',          tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Guided redirects happen sooner per rank.', stackable: { softCap: 3, baseEffect: 6 },
     keystone: { name: 'Predator', description: 'Redirects lead the target, aiming where they are moving.' } },
   { id: 'archer.barrage',         name: 'Barrage',         tree: 'archer', tier: 3, cost: 2, isSpell: false, description: 'Multi-shot gains extra arrows per rank.', stackable: { softCap: 5, baseEffect: 2 },
-    keystone: { name: 'Echo Volley', description: '0.25s after Multi-shot, a second volley fires at the same angles for 50% damage.' } },
+    keystone: { name: 'Echo Volley', description: '0.25s after Multi-shot, a second volley fires at the same angles for 35% damage.' } },
   { id: 'archer.rain_of_arrows',  name: 'Rain of Arrows',  tree: 'archer', tier: 4, cost: 2, isSpell: true,  description: 'Mark a zone. Arrows rain after 1.5s. 150–220 AoE damage.' },
   { id: 'archer.sustained_rain',  name: 'Sustained Rain',  tree: 'archer', tier: 5, cost: 1, isSpell: false, description: 'Rain zone lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.35 },
     keystone: { name: 'Stormcall', description: 'The rain zone slowly drifts toward the nearest enemy.' } },

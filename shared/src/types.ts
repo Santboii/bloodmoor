@@ -192,7 +192,7 @@ export const EVADE_INVULN_TICKS = EVADE_DURATION_TICKS;
 // ── Ranger keystone constants (supercharge payoffs) ───────────────────────
 export const GUIDED_MOMENTUM_PER_REDIRECT = 0.05;
 export const ECHO_VOLLEY_DELAY_TICKS = Math.round(0.25 * TICK_RATE); // 15
-export const ECHO_VOLLEY_DAMAGE_RATIO = 0.5;
+export const ECHO_VOLLEY_DAMAGE_RATIO = 0.35;
 export const STORMCALL_DRIFT_SPEED = 60;  // units/sec
 export const EXPOSED_DAMAGE_MULT = 1.15;
 export const TWIN_STORM_RADIUS_RATIO = 0.5;

@@ -161,8 +161,8 @@ describe('Ranger combat integration', () => {
     expect(arrows.length).toBe(firstVolley * 2);           // echo doubled the volley
     expect(state.echoVolleys).toHaveLength(0);             // consumed
     const echoArrow = arrows[arrows.length - 1];
-    expect(echoArrow.damageMin).toBe(20);                  // 40 × 0.5
-    expect(echoArrow.damageMax).toBe(30);                  // 60 × 0.5
+    expect(echoArrow.damageMin).toBe(14);                  // 40 × 0.35
+    expect(echoArrow.damageMax).toBe(21);                  // 60 × 0.35
   });
 
   it('Exposed: rain zone ticks hit 15% harder with piercing_rain past cap', () => {
