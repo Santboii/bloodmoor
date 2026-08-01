@@ -201,18 +201,28 @@ describe('weapon attachment integrity', () => {
             expect(p![1], `${body}/${anim}/${r} y`).toBeGreaterThanOrEqual(0);
             expect(p![1], `${body}/${anim}/${r} y`).toBeLessThan(64);
           });
-          // How far a hand may travel between frames, by how fast the
-          // animation actually moves: a walk barely swings, a run covers real
-          // ground in profile, and a cast or draw snaps the arms in a single
-          // frame. Anything beyond these means the detector latched onto the
-          // other arm — the failure that puts a weapon on the wrong side of
-          // the body.
-          const limit = ['spellcast', 'shoot', 'hurt', 'thrust'].includes(anim) ? 13
-            : anim === 'run' ? 10
-            : 8;
-          for (let i = 1; i < row.length; i++) {
-            const d = Math.hypot(row[i]![0] - row[i - 1]![0], row[i]![1] - row[i - 1]![1]);
-            expect(d, `${body}/${anim}/${r} jumps ${d.toFixed(1)}px at frame ${i}`).toBeLessThan(limit);
+          // Locomotion swings the arms smoothly, so continuity is the
+          // invariant: a big step means the detector latched onto the other
+          // arm — the failure that puts a weapon on the wrong side of the
+          // body. Attacks deliberately reach the weapon hand across the
+          // midline in a single frame, so continuity says nothing there;
+          // what must hold is that the anchor stays near the rest of its own
+          // row rather than flying off somewhere absurd.
+          const ATTACK = ['slash', 'shoot', 'spellcast', 'hurt'].includes(anim);
+          if (ATTACK) {
+            const mx = row.map(p => p![0]).sort((a, b) => a - b)[row.length >> 1];
+            const my = row.map(p => p![1]).sort((a, b) => a - b)[row.length >> 1];
+            row.forEach((p, i) => {
+              const d = Math.hypot(p![0] - mx, p![1] - my);
+              expect(d, `${body}/${anim}/${r} frame ${i} sits ${d.toFixed(1)}px from the row`)
+                .toBeLessThan(22);
+            });
+          } else {
+            const limit = anim === 'run' ? 10 : 8;
+            for (let i = 1; i < row.length; i++) {
+              const d = Math.hypot(row[i]![0] - row[i - 1]![0], row[i]![1] - row[i - 1]![1]);
+              expect(d, `${body}/${anim}/${r} jumps ${d.toFixed(1)}px at frame ${i}`).toBeLessThan(limit);
+            }
           }
         });
       }

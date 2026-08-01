@@ -14,6 +14,20 @@ import { HAND_ANCHORS, WEAPON_GRIPS, type WeaponGrip } from './weaponAnchors.gen
 const DIRS = ['up', 'left', 'down', 'right'] as const;
 const OVERSIZE_INSET = 32; // 128px source frames centre the body in the middle 64px
 
+// A weapon sprite is rigid, so on its own it slides through a swing pointing
+// the same way the whole time. Tilting it by how far the hand has carried it
+// from its resting place turns that slide into a swing, without needing art
+// for every angle.
+//
+// Only swings tilt. Walking moves the hand a few pixels too, and tilting
+// there just lays the weapon over at an angle across the body — which is the
+// look this whole system exists to avoid.
+const TILTING = new Set<LpcAnimation>(['slash']);
+const TILT_PER_PX = 5;
+const MAX_TILT = 70;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
 export type WeaponRole = 'behind' | 'front';
 
 export function hasAttachment(weaponId: string | undefined): boolean {
@@ -71,6 +85,9 @@ export function drawAttachedWeapon(
     const [rx, ry, rw, rh] = piece.rect;
     const inset = grip.oversize ? OVERSIZE_INSET : 0;
     const srcFrame = grip.oversize ? FRAME * 2 : FRAME;
+    // Where the hand sits when the weapon is at rest, recovered from the
+    // grip: the rect was measured at (restAnchor + offset).
+    const restX = rx - piece.offset[0];
 
     for (let f = 0; f < meta.frames; f++) {
       const anchor = anchors[row]?.[f];
@@ -79,11 +96,25 @@ export function drawAttachedWeapon(
       // would blur the weapon against the crisp body underneath.
       const dx = Math.round(f * FRAME + anchor[0] + piece.offset[0]);
       const dy = Math.round(row * FRAME + anchor[1] + piece.offset[1]);
-      ctx.drawImage(
-        src,
-        g.frame * srcFrame + inset + rx, DIRS.indexOf(dir) * srcFrame + inset + ry, rw, rh,
-        dx, dy, rw, rh,
-      );
+      const sx = g.frame * srcFrame + inset + rx;
+      const sy = DIRS.indexOf(dir) * srcFrame + inset + ry;
+
+      const tilt = TILTING.has(opts.anim)
+        ? clamp((anchor[0] - restX) * TILT_PER_PX, -MAX_TILT, MAX_TILT)
+        : 0;
+      if (Math.abs(tilt) < 1) {
+        ctx.drawImage(src, sx, sy, rw, rh, dx, dy, rw, rh);
+      } else {
+        // Pivot on the grip so the weapon turns in the hand, not around its
+        // own middle.
+        const px = -piece.offset[0], py = -piece.offset[1];
+        ctx.save();
+        ctx.translate(dx + px, dy + py);
+        ctx.rotate((tilt * Math.PI) / 180);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(src, sx, sy, rw, rh, -px, -py, rw, rh);
+        ctx.restore();
+      }
       drew = true;
     }
   }

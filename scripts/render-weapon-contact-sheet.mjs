@@ -121,8 +121,37 @@ function renderFrame(layers, body, anim, dirRow, frame) {
       if (!s) continue;
       buf = blank();
       const cutOut = cut(s, g.frame, DIRS.indexOf(dir), srcFrame, inset + rx, inset + ry, rw, rh);
-      blit(buf, FRAME, cutOut, rw, rh,
-        Math.round(anchor[0] + half.offset[0]), Math.round(anchor[1] + half.offset[1]));
+      const dx = Math.round(anchor[0] + half.offset[0]);
+      const dy = Math.round(anchor[1] + half.offset[1]);
+      // Mirrors weaponAttach.ts: tilt by how far the hand has carried the
+      // weapon from rest, pivoting on the grip.
+      const restX = rx - half.offset[0];
+      // Only swings tilt — see weaponAttach.ts.
+      const tilt = anim === 'slash'
+        ? Math.max(-70, Math.min(70, (anchor[0] - restX) * 5))
+        : 0;
+      if (Math.abs(tilt) < 1) {
+        blit(buf, FRAME, cutOut, rw, rh, dx, dy);
+      } else {
+        const px = -half.offset[0], py = -half.offset[1];
+        const a = (-tilt * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+        // Inverse-map each destination pixel so no gaps open up in the result.
+        for (let oy = -rh; oy < rh * 2; oy++) {
+          for (let ox = -rw; ox < rw * 2; ox++) {
+            const rxr = ox - px, ryr = oy - py;
+            const sxr = Math.round(rxr * ca - ryr * sa + px);
+            const syr = Math.round(rxr * sa + ryr * ca + py);
+            if (sxr < 0 || syr < 0 || sxr >= rw || syr >= rh) continue;
+            const si = (syr * rw + sxr) * 4;
+            if (!cutOut[si + 3]) continue;
+            const tx = dx + ox, ty = dy + oy;
+            if (tx < 0 || ty < 0 || tx >= FRAME || ty >= FRAME) continue;
+            const di = (ty * FRAME + tx) * 4;
+            buf[di] = cutOut[si]; buf[di + 1] = cutOut[si + 1];
+            buf[di + 2] = cutOut[si + 2]; buf[di + 3] = cutOut[si + 3];
+          }
+        }
+      }
     }
     if (!buf) continue;
     if (layer.tint) tintFrame(buf, layer.tint, layer.tintMode);

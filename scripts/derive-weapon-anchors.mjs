@@ -32,7 +32,7 @@ const ANIMS = {
   spellcast: { frames: 7, rows: 4 },
   shoot: { frames: 13, rows: 4 },
   hurt: { frames: 6, rows: 1 },
-  thrust: { frames: 8, rows: 4 },
+  slash: { frames: 6, rows: 4 },
 };
 const DIRS = ['up', 'left', 'down', 'right']; // LPC row order
 
@@ -44,6 +44,9 @@ const FOOT_Y = 53;
 // Max distance an anchor may sit from its row's median before it is treated
 // as a misdetection rather than arm swing.
 const OUTLIER_PX = 12;
+// Animations that reach the weapon arm out, rather than swinging it beside
+// the body. These pick the hand by reach; everything else tracks continuity.
+const EXTENDING = new Set(['slash', 'thrust', 'spellcast', 'shoot']);
 // The anchor is the hand, full stop. Anything that damps or re-bases it —
 // both of which were tried — slides the weapon off the grip, and weapon art
 // leaves a hole where the hand closes around it, so a few pixels of drift
@@ -130,7 +133,20 @@ function learnWeaponSide(layers, refSheets, refAnim) {
  * side rule only seeds frame 0; every later frame takes whichever hand is
  * nearest the previous anchor, which is what actually stays on one arm.
  */
-function trackRow(layers, row, frames, side) {
+function trackRow(layers, row, frames, side, extend = false) {
+  // Attacks extend the weapon arm clear of the body, often crossing the
+  // midline in a single frame. Following the nearest hand to the last one
+  // then latches onto the idle arm, which is what put the staff on the wrong
+  // side of a swinging mage. For those, take the hand reaching furthest out
+  // on the weapon's side instead.
+  if (extend) {
+    return Array.from({ length: frames }, (_, f) => {
+      const hands = skinParts(layers, f, row);
+      if (!hands.length) return null;
+      const dir = side === 'right' ? 1 : -1;
+      return hands.slice().sort((a, b) => (b.cx - a.cx) * dir)[0];
+    });
+  }
   const perFrame = [];
   for (let f = 0; f < frames; f++) perFrame.push(skinParts(layers, f, row));
 
@@ -231,7 +247,7 @@ for (const [name, parts] of Object.entries(BODIES)) {
       // the runtime attaches it with the `down` grip, so it must be tracked
       // with the `down` hand too.
       const facing = DIRS[meta.singleRow ? 2 : row];
-      const tracked = trackRow(layers, row, meta.frames, side[facing]);
+      const tracked = trackRow(layers, row, meta.frames, side[facing], EXTENDING.has(anim));
       const perRow = tracked.map(h => {
         if (!h) { missing++; return null; }
         return [Math.round(h.cx * 10) / 10, Math.round(h.cy * 10) / 10];

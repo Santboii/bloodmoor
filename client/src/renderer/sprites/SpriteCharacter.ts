@@ -42,10 +42,10 @@ export class SpriteCharacter {
   private disposed = false;
 
   constructor(appearance: Appearance, charClass: CharacterClass, gear: GearVisuals = {}) {
-    // Mages cast with the thrust animation, not spellcast: spellcast lifts the
-    // hand clear of the staff, leaving the grip hole in the weapon art with
-    // nothing behind it.
-    this.castAnim = charClass === 'ranger' ? 'shoot' : 'thrust';
+    // Mages cast by swinging the staff. A spellcast pose lifts the hand clear
+    // of the grip, so the hole weapon art leaves for the fingers shows through
+    // as a missing section of staff; a swing keeps the hand on it throughout.
+    this.castAnim = charClass === 'ranger' ? 'shoot' : 'slash';
 
     const size = FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
     this.material = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.01 });

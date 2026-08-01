@@ -3,7 +3,7 @@
 // '/<animation>.png' (or '.png' variants per Task 2's vendoring layout).
 import type { CharacterClass } from './types.js';
 
-export type LpcAnimation = 'walk' | 'run' | 'idle' | 'spellcast' | 'shoot' | 'hurt' | 'thrust';
+export type LpcAnimation = 'walk' | 'run' | 'idle' | 'spellcast' | 'shoot' | 'hurt' | 'slash';
 
 /** Frame counts/rows per the LPC universal sheet layout. hurt is 1-row. */
 export const LPC_ANIMATIONS: Record<LpcAnimation, { frames: number; singleRow: boolean; fps: number }> = {
@@ -14,9 +14,9 @@ export const LPC_ANIMATIONS: Record<LpcAnimation, { frames: number; singleRow: b
   shoot:     { frames: 13, singleRow: false, fps: 14 },
   hurt:      { frames: 6,  singleRow: true,  fps: 8 },
   // The mage's cast. A spellcast pose raises the hand clear off the grip, so
-  // the weapon's own grip hole shows through as a gap; a thrust keeps both
-  // hands on the staff for the whole swing.
-  thrust:    { frames: 8,  singleRow: false, fps: 14 },
+  // the weapon's own grip hole shows through as a gap; a swing keeps the hand
+  // on the staff throughout.
+  slash:     { frames: 6,  singleRow: false, fps: 14 },
 };
 
 export type Appearance = {
