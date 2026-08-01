@@ -4,8 +4,6 @@ let _id = 0;
 const nextId = () => `rain_${++_id}`;
 
 type RainConfig = {
-  sustained?: boolean;
-  piercing?: boolean;
   radiusMultiplier?: number;
 };
 
@@ -21,8 +19,6 @@ export function spawnRainOfArrows(
     target: { ...target },
     radius: RAIN_AOE_RADIUS * (cfg.radiusMultiplier ?? 1),
     strikeAt: currentTick + RAIN_DELAY_TICKS,
-    sustained: cfg.sustained,
-    piercing: cfg.piercing,
   };
 }
 
@@ -38,9 +34,3 @@ export function rainHitsPlayer(rain: RainOfArrowsState, playerPos: Vec2, playerI
   return dist <= rain.radius + PLAYER_HALF_SIZE;
 }
 
-export function rainDamage(piercing: boolean): number {
-  const min = 150;
-  const max = 220;
-  const base = Math.floor(min + Math.random() * (max - min + 1));
-  return piercing ? base * 2 : base;
-}

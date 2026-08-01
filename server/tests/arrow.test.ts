@@ -106,3 +106,44 @@ describe('arrowDamage', () => {
     expect(dmg).toBeLessThanOrEqual(90);
   });
 });
+
+describe('guided momentum and relentless', () => {
+  it('counts completed redirects', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 2 });
+    const enemy = { x: 500, y: 400 };
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, enemy);   // first redirect fires on tick 30
+    expect(p.redirectCount).toBe(1);
+  });
+
+  it('non-relentless arrows stop redirecting after their budget', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1 });
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.homing).toBe(-1);   // spent
+  });
+
+  it('relentless arrows keep re-acquiring past the budget', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1, relentless: true });
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.homing).toBeGreaterThan(0);   // timer restarted
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.redirectCount).toBe(2);
+  });
+});
+
+describe('predator keystone', () => {
+  it('predator redirects lead a moving target', () => {
+    const mk = (predator: boolean) => {
+      let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1, predator });
+      const enemyPos = { x: 500, y: 400 };
+      const enemyVel = { x: 0, y: 200 };   // moving down-screen
+      for (let i = 0; i < 30; i++) p = advanceArrow(p, enemyPos, enemyVel);
+      return p;
+    };
+    const plain = mk(false);
+    const pred = mk(true);
+    // Leading the target angles the velocity further toward +y than aiming at
+    // the current position does.
+    const angle = (v: { x: number; y: number }) => Math.atan2(v.y, v.x);
+    expect(angle(pred.velocity)).toBeGreaterThan(angle(plain.velocity));
+  });
+});

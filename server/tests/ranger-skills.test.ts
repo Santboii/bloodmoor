@@ -10,7 +10,7 @@ describe('Ranger character class', () => {
   });
 });
 
-import { canUnlock, SKILL_NODES, GATES } from '@arena/shared';
+import { canUnlock, SKILL_NODES, GATES, hasKeystone, totalSpentForRanks } from '@arena/shared';
 import type { NodeId } from '@arena/shared';
 
 describe('Archer skill tree nodes', () => {
@@ -119,5 +119,49 @@ describe('Archer utility tree', () => {
       ['archer_utility.combat_roll' as NodeId, 1],
     ]);
     expect(canUnlock('archer_utility.acrobatics' as NodeId, owned)).toBe(true);
+  });
+});
+
+describe('supercharge keystones', () => {
+  const node = (id: string) => SKILL_NODES.find(n => n.id === id)!;
+
+  it('activates strictly past the soft cap', () => {
+    expect(hasKeystone('archer.barrage' as NodeId, 5)).toBe(false);
+    expect(hasKeystone('archer.barrage' as NodeId, 6)).toBe(true);
+    expect(hasKeystone('archer.barrage' as NodeId, 0)).toBe(false);
+  });
+
+  it('every stackable ranger node has keystone metadata', () => {
+    const rangerStackables = SKILL_NODES.filter(n =>
+      (n.tree === 'archer' || n.tree === 'archer_utility') && n.stackable);
+    expect(rangerStackables).toHaveLength(10);
+    for (const n of rangerStackables) {
+      expect(n.keystone, n.id).toBeDefined();
+      expect(n.keystone!.name.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('mage stackables have no keystones yet', () => {
+    expect(hasKeystone('fire.volatile_ember' as NodeId, 99)).toBe(false);
+  });
+
+  it('keystone reach costs match the spec', () => {
+    const reach = (id: string) => {
+      const n = node(id);
+      return totalSpentForRanks(n, n.stackable!.softCap + 1);
+    };
+    expect(reach('archer.barrage')).toBe(13);
+    expect(reach('archer_utility.acrobatics')).toBe(13);
+    expect(reach('archer.burn')).toBe(13);   // requires the softCap 5 → 3 change
+    expect(reach('archer.guided')).toBe(11);
+    expect(reach('archer.homing')).toBe(9);
+  });
+
+  it('element soft caps are 3 with retuned effects', () => {
+    expect(node('archer.burn').stackable).toEqual({ softCap: 3, baseEffect: 12 });
+    expect(node('archer.freeze').stackable).toEqual({ softCap: 3, baseEffect: 0.09 });
+    expect(node('archer.poison').stackable).toEqual({ softCap: 3, baseEffect: 7 });
+    expect(node('archer.homing').stackable).toEqual({ softCap: 3, baseEffect: 6 });
+    expect(node('archer.sustained_rain').stackable).toEqual({ softCap: 5, baseEffect: 0.35 });
   });
 });

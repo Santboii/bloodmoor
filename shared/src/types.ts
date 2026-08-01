@@ -47,13 +47,17 @@ export type PlayerState = {
   burnDps?: number;
   slowUntil?: number;
   slowFactor?: number; // movement speed multiplier while slowed (e.g. 0.7)
+  rootUntil?: number;          // Deep Freeze keystone: move speed 0 while set
+  freezeRootReadyAt?: number;  // per-target ICD gate for the next root
   poisonUntil?: number;
   poisonDps?: number;
   poisonManaReduction?: number; // fraction of mana regen removed
+  poisonManaDrain?: number; // Withering Venom keystone: flat mana/sec while poisoned
   // Shadowstep
   invisibleUntil?: number;
   appearance?: Appearance;
   gear?: GearVisuals;
+  evadeCharges?: number; // Second Wind keystone: remaining evade charges (max 2)
 };
 
 export type Projectile = {
@@ -74,6 +78,9 @@ export type Projectile = {
   // they fly clear of the obstacle/target they spawned on instead of
   // detonating immediately and stacking blasts.
   noHitUntil?: number;
+  redirectCount?: number;   // guided redirects completed (momentum damage rider)
+  relentless?: boolean;     // Guided keystone: unlimited redirects
+  predator?: boolean;       // Predator keystone: leads moving targets
 };
 
 export type FireWallState = {
@@ -102,8 +109,15 @@ export type RainOfArrowsState = {
   target: Vec2;
   radius: number;
   strikeAt: number;
-  sustained?: boolean;
-  piercing?: boolean;
+};
+
+export type EchoVolleyState = {
+  id: string;
+  ownerId: string;
+  fireAt: number;      // server tick
+  angles: number[];    // world-space angles captured at cast
+  damageMin: number;   // already halved
+  damageMax: number;
 };
 
 export type GameState = {
@@ -113,6 +127,7 @@ export type GameState = {
   fireWalls: FireWallState[];
   meteors: MeteorState[];
   rainOfArrows: RainOfArrowsState[];
+  echoVolleys?: EchoVolleyState[];
   phase: 'waiting' | 'countdown' | 'dueling' | 'ended';
   winner: string | null;
   gameMode: GameModeType;
@@ -171,10 +186,23 @@ export const MULTISHOT_SPREAD_5 = Math.PI / 9;
 export const RAIN_DELAY_TICKS = Math.round(0.75 * TICK_RATE);
 export const RAIN_AOE_RADIUS = 70;
 export const RAIN_SUSTAINED_TICKS = 3 * TICK_RATE;
-export const RAIN_DAMAGE_PER_TICK = 30 / TICK_RATE;
+export const RAIN_DAMAGE_PER_TICK = 45 / TICK_RATE;
 export const EVADE_RANGE = 300;
 export const EVADE_DURATION_TICKS = Math.round(0.15 * TICK_RATE);
 export const EVADE_INVULN_TICKS = EVADE_DURATION_TICKS;
+
+// ── Ranger keystone constants (supercharge payoffs) ───────────────────────
+export const GUIDED_MOMENTUM_PER_REDIRECT = 0.05;
+export const ECHO_VOLLEY_DELAY_TICKS = Math.round(0.25 * TICK_RATE); // 15
+export const ECHO_VOLLEY_DAMAGE_RATIO = 0.35;
+export const STORMCALL_DRIFT_SPEED = 60;  // units/sec
+export const EXPOSED_DAMAGE_MULT = 1.15;
+export const TWIN_STORM_RADIUS_RATIO = 0.5;
+export const IGNITE_BURST_DAMAGE = 40;
+export const DEEP_FREEZE_ROOT_TICKS = Math.round(0.4 * TICK_RATE);   // 24
+export const DEEP_FREEZE_COOLDOWN_TICKS = 6 * TICK_RATE;             // 360
+export const WITHERING_VENOM_MANA_DRAIN = 10;  // mana/sec
+export const EVADE_MAX_CHARGES = 2;
 
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },

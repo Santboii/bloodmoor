@@ -747,7 +747,7 @@ scene.startRenderLoop(() => {
         // the gear multiplier here made every player wearing move-speed
         // affixes mispredict every tick and rubber-band continuously on
         // reconcile.
-        const slowMult = (me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1;
+        const slowMult = (me.rootUntil ?? 0) > latest.tick ? 0 : ((me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1);
         opts.speedMult = slowMult * (me.statMults?.moveSpeed ?? 1);
         // Predict teleport locally so it feels instant instead of arriving a
         // round-trip later as a slide. Only when the latest snapshot says the

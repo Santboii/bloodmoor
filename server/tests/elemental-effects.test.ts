@@ -100,6 +100,35 @@ describe('elemental arrow effects', () => {
   });
 });
 
+describe('rain zone element application', () => {
+  it('a freeze ranger\'s rain zone slows players standing in it', () => {
+    const skills = {
+      p1: rangerSkillsWith([['archer.rain_of_arrows', 1], ['archer.freeze', 2]]),
+      p2: new Map<NodeId, number>(),
+    };
+    let state = baseState();
+    // Rain centered on p2; zone spawns after RAIN_DELAY_TICKS, then ticks damage.
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle() }, skills);
+    for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].hp).toBeLessThan(MAX_HP);          // zone damaged them
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect(state.players['p2'].slowFactor).toBeLessThan(1);
+  });
+
+  it('a burn ranger\'s rain zone applies burn', () => {
+    const skills = {
+      p1: rangerSkillsWith([['archer.rain_of_arrows', 1], ['archer.burn', 1]]),
+      p2: new Map<NodeId, number>(),
+    };
+    let state = baseState();
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle() }, skills);
+    for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);
+  });
+});
+
 describe('evade utility skills', () => {
   const evadeCast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 500, y: 1000 } };
 
@@ -182,5 +211,125 @@ describe('fireball blast line of sight and split grace', () => {
     // No stacked blasts hit p2 while the children fly out / die in the pillar.
     for (let i = 0; i < 12; i++) next = advanceState(next, { p1: idle(), p2: idle() });
     expect(next.players['p2'].hp).toBe(hpAfterParentBlast);
+  });
+});
+
+describe('Ignite keystone', () => {
+  it('an arrow hitting a burning target detonates for 40 and re-applies burn', () => {
+    const skills = { p1: rangerSkillsWith([['archer.burn', 4]]), p2: new Map<NodeId, number>() };  // keystone rank
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // burning now
+    const hpAfterFirst = state.players['p2'].hp;
+
+    // Second deterministic arrow: fixed 80 damage so the ignite burst is provable.
+    state.projectiles.push({
+      id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+      position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+      damageMin: 80, damageMax: 80,
+    });
+    const tickBefore = state.tick;
+    let hpBefore = state.players['p2'].hp;
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const burnDps = state.players['p2'].burnDps!;
+    const ticksElapsed = state.tick - tickBefore;
+    const lost = hpBefore - state.players['p2'].hp;
+    // 80 arrow + 40 ignite + burn DoT over the elapsed ticks (±1 tick of DoT slack)
+    expect(lost).toBeGreaterThanOrEqual(120);
+    expect(lost).toBeLessThanOrEqual(120 + burnDps * (ticksElapsed / TICK_RATE) + burnDps / TICK_RATE);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
+  });
+
+  it('caps the burst at one detonation per owner per target per tick, even with two arrows landing together', () => {
+    const skills = { p1: rangerSkillsWith([['archer.burn', 4]]), p2: new Map<NodeId, number>() };  // keystone rank
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // burning now
+
+    // Two deterministic same-owner arrows landing on the same tick — a
+    // stand-in for Multi-shot / Barrage / Echo Volley firing several arrows
+    // in one salvo. Both fixed at 80 damage so the burst cap is provable.
+    state.projectiles.push(
+      {
+        id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+        position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+        damageMin: 80, damageMax: 80,
+      },
+      {
+        id: 'test_arrow_3', ownerId: 'p1', type: 'arrow',
+        position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+        damageMin: 80, damageMax: 80,
+      },
+    );
+    const tickBefore = state.tick;
+    let hpBefore = state.players['p2'].hp;
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const burnDps = state.players['p2'].burnDps!;
+    const ticksElapsed = state.tick - tickBefore;
+    const lost = hpBefore - state.players['p2'].hp;
+    // 2 * 80 arrow damage + exactly ONE 40 ignite burst + burn DoT over the
+    // elapsed ticks (±1 tick of DoT slack). A double-firing burst would push
+    // this to 240+, well past the upper bound.
+    expect(lost).toBeGreaterThanOrEqual(200);
+    expect(lost).toBeLessThanOrEqual(200 + burnDps * (ticksElapsed / TICK_RATE) + burnDps / TICK_RATE);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
+  });
+});
+
+describe('Deep Freeze keystone', () => {
+  const dfSkills = { p1: rangerSkillsWith([['archer.freeze', 4]]), p2: new Map<NodeId, number>() };
+
+  it('first freeze roots the target; the root expires; the 6s ICD blocks re-roots', () => {
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    const p2 = state.players['p2'];
+    expect(p2.rootUntil).toBeGreaterThan(state.tick);
+    expect(p2.freezeRootReadyAt).toBeGreaterThan(state.tick + 5 * TICK_RATE);
+
+    // Rooted: movement input does nothing.
+    const x0 = state.players['p2'].position.x;
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    expect(state.players['p2'].position.x).toBe(x0);
+
+    // After the root expires (0.4s) they can move again, though still slowed.
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    const x1 = state.players['p2'].position.x;
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    expect(state.players['p2'].position.x).toBeGreaterThan(x1);
+
+    // A second freeze inside the ICD refreshes the slow but not the root.
+    state.projectiles.push({
+      id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+      position: { x: state.players['p2'].position.x - 30, y: 1000 }, velocity: { x: 560, y: 0 },
+      damageMin: 60, damageMax: 90,
+    });
+    for (let i = 0; i < 6; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect((state.players['p2'].rootUntil ?? 0) <= state.tick).toBe(true);
+  });
+});
+
+describe('Withering Venom keystone', () => {
+  it('poison past cap drains flat mana on top of the regen cut', () => {
+    const skills = { p1: rangerSkillsWith([['archer.poison', 4]]), p2: new Map<NodeId, number>() };
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const p2 = state.players['p2'];
+    expect(p2.poisonManaDrain).toBe(10);
+
+    // One poisoned tick: regen is cut AND 10/s drains.
+    state.players['p2'].mana = 200;
+    const reduction = p2.poisonManaReduction!;
+    state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const expected = 200 + (18 / TICK_RATE) * (1 - reduction) - 10 / TICK_RATE;
+    expect(state.players['p2'].mana).toBeCloseTo(expected, 5);
+  });
+
+  it('the drain stops when poison expires', () => {
+    const skills = { p1: rangerSkillsWith([['archer.poison', 4]]), p2: new Map<NodeId, number>() };
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    for (let i = 0; i < 5 * TICK_RATE + 2; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].poisonManaDrain).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA } from '@arena/shared';
+import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES } from '@arena/shared';
 import { Minimap } from './Minimap';
 
 // Same Font Awesome glyphs the skill tree uses for these spells' nodes.
@@ -25,10 +25,13 @@ type SlotEntry = {
   slot: HTMLElement;
   cd: HTMLElement;
   cdTime: HTMLElement;
+  pips: HTMLElement;
   lastPct: number;
   lastActive: boolean;
   lastNoMana: boolean;
+  lastCooling: boolean;
   lastCdText: string;
+  lastCharges?: number;
 };
 
 export class HUD {
@@ -82,6 +85,9 @@ export class HUD {
         .spell-slot.nomana .slot-icon{opacity:0.35;filter:saturate(0.2) brightness(1.6) hue-rotate(180deg)}
         .spell-slot.active{box-shadow:inset 0 2px 0 0 rgba(255,255,255,0.08),inset 0 -2px 0 0 rgba(0,0,0,0.45),0 0 0 2px var(--px-accent),0 0 10px rgba(255,179,71,0.55)}
         .spell-slot.active::after{content:'';position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,179,71,0.4);z-index:2;pointer-events:none}
+        .spell-slot .charge-pips{position:absolute;left:3px;top:3px;display:flex;gap:3px;z-index:3}
+        .charge-pips .pip{width:6px;height:6px;background:#3a3d46;box-shadow:0 0 0 1px var(--px-border-dark)}
+        .charge-pips .pip.full{background:#ddb84a}
         /* --- enemy plates --- */
         .hud-enemies{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:7px;align-items:center}
         .hud-enemy-entry{background:var(--px-panel);padding:6px 10px 8px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:opacity .3s}
@@ -145,15 +151,18 @@ export class HUD {
         <i class="fa ${SPELL_ICONS[binding.spell] ?? 'fa-star'} fa-fw slot-icon" style="color:${SPELL_TINTS[binding.spell] ?? 'var(--px-text)'}"></i>
         <span class="slot-key">${binding.key}</span>
         <div class="cd-overlay" style="height:0%"></div>
-        <span class="cd-time"></span>`;
+        <span class="cd-time"></span>
+        <div class="charge-pips"></div>`;
       this.spellsEl.appendChild(slot);
       this.slotEls.set(binding.spell, {
         slot,
         cd: slot.querySelector('.cd-overlay') as HTMLElement,
         cdTime: slot.querySelector('.cd-time') as HTMLElement,
+        pips: slot.querySelector('.charge-pips') as HTMLElement,
         lastPct: 0,
         lastActive: false,
         lastNoMana: false,
+        lastCooling: false,
         lastCdText: '',
       });
     }
@@ -202,8 +211,16 @@ export class HUD {
       const pct = maxCd > 0 ? Math.round((cd / maxCd) * 1000) / 10 : 0;
       if (pct !== entry.lastPct) {
         entry.cd.style.height = `${pct}%`;
-        entry.slot.classList.toggle('cooling', pct > 0);
         entry.lastPct = pct;
+      }
+      // Second Wind keystone: the refill timer runs whenever a charge is
+      // missing, even though a cast is still legal with 1 of 2 charges up.
+      // Gate the "cannot cast" affordance on charges, not the timer's pct.
+      const evadeCharges = key === 8 ? me.evadeCharges : undefined;
+      const cooling = evadeCharges !== undefined ? evadeCharges === 0 : pct > 0;
+      if (cooling !== entry.lastCooling) {
+        entry.slot.classList.toggle('cooling', cooling);
+        entry.lastCooling = cooling;
       }
       const cdText = cd > 0 ? (cd / 60).toFixed(1) : '';
       if (cdText !== entry.lastCdText) {
@@ -214,6 +231,14 @@ export class HUD {
       if (noMana !== entry.lastNoMana) {
         entry.slot.classList.toggle('nomana', noMana);
         entry.lastNoMana = noMana;
+      }
+      if (key === 8) {
+        const charges = me.evadeCharges;
+        if (charges !== entry.lastCharges) {
+          entry.lastCharges = charges;
+          entry.pips.innerHTML = charges === undefined ? '' : Array.from({ length: EVADE_MAX_CHARGES },
+            (_, i) => `<span class="pip${i < charges ? ' full' : ''}"></span>`).join('');
+        }
       }
     }
 
