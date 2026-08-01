@@ -105,7 +105,11 @@ describe('Ranger combat integration', () => {
     const firstVolley = state.projectiles.filter(p => p.type === 'arrow').length;
     expect(state.echoVolleys).toHaveLength(1);
 
-    for (let i = 0; i < 15; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    for (let i = 0; i < 14; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    expect(state.echoVolleys).toHaveLength(1);              // not due yet
+    expect(state.projectiles.filter(p => p.type === 'arrow').length).toBe(firstVolley);
+
+    state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
     const arrows = state.projectiles.filter(p => p.type === 'arrow');
     expect(arrows.length).toBe(firstVolley * 2);           // echo doubled the volley
     expect(state.echoVolleys).toHaveLength(0);             // consumed
