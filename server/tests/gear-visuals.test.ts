@@ -122,11 +122,21 @@ describe('weapon attachment integrity', () => {
     }
   });
 
-  it('grips point at art that exists on disk', () => {
+  it('grips only reference art that exists, and every facing keeps a half', () => {
     for (const [id, grip] of Object.entries(WEAPON_GRIPS)) {
-      for (const src of grip.source) {
-        const file = new URL(`${src}/${grip.anim}.png`, ROOT);
-        expect(existsSync(file), `${id}: missing ${src}/${grip.anim}.png`).toBe(true);
+      for (const [dir, g] of Object.entries(grip.byDir)) {
+        expect(g, `${id}/${dir} has no grip at all`).toBeTruthy();
+        // A weapon is cut in two: what passes behind the body and what passes
+        // in front. Either half may be absent for a facing — the Great Bow
+        // has no behind-the-body draw art — but never both, or the weapon
+        // would vanish for that facing.
+        expect(!!(g!.behind || g!.front), `${id}/${dir} has neither half`).toBe(true);
+        for (const [half, idx] of [[g!.behind, 0], [g!.front, 1]] as const) {
+          if (!half) continue;
+          const src = grip.source[idx];
+          expect(existsSync(new URL(`${src}/${grip.anim}.png`, ROOT)),
+            `${id}/${dir}: grip cites missing ${src}/${grip.anim}.png`).toBe(true);
+        }
       }
     }
   });
@@ -191,11 +201,18 @@ describe('weapon attachment integrity', () => {
             expect(p![1], `${body}/${anim}/${r} y`).toBeGreaterThanOrEqual(0);
             expect(p![1], `${body}/${anim}/${r} y`).toBeLessThan(64);
           });
+          // How far a hand may travel between frames, by how fast the
+          // animation actually moves: a walk barely swings, a run covers real
+          // ground in profile, and a cast or draw snaps the arms in a single
+          // frame. Anything beyond these means the detector latched onto the
+          // other arm — the failure that puts a weapon on the wrong side of
+          // the body.
+          const limit = ['spellcast', 'shoot', 'hurt'].includes(anim) ? 13
+            : anim === 'run' ? 10
+            : 8;
           for (let i = 1; i < row.length; i++) {
             const d = Math.hypot(row[i]![0] - row[i - 1]![0], row[i]![1] - row[i - 1]![1]);
-            // A hand travels a few px per frame. A large jump means the
-            // detector latched onto the other arm.
-            expect(d, `${body}/${anim}/${r} jumps ${d.toFixed(1)}px at frame ${i}`).toBeLessThan(8);
+            expect(d, `${body}/${anim}/${r} jumps ${d.toFixed(1)}px at frame ${i}`).toBeLessThan(limit);
           }
         });
       }

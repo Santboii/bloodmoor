@@ -43,11 +43,10 @@ const FOOT_Y = 53;
 // Max distance an anchor may sit from its row's median before it is treated
 // as a misdetection rather than arm swing.
 const OUTLIER_PX = 12;
-// How much of the hand's per-frame travel the weapon actually follows. At 1
-// the weapon tracks the hand exactly, which in profile swings it behind the
-// torso and hides it; at 0 it is pinned. Part-way keeps the weapon where the
-// artist drew it while still breathing with the animation.
-const FOLLOW = Number(process.env.FOLLOW ?? 0.45);
+// The anchor is the hand, full stop. Anything that damps or re-bases it —
+// both of which were tried — slides the weapon off the grip, and weapon art
+// leaves a hole where the hand closes around it, so a few pixels of drift
+// shows as a visible gap with the weapon in two pieces either side of it.
 
 const load = p => decodePng(readFileSync(`${LPC}/${p}.png`));
 const tryLoad = p => { try { return load(p); } catch { return null; } };
@@ -63,7 +62,14 @@ function skinParts(layers, col, row) {
   for (let i = 0; i < b.length; i++) {
     skin[i] = b[i] && !covered.some(m => m[i]) ? 1 : 0;
   }
-  return components(skin).filter(c => c.size >= 4 && c.cy < FOOT_Y);
+  // Facing away, the weapon hand can be entirely behind the torso, and what
+  // survives the mask is a sliver of midriff at dead centre. Those are not
+  // hands: rejecting them leaves the frame with no detection, which the
+  // neighbour fill then covers, rather than yanking the weapon to the
+  // character's spine for half the cycle.
+  return components(skin)
+    .filter(c => c.size >= 4 && c.cy < FOOT_Y)
+    .filter(c => Math.abs(c.cx - 32) > 3 || c.size >= 12);
 }
 
 /** Union of a weapon's background and foreground art for one frame. */
@@ -171,15 +177,22 @@ const bundle = (parts, anim) => ({
 });
 
 // ---- weapons ----------------------------------------------------------
-// `ref` is the sheet the resting sprite is cut from; `oversize` marks the
-// 128px bow sheets, whose art is normal scale but padded to fit longer arms.
+// `ref` is the sheet the resting sprite is cut from, `frame` which frame of
+// it. Staves rest naturally in their walk art. Bows do not: their carried
+// pose is drawn broadside, which reads as the bow splayed across the
+// character rather than held, so their resting sprite is cut from a frame of
+// the draw where the bow stands upright alongside the body.
+// Frame of the draw where the bow is upright and the archer's hand is on the
+// grip — the closest thing in the art to a bow simply being held.
+const BOW_REST_FRAME = Number(process.env.BOW_REST_FRAME ?? 9);
+
 const WEAPONS = {
   apprentice_staff: { ref: ['weapon/magic/simple/background/simple', 'weapon/magic/simple/foreground/simple'], anim: 'walk' },
   gnarled_staff: { ref: ['weapon/magic/gnarled/universal/background/gnarled', 'weapon/magic/gnarled/universal/foreground/gnarled'], anim: 'walk' },
   archmage_staff: { ref: ['weapon/magic/crystal/universal/background/purple', 'weapon/magic/crystal/universal/foreground/purple'], anim: 'walk' },
-  short_bow: { ref: ['weapon/ranged/bow/normal/walk/background/normal', 'weapon/ranged/bow/normal/walk/foreground/normal'], anim: 'walk', oversize: true, body: 'female' },
-  war_bow: { ref: ['weapon/ranged/bow/recurve/walk/background/recurve', 'weapon/ranged/bow/recurve/walk/foreground/recurve'], anim: 'walk', oversize: true, body: 'female' },
-  great_bow: { ref: ['weapon/ranged/bow/great/walk/background/great', 'weapon/ranged/bow/great/walk/foreground/great'], anim: 'walk', oversize: true, body: 'female' },
+  short_bow: { ref: ['weapon/ranged/bow/normal/universal/background/normal', 'weapon/ranged/bow/normal/universal/foreground/normal'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
+  war_bow: { ref: ['weapon/ranged/bow/recurve/universal/background/recurve', 'weapon/ranged/bow/recurve/universal/foreground/recurve'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
+  great_bow: { ref: ['weapon/ranged/bow/great/universal/background/great', 'weapon/ranged/bow/great/universal/foreground/great'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
 };
 
 const REF = {
@@ -202,6 +215,7 @@ for (const [name, parts] of Object.entries(BODIES)) {
     reference[DIRS[row]] = h ? [h.cx, h.cy] : null;
   }
   report.push(`  ${name}: rest positions ${DIRS.map(d => reference[d] ? `${d}(${reference[d][0].toFixed(0)},${reference[d][1].toFixed(0)})` : `${d}(none)`).join(' ')}`);
+  void reference;
 
   anchors[name] = {};
   for (const [anim, meta] of Object.entries(ANIMS)) {
@@ -253,29 +267,6 @@ for (const [name, parts] of Object.entries(BODIES)) {
       }
       if (filled) interpolated += filled;
 
-      // Re-base onto the reference pose, then damp (see FOLLOW).
-      //
-      // Grips are measured against the reference animation's first frame, so
-      // that is where the weapon sits exactly as the artist drew it. Other
-      // animations hold different average hand positions — a run tucks the
-      // arms in — and using their own average would slide the weapon inside
-      // the body, where a behind-the-body layer disappears entirely. So each
-      // frame contributes only its deviation from its own animation, applied
-      // on top of the reference position.
-      const good = perRow.filter(Boolean);
-      const ref = reference[facing];
-      if (good.length && ref) {
-        const cx = good.reduce((a, p) => a + p[0], 0) / good.length;
-        const cy = good.reduce((a, p) => a + p[1], 0) / good.length;
-        for (let i = 0; i < perRow.length; i++) {
-          const p = perRow[i];
-          if (!p) continue;
-          perRow[i] = [
-            Math.round((ref[0] + (p[0] - cx) * FOLLOW) * 10) / 10,
-            Math.round((ref[1] + (p[1] - cy) * FOLLOW) * 10) / 10,
-          ];
-        }
-      }
       anchors[name][anim].push(perRow);
     }
     if (missing || outliers) {
@@ -303,8 +294,7 @@ for (const [id, spec] of Object.entries(WEAPONS)) {
     source: spec.ref, oversize: !!spec.oversize, anim: spec.anim, byDir: {},
   };
   for (let row = 0; row < 4; row++) {
-    // Frame 0 is LPC's standing pose — the most neutral resting grip.
-    const frame = 0;
+    const frame = spec.frame ?? 0;
     // Measure against the anchor that actually ships, not a fresh detection:
     // the table is damped and re-based, so a raw frame-0 hand sits a couple
     // of pixels away from it and every weapon would hang that far off the
