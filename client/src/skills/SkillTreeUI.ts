@@ -46,52 +46,77 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Stackable effects are stored either as a fraction (0.4 → "40%") or as a
+ *  flat amount (12 → "12"); `baseEffect` says which. */
+function fmtEffect(base: number, v: number): string {
+  return base < 1 ? `${Math.round(v * 100)}%` : v.toFixed(1).replace(/\.0$/, '');
+}
+
 type NodePos = { x: number; y: number };
+
+/**
+ * Vertical pitch between tree rows. It has to clear the tallest node block
+ * (see NODE_BLOCK) plus the 5px the next row's corner badge pokes above its
+ * circle; 74 does that and still lets the deepest tree — fire, 7 rows — fit a
+ * 720px viewport without the page scrolling. Positions below are multiples.
+ */
+const ROW = 74;
 
 const FIRE_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'fire.fireball':        { x: 50, y: 0 },
-  'fire.volatile_ember':  { x: 30, y: 90 },
-  'fire.seeking_flame':   { x: 70, y: 90 },
-  'fire.hellfire':        { x: 30, y: 180 },
-  'fire.pyroclasm':       { x: 70, y: 180 },
-  'fire.fire_wall':       { x: 50, y: 270 },
-  'fire.enduring_flames': { x: 20, y: 360 },
-  'fire.searing_heat':    { x: 50, y: 360 },
-  'fire.inferno_expanse': { x: 80, y: 360 },
-  'fire.meteor':          { x: 50, y: 450 },
-  'fire.molten_impact':   { x: 20, y: 540 },
-  'fire.blind_strike':    { x: 50, y: 540 },
-  'fire.cataclysm':       { x: 80, y: 540 },
+  'fire.volatile_ember':  { x: 30, y: ROW },
+  'fire.seeking_flame':   { x: 70, y: ROW },
+  'fire.hellfire':        { x: 30, y: ROW * 2 },
+  'fire.pyroclasm':       { x: 70, y: ROW * 2 },
+  'fire.fire_wall':       { x: 50, y: ROW * 3 },
+  'fire.enduring_flames': { x: 20, y: ROW * 4 },
+  'fire.searing_heat':    { x: 50, y: ROW * 4 },
+  'fire.inferno_expanse': { x: 80, y: ROW * 4 },
+  'fire.meteor':          { x: 50, y: ROW * 5 },
+  'fire.molten_impact':   { x: 20, y: ROW * 6 },
+  'fire.blind_strike':    { x: 50, y: ROW * 6 },
+  'fire.cataclysm':       { x: 80, y: ROW * 6 },
 };
 
 const UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'utility.teleport':      { x: 50, y: 0 },
-  'utility.phase_shift':   { x: 28, y: 90 },
-  'utility.ethereal_form': { x: 72, y: 90 },
-  'utility.phantom_step':  { x: 50, y: 180 },
+  'utility.phase_shift':   { x: 28, y: ROW },
+  'utility.ethereal_form': { x: 72, y: ROW },
+  'utility.phantom_step':  { x: 50, y: ROW * 2 },
 };
 
 const ARCHER_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'archer.power_shot':      { x: 50, y: 0 },
-  'archer.guided':          { x: 30, y: 90 },
-  'archer.multishot':       { x: 70, y: 90 },
-  'archer.homing':          { x: 30, y: 180 },
-  'archer.barrage':         { x: 70, y: 180 },
-  'archer.rain_of_arrows':  { x: 50, y: 270 },
-  'archer.sustained_rain':  { x: 20, y: 360 },
-  'archer.piercing_rain':   { x: 50, y: 360 },
-  'archer.wide_rain':       { x: 80, y: 360 },
-  'archer.burn':            { x: 25, y: 450 },
-  'archer.freeze':          { x: 50, y: 450 },
-  'archer.poison':          { x: 75, y: 450 },
+  'archer.guided':          { x: 30, y: ROW },
+  'archer.multishot':       { x: 70, y: ROW },
+  'archer.homing':          { x: 30, y: ROW * 2 },
+  'archer.barrage':         { x: 70, y: ROW * 2 },
+  'archer.rain_of_arrows':  { x: 50, y: ROW * 3 },
+  'archer.sustained_rain':  { x: 20, y: ROW * 4 },
+  'archer.piercing_rain':   { x: 50, y: ROW * 4 },
+  'archer.wide_rain':       { x: 80, y: ROW * 4 },
+  'archer.burn':            { x: 25, y: ROW * 5 },
+  'archer.freeze':          { x: 50, y: ROW * 5 },
+  'archer.poison':          { x: 75, y: ROW * 5 },
 };
 
 const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'archer_utility.evade':        { x: 50, y: 0 },
-  'archer_utility.combat_roll':  { x: 28, y: 90 },
-  'archer_utility.shadowstep':   { x: 72, y: 90 },
-  'archer_utility.acrobatics':   { x: 50, y: 180 },
+  'archer_utility.combat_roll':  { x: 28, y: ROW },
+  'archer_utility.shadowstep':   { x: 72, y: ROW },
+  'archer_utility.acrobatics':   { x: 50, y: ROW * 2 },
 };
+
+/** Row count of the deepest branch in each tree, used to size containers. */
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3;
+/** Tallest node block: a spell circle (52) + gap + one-line name, which just
+ *  edges out a mod circle (38) + gap + two-line name. */
+const NODE_BLOCK = 66;
+const treeHeight = (rows: number) => (rows - 1) * ROW + NODE_BLOCK;
+
+/** Height both columns are pinned to — the deepest tree plus its label, so the
+ *  page is exactly as tall for a ranger as for a mage. */
+const WORKSPACE_H = treeHeight(FIRE_ROWS) + 24;
 
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
@@ -106,11 +131,15 @@ const STYLES = `
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .st-col-main{flex:1 1 560px;min-width:480px;max-width:640px;}
-.st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:18px;}
+/* Both columns are pinned to the same workspace height (set inline) so the
+   page height never depends on which class is open or how much the details
+   panel has to say — the panel absorbs the difference by scrolling itself. */
+.st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:16px;}
 .st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
 .st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:8px;}
-.st-tree-container{position:relative;width:100%;height:640px;}
-.st-util-container{position:relative;width:100%;height:280px;}
+.st-tree-container{position:relative;width:100%;}
+.st-util-block{flex:0 0 auto;}
+.st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
 /* ── nodes ──────────────────────────────────────────────────────────── */
 .st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
@@ -118,8 +147,8 @@ const STYLES = `
 .st-node-circle:hover{transform:scale(1.08);}
 .st-node[data-state="locked"] .st-node-circle{cursor:not-allowed;}
 .st-node[data-state="locked"] .st-node-circle:hover{transform:none;}
-.st-node-spell{width:58px;height:58px;}
-.st-node-mod{width:44px;height:44px;}
+.st-node-spell{width:52px;height:52px;}
+.st-node-mod{width:38px;height:38px;}
 .st-node-owned .st-node-circle{box-shadow:0 0 0 3px #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
 .st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 0 3px #e86020,0 0 12px rgba(232,96,32,0.25);}
 .st-node-owned .st-node-icon{color:#e87040;}
@@ -139,9 +168,11 @@ const STYLES = `
 .st-keystone-name{color:#ddb84a;margin-bottom:4px}
 .st-keystone-active{background:rgba(221,184,74,0.14)}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
-.st-node-name{font-family:'Press Start 2P',monospace;font-size:7px;text-align:center;max-width:84px;margin-top:6px;line-height:1.5;}
+/* Wide enough that the longest name ("Rain of Arrows") stays on one line —
+   a wrapped spell name is what used to collide with the badge below it. */
+.st-node-name{font-family:'Press Start 2P',monospace;font-size:7px;text-align:center;max-width:120px;margin-top:4px;line-height:1.35;}
 /* corner badges replace the old cost/rank text rows */
-.st-badge{position:absolute;right:-10px;top:-8px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
+.st-badge{position:absolute;right:-10px;top:-5px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
 .st-badge-cost{color:var(--px-accent);}
 .st-badge-rank{color:#e87040;}
 .st-badge-rank.st-past-cap{color:#ddb84a;}
@@ -149,14 +180,14 @@ const STYLES = `
 .st-flash .st-node-circle{animation:st-buy-flash 0.45s ease-out;}
 @keyframes st-buy-flash{0%{filter:brightness(3) saturate(2);}100%{filter:none;}}
 /* ── details panel ──────────────────────────────────────────────────── */
-.st-details{padding:16px 18px;min-height:300px;box-sizing:border-box;}
-.st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}
-.st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+.st-details{padding:12px 16px;flex:1 1 auto;min-height:0;overflow-y:auto;box-sizing:border-box;}
+.st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:12px;}
+.st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
 .st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .st-details-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);line-height:1.5;}
 .st-details-kind{font-size:14px;color:var(--px-border-light);letter-spacing:0.08em;text-transform:uppercase;}
-.st-details-desc{font-size:17px;line-height:1.45;color:var(--px-text);margin:10px 0;}
-.st-rank-track{display:flex;gap:3px;margin:8px 0;}
+.st-details-desc{font-size:17px;line-height:1.4;color:var(--px-text);margin:7px 0;}
+.st-rank-track{display:flex;gap:3px;margin:6px 0;}
 .st-rank-seg{height:8px;flex:1;background:#1a1b21;box-shadow:inset 0 0 0 1px var(--px-border-dark);}
 .st-rank-seg.filled{background:#e86020;}
 .st-rank-seg.past-cap{background:#ddb84a;}
@@ -165,18 +196,15 @@ const STYLES = `
 .st-req{font-size:15px;line-height:1.6;}
 .st-req .met{color:var(--px-success);}
 .st-req .unmet{color:var(--px-danger);}
-.st-details-status{margin-top:8px;font-size:16px;}
+.st-details-status{margin-top:6px;font-size:16px;}
 .st-status-ok{color:var(--px-success);}
 .st-status-warn{color:var(--px-accent);}
 .st-status-bad{color:var(--px-danger);}
-.st-super-note{margin-top:10px;padding:10px 12px;background:#1a1400;box-shadow:inset 0 0 0 2px #6a5416;font-size:15px;line-height:1.5;color:#ddb84a;}
+.st-super-note{margin-top:8px;padding:8px 10px;background:#1a1400;box-shadow:inset 0 0 0 2px #6a5416;font-size:15px;line-height:1.45;color:#ddb84a;}
 .st-super-note b{color:#f0d060;}
-.st-super-btn{display:block;width:100%;margin-top:10px;padding:10px 0;font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:#1a1400;background:linear-gradient(180deg,#f0d060,#c8a02a);box-shadow:0 -2px 0 0 #f8e090,0 2px 0 0 #806410,-2px 0 0 0 #f8e090,2px 0 0 0 #806410;border:none;font-family:'Press Start 2P',monospace;cursor:pointer;}
-.st-super-btn:hover{filter:brightness(1.1);}
-.st-super-btn:disabled{filter:saturate(0.25) brightness(0.6);cursor:not-allowed;}
-.st-refund-hint{margin-top:8px;font-size:14px;color:var(--px-border-light);}
+.st-refund-hint{margin-top:6px;font-size:14px;color:var(--px-border-light);}
 .st-refund-hint.st-refund-blocked{color:var(--px-danger);opacity:0.85;}
-.st-legend{margin-top:14px;padding-top:12px;border-top:1px solid var(--px-border-dark);display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--px-border-light);}
+.st-legend{margin-top:12px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-direction:column;gap:5px;font-size:14px;color:var(--px-border-light);}
 .st-legend-row{display:flex;align-items:center;gap:8px;}
 .st-legend-swatch{width:12px;height:12px;flex:0 0 12px;}
 /* ── confirm modal (kept for reset + past-cap ranks) ─────────────────── */
@@ -322,7 +350,8 @@ export class SkillTreeUI {
     const mainPositions = isRanger ? ARCHER_POSITIONS : FIRE_POSITIONS;
     const utilPositions = isRanger ? ARCHER_UTIL_POSITIONS : UTIL_POSITIONS;
     const mainLabel = isRanger ? 'Archer' : 'Fire';
-    const mainContainerHeight = isRanger ? '560px' : '640px';
+    const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS)}px`;
+    const utilContainerHeight = `${treeHeight(UTIL_ROWS)}px`;
 
     this.el.innerHTML = `
       <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('st')}</div>
@@ -341,18 +370,18 @@ export class SkillTreeUI {
         </div>
 
         <div class="st-columns">
-          <div class="st-col-main">
+          <div class="st-col-main" style="height:${WORKSPACE_H}px">
             <div class="st-tree-label">${mainLabel}</div>
             <div class="st-tree-container" style="height:${mainContainerHeight}">
               <svg id="st-main-svg" class="st-tree-svg"></svg>
               ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
             </div>
           </div>
-          <div class="st-col-side">
+          <div class="st-col-side" style="height:${WORKSPACE_H}px">
             <div id="st-details" class="st-details px-panel"></div>
-            <div>
+            <div class="st-util-block">
               <div class="st-util-label">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
-              <div class="st-util-container">
+              <div class="st-util-container" style="height:${utilContainerHeight}">
                 <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
                 ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
               </div>
@@ -423,6 +452,9 @@ export class SkillTreeUI {
     const svg = this.el.querySelector(`#${svgId}`) as SVGElement | null;
     if (!svg) return;
 
+    // Lines leave the parent from behind its circle (nodes paint over the
+    // svg), so this stays inside the smaller of the two circle sizes.
+    const STEM = 24;
     let lines = '';
     for (const node of nodes) {
       const gate = GATES[node.id];
@@ -440,14 +472,14 @@ export class SkillTreeUI {
         for (const parentId of gate.requiresAll) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + 30}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + STEM}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}"/>`;
         }
       }
       if (gate.requiresAny) {
         for (const parentId of gate.requiresAny) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + 30}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + STEM}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3"/>`;
         }
       }
     }
@@ -512,14 +544,13 @@ export class SkillTreeUI {
         <div class="st-rank-track">${segs}</div>
       `;
 
-      // "Full" (at or past the soft cap): explain what supercharging gives
-      // in real numbers, and offer it as an explicit gold CTA instead of a
-      // node click — pushing past the cap should be a deliberate act.
+      // "Full" (at or past the soft cap): explain what supercharging gives in
+      // real numbers. Purely informational — the buy happens on the node
+      // click, which routes through a confirm.
       if (currentRank >= cap) {
-        const fmt = (v: number) => base < 1 ? `${Math.round(v * 100)}%` : v.toFixed(1).replace(/\.0$/, '');
+        const fmt = (v: number) => fmtEffect(base, v);
         const now = effectAtRank(base, currentRank);
         const next = effectAtRank(base, currentRank + 1);
-        const cost = rankUpCost(node, currentRank);
         const state = currentRank > cap
           ? `Supercharging is boosting this talent's total effect to <b>${fmt(now)}</b> (base cap is ${fmt(effectAtRank(base, cap))}).`
           : `This talent is at its cap: total effect <b>${fmt(now)}</b>.`;
@@ -528,9 +559,6 @@ export class SkillTreeUI {
             ⚡ ${state}<br>
             Next rank raises it to <b>${fmt(next)}</b> (+${fmt(next - now)}) — each rank past the cap gives less and costs 1 pt more.
           </div>
-          <button id="st-super-btn" class="st-super-btn" ${pts >= cost ? '' : 'disabled'}>
-            ⚡ Supercharge — ${cost} pt${cost > 1 ? 's' : ''}${pts >= cost ? '' : ' (not enough)'}
-          </button>
         `;
       }
     }
@@ -570,16 +598,15 @@ export class SkillTreeUI {
         : `<div class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</div>`;
     }
 
-    // Status / next action line. At/past the cap the gold Supercharge button
-    // is the CTA, so no status line competes with it.
+    // Status / next action line. Every purchase is a node click, so this only
+    // ever states the price — past the cap it just changes what it's called.
     let status = '';
-    if (isOwned && isStackable(node) && currentRank >= node.stackable!.softCap) {
-      status = '';
-    } else if (isOwned && isStackable(node)) {
+    if (isOwned && isStackable(node)) {
       const cost = rankUpCost(node, currentRank);
+      const label = currentRank >= node.stackable!.softCap ? 'Supercharge' : 'Next rank';
       status = pts >= cost
-        ? `<span class="st-status-warn">Next rank costs ${cost} pt${cost > 1 ? 's' : ''} — click to buy</span>`
-        : `<span class="st-status-bad">Next rank costs ${cost} pt${cost > 1 ? 's' : ''} — not enough points</span>`;
+        ? `<span class="st-status-warn">${label} costs ${cost} pt${cost > 1 ? 's' : ''} — click to buy</span>`
+        : `<span class="st-status-bad">${label} costs ${cost} pt${cost > 1 ? 's' : ''} — not enough points</span>`;
     } else if (isOwned) {
       status = `<span class="st-status-ok"><i class="fa fa-check"></i> Owned</span>`;
     } else if (canUnlock(id, this.ranks)) {
@@ -603,15 +630,9 @@ export class SkillTreeUI {
       ${rankTrack}
       ${reqHtml}
       <div class="st-details-status">${status}</div>
-      ${refundLine}
       ${superBlock}
+      ${refundLine}
     `;
-
-    const superBtn = panel.querySelector('#st-super-btn') as HTMLButtonElement | null;
-    if (superBtn && !superBtn.disabled) {
-      const currentRankNow = this.ranks.get(id) ?? 0;
-      superBtn.addEventListener('click', () => this.confirmSupercharge(id, node, currentRankNow));
-    }
   }
 
   private attachNodeListeners(pts: number): void {
@@ -620,8 +641,8 @@ export class SkillTreeUI {
       const node = SKILL_NODES.find(n => n.id === id)!;
 
       // Sticky inspect: the panel keeps showing the last-hovered node (no
-      // mouseleave revert), so the pointer can travel from a node to the
-      // panel's Supercharge button without the button vanishing en route.
+      // mouseleave revert). Nothing in the panel is clickable, so what the
+      // pointer crosses on the way out of the tree doesn't matter.
       el.addEventListener('mouseenter', () => this.renderDetails(id, pts));
 
       el.addEventListener('click', () => {
@@ -631,12 +652,16 @@ export class SkillTreeUI {
         if (!isOwned) {
           const canBuyFirst = canUnlock(id, this.ranks) && pts >= node.cost;
           if (canBuyFirst) { this.handleUnlock(id, node.cost); return; }
-        } else if (isStackable(node) && currentRank < node.stackable!.softCap) {
-          // Below the cap, clicking the node ranks up directly. At/past the
-          // cap the node click only selects — the panel's gold Supercharge
-          // button is the deliberate CTA for past-cap ranks.
+        } else if (isStackable(node)) {
+          // Every rank is bought by clicking the node. Past the soft cap the
+          // price climbs and the payoff shrinks, so those go through a confirm
+          // rather than spending points on a stray click.
           const cost = rankUpCost(node, currentRank);
-          if (pts >= cost) { this.buyNode(id, cost, currentRank + 1); return; }
+          if (pts >= cost) {
+            if (currentRank >= node.stackable!.softCap) this.confirmSupercharge(id, node, currentRank, cost);
+            else this.buyNode(id, cost, currentRank + 1);
+            return;
+          }
         }
         // Not buyable from the node: select it so the panel pins its details.
         this.el.querySelectorAll('.st-node-selected').forEach(n => n.classList.remove('st-node-selected'));
@@ -650,6 +675,24 @@ export class SkillTreeUI {
         this.refundNode(id, node);
       });
     });
+  }
+
+  /** Past-cap ranks cost 1 pt more each time and give diminishing returns, so
+   *  they name their price before spending anything. */
+  private confirmSupercharge(id: NodeId, node: SkillNode, currentRank: number, cost: number): void {
+    const base = node.stackable!.baseEffect;
+    const now = effectAtRank(base, currentRank);
+    const next = effectAtRank(base, currentRank + 1);
+    const text = [
+      `${node.name} — rank ${currentRank + 1}`,
+      `Costs ${cost} pt${cost > 1 ? 's' : ''}. You have ${this.skillPoints}.`,
+      `Total effect ${fmtEffect(base, now)} → ${fmtEffect(base, next)} (+${fmtEffect(base, next - now)}).`,
+      'Each rank past the cap costs 1 pt more and gives less.',
+      ...(node.keystone && currentRank === node.stackable!.softCap
+        ? [`Unlocks keystone: ${node.keystone.name} — ${node.keystone.description}`]
+        : []),
+    ].join('\n\n');
+    this.showConfirm('Supercharge', text, () => this.buyNode(id, cost, currentRank + 1));
   }
 
   /**
@@ -680,18 +723,6 @@ export class SkillTreeUI {
 
   private handleUnlock(id: NodeId, cost: number): void {
     this.buyNode(id, cost, 1);
-  }
-
-  private confirmSupercharge(id: NodeId, node: SkillNode, currentRank: number): void {
-    const cost = rankUpCost(node, currentRank);
-    const text = [
-      `${node.name}: Rank ${currentRank} → ${currentRank + 1}`,
-      `Cost: ${cost} pt${cost > 1 ? 's' : ''} — each rank past the cap gives less and costs 1 pt more.`,
-      ...(node.keystone && currentRank === node.stackable!.softCap
-        ? [`Unlocks keystone: ${node.keystone.name} — ${node.keystone.description}`]
-        : []),
-    ].join('\n');
-    this.showConfirm('Supercharge', text, () => this.buyNode(id, cost, currentRank + 1));
   }
 
   /**
