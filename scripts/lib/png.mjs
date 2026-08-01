@@ -87,7 +87,7 @@ export function decodePng(buf) {
         out[o + 3] = trns && idx < trns.length ? trns[idx] : 255;
       } else if (colorType === 6 || colorType === 2) {
         const n = colorType === 6 ? 4 : 3;
-        out[o] = sample(y, x * n) * (depth === 16 ? 1 : 1);
+        out[o] = sample(y, x * n);
         out[o + 1] = sample(y, x * n + 1);
         out[o + 2] = sample(y, x * n + 2);
         out[o + 3] = n === 4 ? sample(y, x * n + 3) : 255;

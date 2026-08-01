@@ -182,8 +182,6 @@ export const ITEM_BASES: ItemBase[] = [
     ], nativeAnims: ['shoot'] },
   },
   // The Great Bow's background layer has no shoot sheet upstream either — its
-  // fallbacks resolve to nothing (loadImage returns null) and that layer is
-  // skipped for idle/walk/run, exactly as it already is today.
   {
     id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs',
     classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },

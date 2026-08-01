@@ -104,7 +104,7 @@ function renderFrame(layers, body, anim, dirRow, frame) {
     let buf = null;
     if (img) {
       buf = cut(img, frame, row);
-    } else if (layer.weapon && WEAPON_GRIPS[layer.weapon]) {
+    } else if (layer.weapon && !layer.weaponNativeAnims?.includes(anim) && WEAPON_GRIPS[layer.weapon]) {
       const grip = WEAPON_GRIPS[layer.weapon];
       const dir = DIRS[meta.singleRow ? 2 : dirRow];
       const g = grip.byDir[dir];

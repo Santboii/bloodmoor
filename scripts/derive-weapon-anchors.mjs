@@ -115,13 +115,6 @@ function learnWeaponSide(layers, refSheets, refAnim) {
   return side;
 }
 
-/** The weapon hand for one frame: the learned end of the hands, left to right. */
-function weaponHand(layers, col, row, side) {
-  const hands = skinParts(layers, col, row).sort((a, b) => a.cx - b.cx);
-  if (hands.length === 0) return null;
-  return side === 'right' ? hands[hands.length - 1] : hands[0];
-}
-
 /**
  * Anchors for one animation row, tracked through time.
  *
@@ -219,7 +212,11 @@ for (const [name, parts] of Object.entries(BODIES)) {
     let interpolated = 0;
     let outliers = 0;
     for (let row = 0; row < meta.rows; row++) {
-      const tracked = trackRow(layers, row, meta.frames, side[DIRS[row]]);
+      // A single-row animation faces the camera, whatever its row index is —
+      // the runtime attaches it with the `down` grip, so it must be tracked
+      // with the `down` hand too.
+      const facing = DIRS[meta.singleRow ? 2 : row];
+      const tracked = trackRow(layers, row, meta.frames, side[facing]);
       const perRow = tracked.map(h => {
         if (!h) { missing++; return null; }
         return [Math.round(h.cx * 10) / 10, Math.round(h.cy * 10) / 10];
@@ -266,7 +263,7 @@ for (const [name, parts] of Object.entries(BODIES)) {
       // frame contributes only its deviation from its own animation, applied
       // on top of the reference position.
       const good = perRow.filter(Boolean);
-      const ref = reference[DIRS[row]];
+      const ref = reference[facing];
       if (good.length && ref) {
         const cx = good.reduce((a, p) => a + p[0], 0) / good.length;
         const cy = good.reduce((a, p) => a + p[1], 0) / good.length;
@@ -308,8 +305,13 @@ for (const [id, spec] of Object.entries(WEAPONS)) {
   for (let row = 0; row < 4; row++) {
     // Frame 0 is LPC's standing pose — the most neutral resting grip.
     const frame = 0;
-    const hand = trackRow(layers, row, ANIMS[spec.anim].frames, side[DIRS[row]])[frame];
-    if (!hand) { grips[id].byDir[DIRS[row]] = null; continue; }
+    // Measure against the anchor that actually ships, not a fresh detection:
+    // the table is damped and re-based, so a raw frame-0 hand sits a couple
+    // of pixels away from it and every weapon would hang that far off the
+    // grip in profile.
+    const shipped = anchors[bodyName]?.[spec.anim]?.[row]?.[frame];
+    if (!shipped) { grips[id].byDir[DIRS[row]] = null; continue; }
+    const hand = { cx: shipped[0], cy: shipped[1] };
 
     // Keep the artist's own depth split: the background sheet holds the part
     // of the weapon that passes behind the body and the foreground sheet the

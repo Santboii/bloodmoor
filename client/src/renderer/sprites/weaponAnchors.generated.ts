@@ -1459,8 +1459,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       18
      ],
      "offset": [
-      -0.7,
-      -22.1
+      -0.9,
+      -22
      ]
     },
     "front": {
@@ -1471,8 +1471,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       10
      ],
      "offset": [
-      -0.7,
-      -0.1
+      -0.9,
+      0
      ]
     }
    },
@@ -1486,8 +1486,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       36
      ],
      "offset": [
-      -5.6,
-      -18.8
+      -3,
+      -18.7
      ]
     },
     "front": null
@@ -1518,8 +1518,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       36
      ],
      "offset": [
-      -2.4,
-      -18.8
+      -5,
+      -18.7
      ]
     },
     "front": null
@@ -1544,8 +1544,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       19
      ],
      "offset": [
-      -5.7,
-      -22.1
+      -5.9,
+      -22
      ]
     },
     "front": {
@@ -1556,8 +1556,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       10
      ],
      "offset": [
-      -1.7,
-      -0.1
+      -1.9,
+      0
      ]
     }
    },
@@ -1571,8 +1571,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       32
      ],
      "offset": [
-      -5.6,
-      -17.8
+      -3,
+      -17.7
      ]
     },
     "front": null
@@ -1603,8 +1603,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       32
      ],
      "offset": [
-      -5.4,
-      -17.8
+      -8,
+      -17.7
      ]
     },
     "front": null
@@ -1629,8 +1629,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       10
      ],
      "offset": [
-      -2.7,
-      -21.1
+      -2.9,
+      -21
      ]
     },
     "front": null
@@ -1645,8 +1645,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       10
      ],
      "offset": [
-      -2.6,
-      -19.8
+      0,
+      -19.7
      ]
     },
     "front": null
@@ -1677,8 +1677,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       10
      ],
      "offset": [
-      -1.4,
-      -19.8
+      -4,
+      -19.7
      ]
     },
     "front": null
@@ -1703,8 +1703,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       27
      ],
      "offset": [
-      -12.9,
-      -20.7
+      -13.2,
+      -20.3
      ]
     },
     "front": null
@@ -1719,8 +1719,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       23
      ],
      "offset": [
-      -16,
-      -19.5
+      -13.3,
+      -19.6
      ]
     },
     "front": null
@@ -1735,8 +1735,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      -4.9,
-      -21.3
+      -5.1,
+      -21.2
      ]
     },
     "front": {
@@ -1747,8 +1747,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       16
      ],
      "offset": [
-      -22.9,
-      -10.3
+      -23.1,
+      -10.2
      ]
     }
    },
@@ -1762,8 +1762,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       23
      ],
      "offset": [
-      -25,
-      -19.5
+      -27.7,
+      -19.6
      ]
     },
     "front": null
@@ -1788,8 +1788,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       29
      ],
      "offset": [
-      -16.9,
-      -21.7
+      -17.2,
+      -21.3
      ]
     },
     "front": null
@@ -1804,8 +1804,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      -20,
-      -17.5
+      -17.3,
+      -17.6
      ]
     },
     "front": null
@@ -1820,8 +1820,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       23
      ],
      "offset": [
-      -1.9,
-      -20.3
+      -2.1,
+      -20.2
      ]
     },
     "front": {
@@ -1832,8 +1832,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       22
      ],
      "offset": [
-      -24.9,
-      -12.3
+      -25.1,
+      -12.2
      ]
     }
    },
@@ -1847,8 +1847,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      -24,
-      -17.5
+      -26.7,
+      -17.6
      ]
     },
     "front": null
@@ -1873,8 +1873,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       30
      ],
      "offset": [
-      -16.9,
-      -22.7
+      -17.2,
+      -22.3
      ]
     },
     "front": null
@@ -1889,8 +1889,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      -22,
-      -18.5
+      -19.3,
+      -18.6
      ]
     },
     "front": null
@@ -1905,8 +1905,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      1.1,
-      -22.3
+      0.9,
+      -22.2
      ]
     },
     "front": {
@@ -1917,8 +1917,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       20
      ],
      "offset": [
-      -27.9,
-      -11.3
+      -28.1,
+      -11.2
      ]
     }
    },
@@ -1932,8 +1932,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       24
      ],
      "offset": [
-      -27,
-      -18.5
+      -29.7,
+      -18.6
      ]
     },
     "front": null

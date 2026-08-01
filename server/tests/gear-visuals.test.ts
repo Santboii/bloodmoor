@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { HAND_ANCHORS, WEAPON_GRIPS } from '../../client/src/renderer/sprites/weaponAnchors.generated.ts';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
   layersForLoadout, gearVisualsFor, layersFor,
-  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS, LPC_ANIMATIONS,
+  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS,
 } from '@arena/shared';
 import type { Appearance, GearVisuals, ItemRow, LpcAnimation } from '@arena/shared';
 
@@ -151,19 +150,35 @@ describe('weapon attachment integrity', () => {
     }
   });
 
-  it('only claims native art for animations the weapon actually ships', () => {
+  it('only claims native art where the weapon actually ships it', () => {
     const ROOT_URL = new URL('../../client/public/assets/lpc/', import.meta.url);
+    // Upstream draws the Great Bow's `shoot` with no behind-the-body half —
+    // that half is only ever visible facing away, so it simply is not there.
+    // The renderer draws nothing for it rather than attaching a resting bow,
+    // which would show a drawn and an undrawn bow at the same time. Any gap
+    // NOT listed here is a new one and should fail.
+    const KNOWN_GAPS = new Set([
+      'weapon/ranged/bow/great/universal/background/great/shoot',
+    ]);
+    let checked = 0;
     for (const w of weapons) {
       for (const anim of w.lpc!.nativeAnims ?? []) {
-        // A native animation with no sheet would silently draw nothing —
-        // the attachment path is skipped for animations declared native.
-        const found = w.lpc!.layers.some(l => {
+        const missing: string[] = [];
+        for (const l of w.lpc!.layers) {
           const path = l.path.replace('{body}', 'female').replace('{legs}', 'thin');
-          return existsSync(new URL(`${path}/${anim}.png`, ROOT_URL));
-        });
-        expect(found, `${w.id} declares native ${anim} but ships no sheet`).toBe(true);
+          checked++;
+          if (!existsSync(new URL(`${path}/${anim}.png`, ROOT_URL))) missing.push(`${path}/${anim}`);
+        }
+        // Something must draw, or declaring the animation native is a no-op
+        // that silently removes the weapon.
+        expect(missing.length, `${w.id}: no layer ships native ${anim}`)
+          .toBeLessThan(w.lpc!.layers.length);
+        for (const m of missing) {
+          expect(KNOWN_GAPS.has(m), `${w.id}: unexpected missing native sheet ${m}`).toBe(true);
+        }
       }
     }
+    expect(checked, 'no native animations were checked').toBeGreaterThan(0);
   });
 
   it('keeps anchors inside the frame and moving smoothly', () => {

@@ -44,8 +44,15 @@ export async function compositeAppearance(
     // attached to the character's hand instead. Upstream ships no `run` art
     // for any weapon and `idle` for only one, so this is the general case,
     // not an edge case.
+    // Never mix the two within one weapon: if this animation is drawn from
+    // the weapon's own art, a layer whose sheet is missing draws nothing at
+    // all. Upstream's Great Bow has no behind-the-body art for `shoot`, and
+    // attaching a resting bow there would show the drawn and undrawn poses
+    // at the same time.
     const attaching = layers.map((l, i) =>
-      images[i] === null && hasAttachment(l.weapon) ? l : null);
+      images[i] === null && !l.weaponNativeAnims?.includes(anim) && hasAttachment(l.weapon)
+        ? l
+        : null);
     const attachSources = await Promise.all(
       attaching.map(l => (l
         ? Promise.all(attachmentSources(l.weapon!).map(p => loadImage(`/assets/lpc/${p}.png`)))
