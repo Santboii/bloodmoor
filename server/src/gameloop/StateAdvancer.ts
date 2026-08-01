@@ -11,7 +11,7 @@ import {
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
-import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
+import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
@@ -455,6 +455,13 @@ export function advanceState(
               players[moved.ownerId]?.teamId !== undefined &&
               players[moved.ownerId].teamId === player.teamId;
             const ownerAM = rangerMods[moved.ownerId];
+            // Ignite keystone: hitting an already-burning target detonates the burn.
+            if (ownerAM && ownerAM.element === 'burn' && ownerAM.elemental.burn.ignite &&
+                (next.burnUntil ?? 0) > tick && next.hp > 0 && !sameTeam) {
+              next.hp = Math.max(0, next.hp - IGNITE_BURST_DAMAGE * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
+              next.burnUntil = undefined;
+              next.burnDps = undefined;
+            }
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
               const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;
               applyElementStatus(next, ownerAM, atkDamageMult, tick);

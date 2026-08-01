@@ -213,3 +213,30 @@ describe('fireball blast line of sight and split grace', () => {
     expect(next.players['p2'].hp).toBe(hpAfterParentBlast);
   });
 });
+
+describe('Ignite keystone', () => {
+  it('an arrow hitting a burning target detonates for 40 and re-applies burn', () => {
+    const skills = { p1: rangerSkillsWith([['archer.burn', 4]]), p2: new Map<NodeId, number>() };  // keystone rank
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // burning now
+    const hpAfterFirst = state.players['p2'].hp;
+
+    // Second deterministic arrow: fixed 80 damage so the ignite burst is provable.
+    state.projectiles.push({
+      id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+      position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+      damageMin: 80, damageMax: 80,
+    });
+    const tickBefore = state.tick;
+    let hpBefore = state.players['p2'].hp;
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const burnDps = state.players['p2'].burnDps!;
+    const ticksElapsed = state.tick - tickBefore;
+    const lost = hpBefore - state.players['p2'].hp;
+    // 80 arrow + 40 ignite + burn DoT over the elapsed ticks (±1 tick of DoT slack)
+    expect(lost).toBeGreaterThanOrEqual(120);
+    expect(lost).toBeLessThanOrEqual(120 + burnDps * (ticksElapsed / TICK_RATE) + burnDps / TICK_RATE);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
+  });
+});
