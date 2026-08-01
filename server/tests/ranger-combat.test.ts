@@ -143,4 +143,24 @@ describe('Ranger combat integration', () => {
     const dmgPastCap = 750 - hpPastCap;
     expect(dmgPastCap).toBeGreaterThan(dmgAtCap * 1.12);
   });
+
+  it('Stormcall: rain zone drifts toward the enemy with sustained_rain past cap', () => {
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer.rain_of_arrows' as NodeId, 1],
+      ['archer.sustained_rain' as NodeId, 6],   // keystone rank
+    ]);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
+    // Let the zone spawn, then drift for 30 ticks.
+    for (let i = 0; i < 75; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    const zone = state.fireWalls.find(fw => fw.id.startsWith('rain_zone_'));
+    expect(zone).toBeDefined();
+    expect(zone!.center!.x).toBeGreaterThan(1000);   // moved toward p2 at x=1800
+  });
 });

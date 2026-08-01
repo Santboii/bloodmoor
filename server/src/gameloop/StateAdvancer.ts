@@ -6,6 +6,7 @@ import {
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
+  STORMCALL_DRIFT_SPEED, DELTA,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
@@ -509,6 +510,27 @@ export function advanceState(
 
   // 4. Fire wall / rain zone damage
   fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
+  fireWalls = fireWalls.map(fw => {
+    if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
+    if (!rangerMods[fw.ownerId]?.rain.stormcall) return fw;
+    let nearest: PlayerState | undefined;
+    let nearestDist = Infinity;
+    for (const other of Object.values(players)) {
+      if (other.id === fw.ownerId || other.hp <= 0) continue;
+      if ((other.invisibleUntil ?? 0) > tick) continue;
+      if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[fw.ownerId]?.teamId) continue;
+      const d = (other.position.x - fw.center!.x) ** 2 + (other.position.y - fw.center!.y) ** 2;
+      if (d < nearestDist) { nearestDist = d; nearest = other; }
+    }
+    if (!nearest) return fw;
+    const dx = nearest.position.x - fw.center!.x;
+    const dy = nearest.position.y - fw.center!.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const step = STORMCALL_DRIFT_SPEED * DELTA;
+    if (len <= step) return { ...fw, center: { ...nearest.position } };
+    return { ...fw, center: { x: fw.center!.x + (dx / len) * step, y: fw.center!.y + (dy / len) * step } };
+  });
   for (const fw of fireWalls) {
     const isRainZone = fw.id.startsWith('rain_zone_');
     const widthMult = isRainZone ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
