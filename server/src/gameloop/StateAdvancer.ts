@@ -5,11 +5,11 @@ import {
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
-  ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO,
+  ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState, EchoVolleyState } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
@@ -44,6 +44,16 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
     target.poisonDps = el.poison.damagePerSecond * atkDamageMult;
     target.poisonManaReduction = el.poison.manaRegenReduction;
   }
+}
+
+/** Exposed keystone: 1.15 when the target stands in one of the owner's rain
+ *  zones, else 1. */
+function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null, targetPos: Vec2, fireWalls: FireWallState[]): number {
+  if (!ownerAM?.rain.exposed) return 1;
+  const inZone = fireWalls.some(fw =>
+    fw.shape === 'circle' && fw.id.startsWith('rain_zone_') && fw.ownerId === ownerId &&
+    (targetPos.x - fw.center!.x) ** 2 + (targetPos.y - fw.center!.y) ** 2 <= (fw.radius! + PLAYER_HALF_SIZE) ** 2);
+  return inZone ? EXPOSED_DAMAGE_MULT : 1;
 }
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
@@ -420,7 +430,7 @@ export function advanceState(
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
-            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * momentum * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * momentum * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode) * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls)) };
             // Elemental arrows apply the shooter's status effect on hit —
             // but never full-strength slows/DoTs on teammates (friendly fire
             // is deliberately reduced; a full 2s slow would undercut that).
@@ -508,6 +518,7 @@ export function advanceState(
         if (!invuln) {
           const dmg = isRainZone
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
+                * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {

@@ -117,4 +117,30 @@ describe('Ranger combat integration', () => {
     expect(echoArrow.damageMin).toBe(20);                  // 40 × 0.5
     expect(echoArrow.damageMax).toBe(30);                  // 60 × 0.5
   });
+
+  it('Exposed: rain zone ticks hit 15% harder with piercing_rain past cap', () => {
+    const mk = (piercingRank: number) => {
+      const skills = new Map<NodeId, number>([
+        ['archer.power_shot' as NodeId, 1],
+        ['archer.rain_of_arrows' as NodeId, 1],
+        ['archer.piercing_rain' as NodeId, piercingRank],
+      ]);
+      let state = makeInitialState([
+        { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+        { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
+      ]);
+      const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+      const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+      state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
+      for (let i = 0; i < 60; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+      return state.players['p2'].hp;
+    };
+    const hpAtCap = mk(3);
+    const hpPastCap = mk(4);
+    // Past-cap zone: slightly higher damageMultiplier AND the 1.15 Exposed
+    // multiplier — meaningfully more damage than the rank-3 zone.
+    const dmgAtCap = 750 - hpAtCap;
+    const dmgPastCap = 750 - hpPastCap;
+    expect(dmgPastCap).toBeGreaterThan(dmgAtCap * 1.12);
+  });
 });
