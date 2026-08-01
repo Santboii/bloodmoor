@@ -2,15 +2,10 @@
 // skills.ts (SKILL_NODES) / appearance.ts: typed manifests + validators +
 // pure functions, consumed by the server (roll authority) and client (UI).
 import type { CharacterClass } from './types.js';
+import type { LpcAnimation } from './appearance.js';
 import { MAX_HP, MAX_MANA } from './types.js';
 import type { NodeId, SkillTree } from './skills.js';
 import { SKILL_NODES } from './skills.js';
-import type { GearLayerFallback, LpcAnimation } from './appearance.js';
-
-// Re-exported for callers that import the fallback shape via items.js —
-// defined in appearance.ts (see there for why).
-export type { GearLayerFallback };
-
 export type ItemRarity = 'basic' | 'magic' | 'rare' | 'unique';
 export type ItemBaseSlot = 'weapon' | 'helmet' | 'armor' | 'leggings' | 'ring' | 'amulet';
 export type EquipSlot = 'weapon' | 'helmet' | 'armor' | 'leggings' | 'ring1' | 'ring2' | 'amulet';
@@ -26,15 +21,20 @@ export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node
  * layersForLoadout substitutes from the wearer's appearance. */
 export type GearLayer = {
   path: string; z: number; tint?: string; tintMode?: 'fabric';
-  /** Animations this layer has no sheet for. Upstream ships no `run` art
-   *  for any weapon, no 64px `walk` for bows, and no `spellcast` for the
-   *  gnarled and crystal staves — see sheet_definitions/weapons upstream. */
-  fallbacks?: Partial<Record<LpcAnimation, GearLayerFallback>>;
+  /** Which side of the body a weapon layer draws on; set on weapons only. */
+  weaponRole?: 'behind' | 'front';
 };
 export type ItemBaseLpc = {
   layers: GearLayer[];
   /** Full helms that would clip badly with above-head hair. */
   hidesHair?: boolean;
+  /** Animations drawn from the weapon's own sheets rather than by attaching
+   *  its resting sprite to the hand. Reserved for animations where the weapon
+   *  is actually being used and changes shape — a bow bends as it is drawn.
+   *  Everywhere else the hand attachment reads better, because the sheets
+   *  were authored to sweep the weapon through a pose rather than keep it in
+   *  the grip. Omitted means "attach for every animation". */
+  nativeAnims?: LpcAnimation[];
 };
 
 export type ItemBase = {
@@ -114,28 +114,17 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  * class-agnostic accessory slots and, separately, one weapon per class —
  * Phase 2's drop rolls and the admin grant tool pick bases by band.
  */
-// Shared fallback tables for the weapon bases below — upstream ships no
-// `run` art for any weapon, so every staff/bow borrows its `walk`/`shoot`
-// pose for idle and run. Source of truth for what each weapon actually has:
-// sheet_definitions/weapons/**.json in the LPC generator repo, whose
-// `animations` arrays are: simple staff [spellcast, thrust, walk, hurt];
-// gnarled/crystal staves [walk, hurt, thrust_oversize]; all bows
-// [walk, shoot, hurt, walk_128] — where bow `walk` is served only by the
-// 128px oversize sheets this 64px pipeline can't consume.
-const STAFF_IDLE_RUN_FALLBACKS: Partial<Record<LpcAnimation, GearLayerFallback>> = {
-  idle: { from: 'walk', mode: 'hold' },
-  run: { from: 'walk', mode: 'cycle' },
-};
-
-// Bows ship no 64px `walk` art at all (their only walk art is a 128px
-// oversize sheet, incompatible with this project's 64px pipeline — see
-// commit 20fbca4), so idle/walk/run all borrow the drawn-bow `shoot` pose.
-const BOW_FALLBACKS: Partial<Record<LpcAnimation, GearLayerFallback>> = {
-  idle: { from: 'shoot', mode: 'hold' },
-  walk: { from: 'shoot', mode: 'hold' },
-  run: { from: 'shoot', mode: 'hold' },
-};
-
+// Weapon layers carry `weaponRole` because a weapon is drawn twice: once
+// behind the body and once in front, so it can cross the character correctly
+// depending on which way they face.
+//
+// Where a weapon has no sheet for an animation, the renderer attaches its
+// resting sprite to the character's hand instead (see weaponAttach.ts).
+// That is not an optimisation — it is the only way to cover every animation.
+// Per sheet_definitions/weapons/**.json upstream, no weapon in the entire LPC
+// set has `run` art and only one has `idle`; the staves here ship
+// [walk, hurt] (plus spellcast for the simple staff) and the bows ship
+// [walk_128, shoot, hurt], where that walk art is a 128px oversize sheet.
 export const ITEM_BASES: ItemBase[] = [
   { id: 'leather_cap', slot: 'helmet', name: 'Leather Cap', icon: 'fa-helmet-safety', itemLevel: 1, implicit: { id: 'max_health', value: 15 }, lpc: { layers: [{ path: 'hat/cloth/leather_cap/adult/leather', z: 60 }] } },
   { id: 'iron_helm', slot: 'helmet', name: 'Iron Helm', icon: 'fa-helmet-safety', itemLevel: 7, implicit: { id: 'max_health', value: 60 }, lpc: { layers: [{ path: 'hat/helmet/barbuta/{body}', z: 60 }], hidesHair: true } },
@@ -153,54 +142,24 @@ export const ITEM_BASES: ItemBase[] = [
     id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake',
     classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 },
     lpc: { layers: [
-      { path: 'weapon/magic/simple/background/simple', z: 5, fallbacks: STAFF_IDLE_RUN_FALLBACKS },
-      { path: 'weapon/magic/simple/foreground/simple', z: 70, fallbacks: STAFF_IDLE_RUN_FALLBACKS },
+      { path: 'weapon/magic/simple/background/simple', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/magic/simple/foreground/simple', z: 70, weaponRole: 'front' },
     ] },
   },
   {
     id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake',
     classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 },
     lpc: { layers: [
-      {
-        path: 'weapon/magic/gnarled/universal/background/gnarled', z: 5,
-        fallbacks: {
-          ...STAFF_IDLE_RUN_FALLBACKS,
-          spellcast: { from: 'spellcast', path: 'weapon/magic/simple/background/simple', mode: 'cycle' },
-        },
-      },
-      {
-        path: 'weapon/magic/gnarled/universal/foreground/gnarled', z: 70,
-        fallbacks: {
-          ...STAFF_IDLE_RUN_FALLBACKS,
-          spellcast: { from: 'spellcast', path: 'weapon/magic/simple/foreground/simple', mode: 'cycle' },
-        },
-      },
+      { path: 'weapon/magic/gnarled/universal/background/gnarled', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/magic/gnarled/universal/foreground/gnarled', z: 70, weaponRole: 'front' },
     ] },
   },
   {
     id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake',
     classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },
     lpc: { layers: [
-      {
-        path: 'weapon/magic/crystal/universal/background/purple', z: 5,
-        fallbacks: {
-          ...STAFF_IDLE_RUN_FALLBACKS,
-          spellcast: {
-            from: 'spellcast', path: 'weapon/magic/simple/background/simple', mode: 'cycle',
-            tint: '#8a5fc4', tintMode: 'fabric',
-          },
-        },
-      },
-      {
-        path: 'weapon/magic/crystal/universal/foreground/purple', z: 70,
-        fallbacks: {
-          ...STAFF_IDLE_RUN_FALLBACKS,
-          spellcast: {
-            from: 'spellcast', path: 'weapon/magic/simple/foreground/simple', mode: 'cycle',
-            tint: '#8a5fc4', tintMode: 'fabric',
-          },
-        },
-      },
+      { path: 'weapon/magic/crystal/universal/background/purple', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/magic/crystal/universal/foreground/purple', z: 70, weaponRole: 'front' },
     ] },
   },
   // fa-bow-arrow is Font Awesome PRO — not present in the free 6.5.0 bundle
@@ -210,17 +169,17 @@ export const ITEM_BASES: ItemBase[] = [
     id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs',
     classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 },
     lpc: { layers: [
-      { path: 'weapon/ranged/bow/normal/universal/background/normal', z: 5, fallbacks: BOW_FALLBACKS },
-      { path: 'weapon/ranged/bow/normal/universal/foreground/normal', z: 70, fallbacks: BOW_FALLBACKS },
-    ] },
+      { path: 'weapon/ranged/bow/normal/universal/background/normal', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/ranged/bow/normal/universal/foreground/normal', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['shoot'] },
   },
   {
     id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs',
     classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 },
     lpc: { layers: [
-      { path: 'weapon/ranged/bow/recurve/universal/background/recurve', z: 5, fallbacks: BOW_FALLBACKS },
-      { path: 'weapon/ranged/bow/recurve/universal/foreground/recurve', z: 70, fallbacks: BOW_FALLBACKS },
-    ] },
+      { path: 'weapon/ranged/bow/recurve/universal/background/recurve', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/ranged/bow/recurve/universal/foreground/recurve', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['shoot'] },
   },
   // The Great Bow's background layer has no shoot sheet upstream either — its
   // fallbacks resolve to nothing (loadImage returns null) and that layer is
@@ -229,9 +188,9 @@ export const ITEM_BASES: ItemBase[] = [
     id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs',
     classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },
     lpc: { layers: [
-      { path: 'weapon/ranged/bow/great/universal/background/great', z: 5, fallbacks: BOW_FALLBACKS },
-      { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70, fallbacks: BOW_FALLBACKS },
-    ] },
+      { path: 'weapon/ranged/bow/great/universal/background/great', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['shoot'] },
   },
 ];
 

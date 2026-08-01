@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
+import { HAND_ANCHORS, WEAPON_GRIPS } from '../../client/src/renderer/sprites/weaponAnchors.generated.ts';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
   layersForLoadout, gearVisualsFor, layersFor,
-  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS,
+  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS, LPC_ANIMATIONS,
 } from '@arena/shared';
 import type { Appearance, GearVisuals, ItemRow, LpcAnimation } from '@arena/shared';
 
@@ -102,52 +104,86 @@ describe('layersForLoadout', () => {
   });
 });
 
-describe('weapon fallback manifest integrity', () => {
-  // Flatten every (base, layer, targetAnim, fallback) declared across the
-  // catalog once, so each assertion below is checked against the same list
-  // and a broken donor path fails the specific case, not just a count.
-  const declared = ITEM_BASES.flatMap(base =>
-    (base.lpc?.layers ?? []).flatMap(layer =>
-      Object.entries(layer.fallbacks ?? {}).map(([anim, fb]) => ({
-        base, layer, anim: anim as LpcAnimation, fb: fb!,
-      }))));
+describe('weapon attachment integrity', () => {
+  const ROOT = new URL('../../client/public/assets/lpc/', import.meta.url);
+  const weapons = ITEM_BASES.filter(b => b.slot === 'weapon' && b.lpc);
 
-  it('found fallback entries to check (guards against a vacuously-passing test)', () => {
-    expect(declared.length).toBeGreaterThan(0);
-  });
-
-  // The Great Bow's background layer has no shoot.png upstream either (its
-  // universal/background/great dir ships only hurt.png) — its idle/walk/run
-  // fallbacks are declared uniformly with the other bows anyway (per the
-  // brief: "do not special-case it") and are expected to resolve to nothing
-  // at runtime, exactly like today. This is the one documented exception to
-  // "every donor sheet exists"; anything else missing here is a data bug.
-  const KNOWN_MISSING_DONORS = new Set([
-    'weapon/ranged/bow/great/universal/background/great/shoot.png',
-  ]);
-
-  it('every declared fallback donor sheet exists on disk, except the one documented upstream gap', () => {
-    for (const { base, layer, anim, fb } of declared) {
-      const donorRel = `${fb.path ?? layer.path}/${fb.from}.png`;
-      if (KNOWN_MISSING_DONORS.has(donorRel)) continue;
-      const donorPath = path.join(LPC_ROOT, donorRel);
-      expect(existsSync(donorPath), `${base.id}: ${layer.path} fallback[${anim}] → ${donorPath} missing`).toBe(true);
+  it('covers every weapon base', () => {
+    expect(weapons.length).toBe(6);
+    for (const w of weapons) {
+      expect(WEAPON_GRIPS[w.id], `no grip derived for ${w.id}`).toBeTruthy();
     }
   });
 
-  it('every donor row shape matches the animation it stands in for', () => {
-    for (const { base, layer, anim, fb } of declared) {
-      expect(
-        LPC_ANIMATIONS[fb.from].singleRow,
-        `${base.id}: ${layer.path} fallback[${anim}] borrows '${fb.from}' (singleRow=${LPC_ANIMATIONS[fb.from].singleRow}) for '${anim}' (singleRow=${LPC_ANIMATIONS[anim].singleRow})`,
-      ).toBe(LPC_ANIMATIONS[anim].singleRow);
+  it('tags both depth roles on every weapon, so it can cross the body', () => {
+    for (const w of weapons) {
+      const roles = w.lpc!.layers.map(l => l.weaponRole);
+      expect(roles, w.id).toContain('behind');
+      expect(roles, w.id).toContain('front');
     }
   });
 
-  it('no fallback is declared for an animation the layer already has a sheet for', () => {
-    for (const { base, layer, anim } of declared) {
-      const ownPath = path.join(LPC_ROOT, layer.path, `${anim}.png`);
-      expect(existsSync(ownPath), `${base.id}: ${layer.path} declares a dead fallback for '${anim}' — its own sheet already exists`).toBe(false);
+  it('grips point at art that exists on disk', () => {
+    for (const [id, grip] of Object.entries(WEAPON_GRIPS)) {
+      for (const src of grip.source) {
+        const file = new URL(`${src}/${grip.anim}.png`, ROOT);
+        expect(existsSync(file), `${id}: missing ${src}/${grip.anim}.png`).toBe(true);
+      }
+    }
+  });
+
+  it('has a grip and a hand anchor for every facing and frame', () => {
+    for (const [id, grip] of Object.entries(WEAPON_GRIPS)) {
+      const dirs = Object.values(grip.byDir).filter(Boolean);
+      expect(dirs.length, `${id} is missing facings`).toBe(4);
+    }
+    for (const body of Object.keys(HAND_ANCHORS)) {
+      for (const [anim, rows] of Object.entries(HAND_ANCHORS[body])) {
+        const meta = LPC_ANIMATIONS[anim as keyof typeof LPC_ANIMATIONS];
+        expect(rows.length, `${body}/${anim} rows`).toBe(meta.singleRow ? 1 : 4);
+        for (const row of rows) {
+          expect(row.length, `${body}/${anim} frames`).toBe(meta.frames);
+          // Every slot resolved: the derivation fills occlusion gaps from
+          // neighbouring frames so the renderer never has to guess.
+          expect(row.every(p => p !== null), `${body}/${anim} has an empty slot`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('only claims native art for animations the weapon actually ships', () => {
+    const ROOT_URL = new URL('../../client/public/assets/lpc/', import.meta.url);
+    for (const w of weapons) {
+      for (const anim of w.lpc!.nativeAnims ?? []) {
+        // A native animation with no sheet would silently draw nothing —
+        // the attachment path is skipped for animations declared native.
+        const found = w.lpc!.layers.some(l => {
+          const path = l.path.replace('{body}', 'female').replace('{legs}', 'thin');
+          return existsSync(new URL(`${path}/${anim}.png`, ROOT_URL));
+        });
+        expect(found, `${w.id} declares native ${anim} but ships no sheet`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps anchors inside the frame and moving smoothly', () => {
+    for (const body of Object.keys(HAND_ANCHORS)) {
+      for (const [anim, rows] of Object.entries(HAND_ANCHORS[body])) {
+        rows.forEach((row, r) => {
+          row.forEach(p => {
+            expect(p![0], `${body}/${anim}/${r} x`).toBeGreaterThanOrEqual(0);
+            expect(p![0], `${body}/${anim}/${r} x`).toBeLessThan(64);
+            expect(p![1], `${body}/${anim}/${r} y`).toBeGreaterThanOrEqual(0);
+            expect(p![1], `${body}/${anim}/${r} y`).toBeLessThan(64);
+          });
+          for (let i = 1; i < row.length; i++) {
+            const d = Math.hypot(row[i]![0] - row[i - 1]![0], row[i]![1] - row[i - 1]![1]);
+            // A hand travels a few px per frame. A large jump means the
+            // detector latched onto the other arm.
+            expect(d, `${body}/${anim}/${r} jumps ${d.toFixed(1)}px at frame ${i}`).toBeLessThan(8);
+          }
+        });
+      }
     }
   });
 });

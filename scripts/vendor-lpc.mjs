@@ -56,6 +56,17 @@ const LAYERS = [
   // correct degradation: compositeAppearance skips drawing a layer with no
   // sheet for the current animation, and iconFor's ANIM_PREFERENCE falls
   // through past the missing walk to a compatible sheet (shoot).
+  // Bow resting-pose art. Upstream only draws a bow at rest in its 128px
+  // "oversize" walk sheets — the bow itself is normal scale (~40x27px), the
+  // frame is just padded. The attachment system cuts the resting sprite from
+  // these; nothing composites them as whole sheets, so their size is expected
+  // rather than a defect (see OVERSIZE_LAYERS below).
+  'weapon/ranged/bow/normal/walk/background/normal',
+  'weapon/ranged/bow/normal/walk/foreground/normal',
+  'weapon/ranged/bow/recurve/walk/background/recurve',
+  'weapon/ranged/bow/recurve/walk/foreground/recurve',
+  'weapon/ranged/bow/great/walk/background/great',
+  'weapon/ranged/bow/great/walk/foreground/great',
   'weapon/ranged/bow/normal/universal/background/normal',
   'weapon/ranged/bow/normal/universal/foreground/normal',
   'weapon/ranged/bow/recurve/universal/background/recurve',
@@ -70,6 +81,11 @@ function candidates(layer, anim) {
   const parts = layer.split('/');
   const color = parts[parts.length - 1];
   const dir = parts.slice(0, -1).join('/');
+  // Oversize layers encode the animation in the path itself and end in a bare
+  // <color>.png. This form is deliberately NOT offered to ordinary layers: it
+  // ignores `anim`, and when it was available to everything it silently
+  // matched a 128px sheet for a 64px slot.
+  if (OVERSIZE_LAYERS.has(layer)) return [`${BASE}/${layer}.png`];
   return [
     `${BASE}/${dir}/${anim}/${color}.png`, // colored layout
     `${BASE}/${layer}/${anim}.png`,        // plain layout
@@ -81,6 +97,18 @@ function candidates(layer, anim) {
 // : 256 tall). A sheet in any other format silently clips or smears when
 // compositeAppearance draws it onto a 64px canvas (see the bow `walk`
 // incident this gate exists to catch) — so any mismatch is a hard failure.
+// Layers whose sheets are legitimately 128px-framed (see the bow note above).
+// Everything not listed here must match the 64px universal layout exactly.
+const OVERSIZE_LAYERS = new Set([
+  'weapon/ranged/bow/normal/walk/background/normal',
+  'weapon/ranged/bow/normal/walk/foreground/normal',
+  'weapon/ranged/bow/recurve/walk/background/recurve',
+  'weapon/ranged/bow/recurve/walk/foreground/recurve',
+  'weapon/ranged/bow/great/walk/background/great',
+  'weapon/ranged/bow/great/walk/foreground/great',
+]);
+const OVERSIZE_DIMS = { walk: [1024, 512] };
+
 const EXPECTED_DIMS = {
   walk:      { w: 9 * 64,  h: 4 * 64 },
   run:       { w: 8 * 64,  h: 4 * 64 },
@@ -101,7 +129,10 @@ let ok = 0, missing = [];
 const badDims = [];
 const saved = new Set(); // `${layer}/${anim}` for every sheet actually written to disk
 for (const layer of LAYERS) {
-  for (const anim of ANIMS) {
+  // Oversize layers exist for one animation only; asking for the rest would
+  // refetch the same file and trip the dimension gate on every miss.
+  const animsForLayer = OVERSIZE_LAYERS.has(layer) ? Object.keys(OVERSIZE_DIMS) : ANIMS;
+  for (const anim of animsForLayer) {
     const dest = join(OUT, layer, `${anim}.png`);
     let wasSaved = false;
     let wasBadDims = false;
@@ -110,7 +141,10 @@ for (const layer of LAYERS) {
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
         const { width, height } = pngDimensions(buf);
-        const expected = EXPECTED_DIMS[anim];
+        const oversize = OVERSIZE_LAYERS.has(layer) && OVERSIZE_DIMS[anim];
+        const expected = oversize
+          ? { w: OVERSIZE_DIMS[anim][0], h: OVERSIZE_DIMS[anim][1] }
+          : EXPECTED_DIMS[anim];
         if (width !== expected.w || height !== expected.h) {
           badDims.push(`${layer}/${anim}: got ${width}x${height}, expected ${expected.w}x${expected.h} (${url})`);
           wasBadDims = true;

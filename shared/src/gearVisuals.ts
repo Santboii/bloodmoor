@@ -56,7 +56,12 @@ export function layersForLoadout(a: Appearance, gear: GearVisuals): LpcLayer[] {
       layers = layers.filter(l => l.z !== ABOVE_HEAD_HAIR_Z);
     }
     for (const gl of base.lpc.layers) {
-      layers.push({ path: substitute(gl.path, a), z: gl.z, tint: gl.tint, tintMode: gl.tintMode, fallbacks: gl.fallbacks });
+      layers.push({
+        path: substitute(gl.path, a), z: gl.z, tint: gl.tint, tintMode: gl.tintMode,
+        ...(slot === 'weapon'
+          ? { weapon: base.id, weaponRole: gl.weaponRole, weaponNativeAnims: base.lpc.nativeAnims ?? [] }
+          : {}),
+      });
     }
   }
   return layers.sort((x, y) => x.z - y.z);

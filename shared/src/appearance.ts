@@ -36,32 +36,15 @@ export type Appearance = {
  */
 export type LpcLayer = {
   path: string; z: number; tint?: string; tintMode?: 'skin' | 'fabric';
-  fallbacks?: Partial<Record<LpcAnimation, GearLayerFallback>>;
+  /** Item base id, on weapon layers only — the renderer uses it to look up
+   *  the hand-attachment grip for animations with no weapon art. */
+  weapon?: string;
+  /** Which side of the body this weapon layer draws on. */
+  weaponRole?: 'behind' | 'front';
+  /** Animations this weapon draws from its own sheet; all others attach. */
+  weaponNativeAnims?: LpcAnimation[];
 };
 
-/** A layer's sheet donor for an animation it has no art of its own for —
- * defined here (not items.ts) because it references LpcAnimation and both
- * GearLayer and LpcLayer need it; items.ts re-exports it. Generalizes what
- * began as a hardcoded idle-from-walk case in the compositor: upstream
- * ships no run art for any weapon, no spellcast for the gnarled/crystal
- * staves, and no 64px walk for bows, so those animations borrow frames
- * rather than dropping the weapon layer entirely. */
-export type GearLayerFallback = {
-  /** Animation whose sheet supplies the frames. */
-  from: LpcAnimation;
-  /** Sheet to borrow from when it isn't this layer's own — the gnarled and
-   *  crystal staves have no spellcast art of their own and borrow the
-   *  simple staff's. */
-  path?: string;
-  /** 'hold' freezes the donor's first frame across the whole animation;
-   *  'cycle' advances with the target animation, clamped to the donor's
-   *  last frame. */
-  mode: 'hold' | 'cycle';
-  /** Tint applied to borrowed frames only, so a borrowed model still reads
-   *  as this item's colour. */
-  tint?: string;
-  tintMode?: 'fabric';
-};
 
 /** Color names → tint hex for base-color LPC sheets (multiply tinting). */
 export const LPC_TINTS: Record<string, string> = {
