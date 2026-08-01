@@ -65,6 +65,9 @@ collection, licensed CC-BY-SA 3.0 / OGA-BY 3.0 / GPL 3.0. Per-file authors and
 license details are vendored at `client/public/assets/lpc/CREDITS.csv` (the
 generator's full collection) and `CREDITS.filtered.csv` (just the sheets this
 game ships, served in-app via the "Credits" button on the lobby home screen).
+Sound effects and ambience are CC0/CC-BY sourced samples (Kenney, OpenGameArt,
+Freesound), credited at `client/public/assets/audio/CREDITS.csv` and in the
+same in-app Credits screen.
 
 ---
 

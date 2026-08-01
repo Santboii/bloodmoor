@@ -23,14 +23,35 @@ import { LoadingScreen } from './loading/LoadingScreen';
 import type { NavContext, NavKey } from './ui/navBar';
 import { injectPixelTheme } from './ui/pixelTheme';
 import { CreditsScreen } from './ui/CreditsScreen';
+import { SettingsPopover } from './audio/settingsPopover';
+import { audio } from './audio/AudioEngine';
+import * as sfx from './audio/sfx';
+import { setScene, setDueling } from './audio/ambience';
+import { initSampleBank } from './audio/sampleBank';
 
 injectPixelTheme();
+
+audio.installUnlockListener();
+setScene('hall');
+initSampleBank();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
 
+// One delegated listener covers every button in the app: all clickable
+// chrome shares the px-btn / bm-nav-tab / bm-acct-item classes. Capture
+// phase so screens that stopPropagation still make a sound.
+uiOverlay.addEventListener('click', (e) => {
+  const btn = (e.target as Element | null)?.closest?.('.px-btn, .bm-acct-item');
+  if (!btn) return;
+  const kind = sfx.uiSoundForClasses(btn.className);
+  if (kind === 'tab') sfx.playUiTab();
+  else if (kind === 'click') sfx.playUiClick();
+}, true);
+
 const loadingScreen = new LoadingScreen(uiOverlay);
 const creditsScreen = new CreditsScreen(uiOverlay);
+const settingsPopover = new SettingsPopover(uiOverlay);
 
 const scene = new Scene(container);
 
@@ -191,6 +212,7 @@ function navContext(): NavContext {
 const navAccountHandlers = {
   onCredits: () => { void creditsScreen.show(); },
   onLogout: () => { void handleLogout(); },
+  onSettings: () => { settingsPopover.show(); },
 };
 
 /** Sign out and return to the auth screen. Shared by the lobby's account
@@ -198,6 +220,7 @@ const navAccountHandlers = {
 async function handleLogout(): Promise<void> {
     try { await supabase.auth.signOut(); } catch { /* proceed anyway */ }
     stopGame();
+    setScene('hall');
     accessToken = '';
     activeCharacter = null;
     activeGear = {};
@@ -475,6 +498,7 @@ const lobby = new LobbyUI(uiOverlay, {
   onReady: () => socket.ready(),
   onRematch: () => socket.rematch(),
   onReturnToLobby: () => {
+    setScene('hall');
     stopGame();
     socket.disconnect();
     handlersRegistered = false;
@@ -499,6 +523,7 @@ const lobby = new LobbyUI(uiOverlay, {
     void creditsScreen.show();
   },
   onOpenAdmin: () => { void openSection('admin'); },
+  onOpenSettings: () => { settingsPopover.show(); },
 });
 lobby.hide();
 
@@ -506,11 +531,13 @@ function setupSocketHandlers(_myDisplayName: string): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
 
-  socket.onChatMessage(({ senderId, displayName, text }) =>
-    lobby.appendChatMessage(senderId, displayName, text)
-  );
+  socket.onChatMessage(({ senderId, displayName, text }) => {
+    if (senderId !== myId) sfx.playChatTick();
+    lobby.appendChatMessage(senderId, displayName, text);
+  });
 
   socket.onPlayerJoined(({ id, displayName }) => {
+    sfx.playPlayerJoin();
     allPlayerNames[id] = displayName;
     currentPlayers[id] = displayName;
     lobby.showReady(currentRoomId, currentPlayers, myId, currentMode, readyPlayers);
@@ -539,7 +566,12 @@ function setupSocketHandlers(_myDisplayName: string): void {
     const now = performance.now();
     stateBuffer.push(state, now);
     for (const [id, p] of Object.entries(state.players)) {
-      if (p.castingSpell !== null) pendingCastAnim.add(id);
+      if (p.castingSpell !== null) {
+        pendingCastAnim.add(id);
+        // Cast audio fires here, not in the render loop — the same one-tick
+        // latch reasoning as the animation (see pendingCastAnim above).
+        sfx.playCast(p.castingSpell);
+      }
     }
 
     if (!predictor && state.players[myId]) {
@@ -667,6 +699,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
   });
 
   socket.onRoomNotFound(() => {
+    setScene('hall');
     renderLobbyHome();
     void refreshGold();
   });
@@ -692,6 +725,9 @@ function startGame(): void {
     : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
   hud.buildSpellSlots(slotSpells);
   hud.show();
+  setScene('arena');
+  setDueling(true);
+  sfx.playDuelBegin();
   lobby.hide();
 }
 
@@ -704,6 +740,7 @@ function stopGame(): void {
   for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
   playerMeshes.clear();
   hud.hide();
+  setDueling(false);
   stateBuffer.clear();
   // A killing-blow cast latched on the final tick must not survive into a
   // rematch, whose startGame() path bypasses onGameState's clear.
@@ -737,6 +774,16 @@ scene.startRenderLoop(() => {
   while (inputAccumulator >= INPUT_STEP_MS) {
     inputAccumulator -= INPUT_STEP_MS;
     const frame = inputHandler.buildInputFrame();
+    // Cast attempted without the mana: the server will silently ignore it,
+    // so give local feedback. Cooldown-blocked casts stay silent — the
+    // grayed slot already communicates those.
+    if (frame.castSpell) {
+      const me = stateBuffer.getLatest()?.players[myId];
+      if (me && me.hp > 0 && (me.cooldowns[frame.castSpell] ?? 0) <= 0
+          && me.mana < SPELL_CONFIG[frame.castSpell].manaCost) {
+        sfx.playNoMana();
+      }
+    }
     if (predictor) {
       const latest = stateBuffer.getLatest();
       const me = latest?.players[myId];

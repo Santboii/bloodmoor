@@ -3,11 +3,11 @@ import { accountMenuItems, skillsBadge, heroMetaHtml } from '../src/lobby/LobbyU
 
 describe('accountMenuItems', () => {
   it('orders switch, credits, then sign out for non-admins', () => {
-    expect(accountMenuItems(false).map(i => i.id)).toEqual(['credits', 'logout']);
+    expect(accountMenuItems(false).map(i => i.id)).toEqual(['credits', 'settings', 'logout']);
   });
 
   it('slots admin before sign out for admins', () => {
-    expect(accountMenuItems(true).map(i => i.id)).toEqual(['credits', 'admin', 'logout']);
+    expect(accountMenuItems(true).map(i => i.id)).toEqual(['credits', 'admin', 'settings', 'logout']);
   });
 });
 

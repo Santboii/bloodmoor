@@ -1,0 +1,41 @@
+file,title,author,source_url,license
+sfx/ui_click.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/ui_tab.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/denied.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/player_join.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/cooldown_ready.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/no_mana.mp3,Interface Sounds,Kenney,https://kenney.nl/assets/interface-sounds,CC0
+sfx/chat.mp3,RPG Audio,Kenney,https://kenney.nl/assets/rpg-audio,CC0
+sfx/purchase.mp3,RPG Audio,Kenney,https://kenney.nl/assets/rpg-audio,CC0
+sfx/sell.mp3,RPG Audio,Kenney,https://kenney.nl/assets/rpg-audio,CC0
+sfx/equip.mp3,RPG Audio,Kenney,https://kenney.nl/assets/rpg-audio,CC0
+sfx/unequip.mp3,RPG Audio,Kenney,https://kenney.nl/assets/rpg-audio,CC0
+sfx/cast_bow.mp3,RPG Sound Package (bow.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/gold_gain.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/skill_spend.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/drop_sting.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/cast_fire.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/cast_firewall.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/cast_meteor.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/cast_rain.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/fireball_whoosh.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/death.mp3,80 CC0 RPG SFX,rubberduck,https://opengameart.org/content/80-cc0-rpg-sfx,CC0
+sfx/fireball_explode.mp3,25 CC0 bang / firework SFX,rubberduck,https://opengameart.org/content/25-cc0-bang-firework-sfx,CC0
+sfx/meteor_fall.mp3,25 CC0 bang / firework SFX,rubberduck,https://opengameart.org/content/25-cc0-bang-firework-sfx,CC0
+sfx/meteor_impact.mp3,25 CC0 bang / firework SFX,rubberduck,https://opengameart.org/content/25-cc0-bang-firework-sfx,CC0
+sfx/rain_impact.mp3,Impact Sounds,Kenney,https://kenney.nl/assets/impact-sounds,CC0
+sfx/hit_taken.mp3,Impact Sounds,Kenney,https://kenney.nl/assets/impact-sounds,CC0
+sfx/hit_dealt.mp3,Impact Sounds,Kenney,https://kenney.nl/assets/impact-sounds,CC0
+sfx/countdown.mp3,Impact Sounds,Kenney,https://kenney.nl/assets/impact-sounds,CC0
+sfx/duel_begin.mp3,Music Jingles,Kenney,https://kenney.nl/assets/music-jingles,CC0
+sfx/victory.mp3,Music Jingles,Kenney,https://kenney.nl/assets/music-jingles,CC0
+sfx/defeat.mp3,Music Jingles,Kenney,https://kenney.nl/assets/music-jingles,CC0
+sfx/arrow_shot.mp3,RPG Sound Package (bow.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/rain_volley.mp3,RPG Sound Package (missing_arrow.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/evade.mp3,RPG Sound Package (swing.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/teleport.mp3,RPG Sound Package (teleport.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/level_up.mp3,RPG Sound Package (levelup.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+sfx/firewall_loop.mp3,RPG Sound Package (fireplace.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+amb/hall_torch.mp3,RPG Sound Package (fireplace.wav),Reemax / Tuomo Untinen,https://opengameart.org/content/rpg-sound-package,CC-BY 3.0
+amb/hall_base.mp3,Loopable Dungeon Ambience,JaggedStone,https://opengameart.org/content/loopable-dungeon-ambience,CC0
+amb/arena_wind.mp3,Wind Loop,"Jonathan Shaw (InspectorJ), loop by AntumDeluge",https://opengameart.org/content/wind-loop,CC-BY 3.0

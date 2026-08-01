@@ -2,7 +2,8 @@
 // LPC art requires attribution (CC-BY-SA / OGA-BY / GPL). Renders the vendored
 // CREDITS.filtered.csv (rows scoped to the sheets we ship — the upstream
 // generator's full CREDITS.csv is ~3.9MB and must not be fetched at runtime),
-// inside a pixel-theme overlay.
+// inside a pixel-theme overlay. Also renders the audio sample credits (CC0/
+// CC-BY sfx and ambience) from client/public/assets/audio/CREDITS.csv.
 export class CreditsScreen {
   private el: HTMLElement;
 
@@ -17,6 +18,12 @@ export class CreditsScreen {
           (lpc.opengameart.org), licensed CC-BY-SA 3.0 / OGA-BY 3.0 / GPL 3.0.
         </div>
         <pre id="credits-body" style="font-family:'VT323',monospace;font-size:16px;white-space:pre-wrap;max-height:50vh;overflow-y:auto"></pre>
+        <div class="px-title" style="margin:20px 0 12px">Audio Credits</div>
+        <div style="font-family:'VT323',monospace;font-size:18px;line-height:1.5;margin-bottom:12px">
+          Sound effects and ambience are sourced samples (Kenney, OpenGameArt,
+          Freesound contributors), licensed CC0 / CC-BY 3.0.
+        </div>
+        <pre id="audio-credits-body" style="font-family:'VT323',monospace;font-size:16px;white-space:pre-wrap;max-height:50vh;overflow-y:auto"></pre>
         <button id="credits-close" class="px-btn" style="margin-top:16px">Close</button>
       </div>`;
     container.appendChild(this.el);
@@ -33,6 +40,16 @@ export class CreditsScreen {
         body.textContent = formatCredits(await res.text());
       } catch {
         body.textContent = 'Credits file missing — see client/public/assets/lpc/CREDITS.csv';
+      }
+    }
+    const audioBody = this.el.querySelector('#audio-credits-body')!;
+    if (!audioBody.textContent) {
+      try {
+        const res = await fetch('/assets/audio/CREDITS.csv');
+        if (!res.ok) throw new Error(`audio credits fetch failed: ${res.status}`);
+        audioBody.textContent = formatAudioCredits(await res.text());
+      } catch {
+        audioBody.textContent = 'Credits file missing — see client/public/assets/audio/CREDITS.csv';
       }
     }
   }
@@ -63,5 +80,14 @@ function formatCredits(csv: string): string {
   return lines
     .map(parseCsvRow)
     .map(([filename, , authors, licenses]) => `${filename} — ${authors?.trim()} (${licenses?.trim()})`)
+    .join('\n\n');
+}
+
+// file,title,author,source_url,license -> "file — author, title (license)" per row.
+function formatAudioCredits(csv: string): string {
+  const lines = csv.split('\n').filter(l => l.trim().length > 0).slice(1);
+  return lines
+    .map(parseCsvRow)
+    .map(([file, title, author, , license]) => `${file} — ${author?.trim()}, ${title?.trim()} (${license?.trim()})`)
     .join('\n\n');
 }

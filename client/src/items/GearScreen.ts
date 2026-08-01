@@ -9,6 +9,7 @@ import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
+import * as sfx from '../audio/sfx';
 import { iconCellAttrs, applyItemIcons } from './itemIcon';
 import { SpritePreview } from '../renderer/sprites/SpritePreview';
 
@@ -293,6 +294,7 @@ export class GearScreen {
       onNavigate: (key) => this.hide(key),
       onCredits: () => this.navHandlers.onCredits(),
       onLogout: () => this.navHandlers.onLogout(),
+      onSettings: () => this.navHandlers.onSettings(),
     });
     this.attachItemListeners();
     applyItemIcons(this.el);
@@ -385,6 +387,7 @@ export class GearScreen {
    */
   private equipOptimistic(item: ItemRow, targetSlot: EquipSlot): void {
     if (!this.characterId) return;
+    sfx.playEquip();
     const characterId = this.characterId;
 
     for (const other of this.items) {
@@ -405,6 +408,7 @@ export class GearScreen {
   }
 
   private handleUnequip(item: ItemRow): void {
+    sfx.playUnequip();
     item.equipped_by = null;
     item.equipped_slot = null;
     this.selectedId = item.id;
@@ -529,6 +533,7 @@ export class GearScreen {
     const price = state.price;
 
     const run = async (): Promise<void> => {
+      sfx.playSell();
       this.sellPending.add(item.id);
       this.sellErrorById.delete(item.id);
       const priorItems = this.items;
