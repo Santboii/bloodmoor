@@ -76,6 +76,49 @@ describe('Ranger combat integration', () => {
     expect(next.players['p1'].invulnUntil).toBeGreaterThan(0);
   });
 
+  it('Second Wind: two evade charges, refilling on the cooldown', () => {
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer_utility.evade' as NodeId, 1],
+      ['archer_utility.shadowstep' as NodeId, 1],
+      ['archer_utility.acrobatics' as NodeId, 4],   // keystone rank
+    ]);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 500, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const evade: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 900, y: 1000 } };
+    const sk = { p1: skills, p2: new Map<NodeId, number>() };
+
+    state = advanceState(state, { p1: idle, p2: idle }, sk);
+    expect(state.players['p1'].evadeCharges).toBe(2);      // stamped lazily
+
+    state = advanceState(state, { p1: evade, p2: idle }, sk);
+    expect(state.players['p1'].evadeCharges).toBe(1);
+    const cdAfterFirst = state.players['p1'].cooldowns[8]!;
+    expect(cdAfterFirst).toBeGreaterThan(0);
+
+    // Wait out the dash (9 ticks), then cast again immediately — the second
+    // charge works even though the refill timer is still running.
+    for (let i = 0; i < 10; i++) state = advanceState(state, { p1: idle, p2: idle }, sk);
+    state = advanceState(state, { p1: evade, p2: idle }, sk);
+    expect(state.players['p1'].evadeCharges).toBe(0);
+
+    // Third cast is blocked at zero charges (dash finished, mana is plenty).
+    for (let i = 0; i < 10; i++) state = advanceState(state, { p1: idle, p2: idle }, sk);
+    const posBefore = { ...state.players['p1'].position };
+    state = advanceState(state, { p1: evade, p2: idle }, sk);
+    expect(state.players['p1'].evadeCharges).toBe(0);
+    expect(state.players['p1'].position).toEqual(posBefore);
+
+    // When the refill timer elapses, a charge comes back and the timer restarts
+    // (still one charge missing).
+    for (let i = 0; i < 90; i++) state = advanceState(state, { p1: idle, p2: idle }, sk);
+    expect(state.players['p1'].evadeCharges).toBe(1);
+    expect(state.players['p1'].cooldowns[8]).toBeGreaterThan(0);
+  });
+
   it('Ranger cannot cast Fireball (spell 1)', () => {
     const state = makeInitialState([
       { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },

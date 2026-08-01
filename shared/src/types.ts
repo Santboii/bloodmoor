@@ -55,6 +55,7 @@ export type PlayerState = {
   // Shadowstep
   invisibleUntil?: number;
   appearance?: Appearance;
+  evadeCharges?: number; // Second Wind keystone: remaining evade charges (max 2)
 };
 
 export type Projectile = {

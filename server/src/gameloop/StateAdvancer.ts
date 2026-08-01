@@ -3,7 +3,7 @@ import {
   SPELL_CONFIG, MANA_REGEN_PER_TICK, TICK_RATE,
   FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
   DUEL_MODE,
-  ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
+  ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS, EVADE_MAX_CHARGES,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
@@ -182,10 +182,21 @@ export function advanceState(
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
+    const secondWind = !!rangerMods[id]?.evade.secondWind;
+    let evadeCharges = secondWind ? (p.evadeCharges ?? EVADE_MAX_CHARGES) : p.evadeCharges;
     const newCooldowns: Partial<Record<SpellId, number>> = {};
     for (const [k, v] of Object.entries(p.cooldowns)) {
+      const spellKey = Number(k) as SpellId;
       const remaining = (v as number) - 1;
-      if (remaining > 0) newCooldowns[Number(k) as SpellId] = remaining;
+      if (remaining > 0) { newCooldowns[spellKey] = remaining; continue; }
+      // Second Wind: an expiring evade cooldown refills one charge; restart the
+      // timer while a charge is still missing.
+      if (spellKey === 8 && secondWind) {
+        evadeCharges = Math.min(EVADE_MAX_CHARGES, (evadeCharges ?? EVADE_MAX_CHARGES - 1) + 1);
+        if (evadeCharges < EVADE_MAX_CHARGES) {
+          newCooldowns[8] = Math.round(SPELL_CONFIG[8].cooldownTicks * rangerMods[id]!.evade.cooldownMultiplier * p.statMults.cooldown);
+        }
+      }
     }
     const phantomActive = (p.phantomStepUntil ?? 0) > state.tick;
     players[id] = {
@@ -196,6 +207,7 @@ export function advanceState(
       cooldowns: newCooldowns,
       castingSpell: null,
       phantomStepUntil: phantomActive ? p.phantomStepUntil : undefined,
+      evadeCharges,
     };
   }
 
@@ -226,8 +238,10 @@ export function advanceState(
     const cfg = SPELL_CONFIG[spell];
     const phantomActive = (p.phantomStepUntil ?? 0) > tick;
     const effectiveManaCost = phantomActive ? 0 : cfg.manaCost;
+    const secondWind = spell === 8 && !!rangerMods[id]?.evade.secondWind;
+    const charges = secondWind ? (p.evadeCharges ?? EVADE_MAX_CHARGES) : 0;
     if (p.mana < effectiveManaCost) continue;
-    if ((p.cooldowns[spell] ?? 0) > 0) continue;
+    if (secondWind ? charges <= 0 : (p.cooldowns[spell] ?? 0) > 0) continue;
 
     let cooldownMultiplier = 1;
     if (spell === 8 && rangerMods[id]) {
@@ -238,7 +252,10 @@ export function advanceState(
     players[id] = {
       ...p,
       mana: p.mana - effectiveManaCost,
-      cooldowns: phantomActive ? { ...p.cooldowns } : { ...p.cooldowns, [spell]: cooldownTicks },
+      cooldowns: phantomActive ? { ...p.cooldowns }
+        : secondWind && (p.cooldowns[8] ?? 0) > 0 ? { ...p.cooldowns }   // refill already ticking
+        : { ...p.cooldowns, [spell]: cooldownTicks },
+      evadeCharges: secondWind ? charges - 1 : p.evadeCharges,
       castingSpell: spell,
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
     };
