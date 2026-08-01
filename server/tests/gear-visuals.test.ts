@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import {
   layersForLoadout, gearVisualsFor, layersFor,
-  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS,
+  CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS,
 } from '@arena/shared';
-import type { Appearance, GearVisuals, ItemRow } from '@arena/shared';
+import type { Appearance, GearVisuals, ItemRow, LpcAnimation } from '@arena/shared';
+
+// Vendored LPC sheets, relative to this test file rather than process.cwd()
+// so it doesn't matter whether `npm test` runs from server/ or the repo root.
+const LPC_ROOT = path.resolve(fileURLToPath(import.meta.url), '../../../client/public/assets/lpc');
 
 function row(base_id: string, equipped_slot: ItemRow['equipped_slot']): ItemRow {
   const base = ITEM_BASES.find(b => b.id === base_id)!;
@@ -91,6 +98,56 @@ describe('layersForLoadout', () => {
           expect(layer.path).not.toContain('{');
         }
       }
+    }
+  });
+});
+
+describe('weapon fallback manifest integrity', () => {
+  // Flatten every (base, layer, targetAnim, fallback) declared across the
+  // catalog once, so each assertion below is checked against the same list
+  // and a broken donor path fails the specific case, not just a count.
+  const declared = ITEM_BASES.flatMap(base =>
+    (base.lpc?.layers ?? []).flatMap(layer =>
+      Object.entries(layer.fallbacks ?? {}).map(([anim, fb]) => ({
+        base, layer, anim: anim as LpcAnimation, fb: fb!,
+      }))));
+
+  it('found fallback entries to check (guards against a vacuously-passing test)', () => {
+    expect(declared.length).toBeGreaterThan(0);
+  });
+
+  // The Great Bow's background layer has no shoot.png upstream either (its
+  // universal/background/great dir ships only hurt.png) — its idle/walk/run
+  // fallbacks are declared uniformly with the other bows anyway (per the
+  // brief: "do not special-case it") and are expected to resolve to nothing
+  // at runtime, exactly like today. This is the one documented exception to
+  // "every donor sheet exists"; anything else missing here is a data bug.
+  const KNOWN_MISSING_DONORS = new Set([
+    'weapon/ranged/bow/great/universal/background/great/shoot.png',
+  ]);
+
+  it('every declared fallback donor sheet exists on disk, except the one documented upstream gap', () => {
+    for (const { base, layer, anim, fb } of declared) {
+      const donorRel = `${fb.path ?? layer.path}/${fb.from}.png`;
+      if (KNOWN_MISSING_DONORS.has(donorRel)) continue;
+      const donorPath = path.join(LPC_ROOT, donorRel);
+      expect(existsSync(donorPath), `${base.id}: ${layer.path} fallback[${anim}] → ${donorPath} missing`).toBe(true);
+    }
+  });
+
+  it('every donor row shape matches the animation it stands in for', () => {
+    for (const { base, layer, anim, fb } of declared) {
+      expect(
+        LPC_ANIMATIONS[fb.from].singleRow,
+        `${base.id}: ${layer.path} fallback[${anim}] borrows '${fb.from}' (singleRow=${LPC_ANIMATIONS[fb.from].singleRow}) for '${anim}' (singleRow=${LPC_ANIMATIONS[anim].singleRow})`,
+      ).toBe(LPC_ANIMATIONS[anim].singleRow);
+    }
+  });
+
+  it('no fallback is declared for an animation the layer already has a sheet for', () => {
+    for (const { base, layer, anim } of declared) {
+      const ownPath = path.join(LPC_ROOT, layer.path, `${anim}.png`);
+      expect(existsSync(ownPath), `${base.id}: ${layer.path} declares a dead fallback for '${anim}' — its own sheet already exists`).toBe(false);
     }
   });
 });

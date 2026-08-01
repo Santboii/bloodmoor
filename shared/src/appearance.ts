@@ -34,7 +34,31 @@ export type Appearance = {
  * crushes the garment shading that conveys body shape (fitted tops read as
  * flat blobs), while the screen pass keeps the sculpted look of the base art.
  */
-export type LpcLayer = { path: string; z: number; tint?: string; tintMode?: 'skin' | 'fabric' };
+export type LpcLayer = {
+  path: string; z: number; tint?: string; tintMode?: 'skin' | 'fabric';
+  fallbacks?: Partial<Record<LpcAnimation, GearLayerFallback>>;
+};
+
+/** A layer's sheet donor for an animation it has no art of its own for —
+ * defined here (not items.ts) because it references LpcAnimation and both
+ * GearLayer and LpcLayer need it; items.ts re-exports it. See Task 8 report
+ * for why this replaced the hardcoded idle-from-walk special case. */
+export type GearLayerFallback = {
+  /** Animation whose sheet supplies the frames. */
+  from: LpcAnimation;
+  /** Sheet to borrow from when it isn't this layer's own — the gnarled and
+   *  crystal staves have no spellcast art of their own and borrow the
+   *  simple staff's. */
+  path?: string;
+  /** 'hold' freezes the donor's first frame across the whole animation;
+   *  'cycle' advances with the target animation, clamped to the donor's
+   *  last frame. */
+  mode: 'hold' | 'cycle';
+  /** Tint applied to borrowed frames only, so a borrowed model still reads
+   *  as this item's colour. */
+  tint?: string;
+  tintMode?: 'fabric';
+};
 
 /** Color names → tint hex for base-color LPC sheets (multiply tinting). */
 export const LPC_TINTS: Record<string, string> = {

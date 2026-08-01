@@ -5,6 +5,11 @@ import type { CharacterClass } from './types.js';
 import { MAX_HP, MAX_MANA } from './types.js';
 import type { NodeId, SkillTree } from './skills.js';
 import { SKILL_NODES } from './skills.js';
+import type { GearLayerFallback, LpcAnimation } from './appearance.js';
+
+// Re-exported for callers that import the fallback shape via items.js —
+// defined in appearance.ts (see there for why).
+export type { GearLayerFallback };
 
 export type ItemRarity = 'basic' | 'magic' | 'rare' | 'unique';
 export type ItemBaseSlot = 'weapon' | 'helmet' | 'armor' | 'leggings' | 'ring' | 'amulet';
@@ -19,7 +24,13 @@ export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node
 /** One LPC sheet layer a visible base contributes. Paths may contain the
  * tokens '{body}' (male|female) and '{legs}' (male|thin pants fit) which
  * layersForLoadout substitutes from the wearer's appearance. */
-export type GearLayer = { path: string; z: number; tint?: string; tintMode?: 'fabric' };
+export type GearLayer = {
+  path: string; z: number; tint?: string; tintMode?: 'fabric';
+  /** Animations this layer has no sheet for. Upstream ships no `run` art
+   *  for any weapon, no 64px `walk` for bows, and no `spellcast` for the
+   *  gnarled and crystal staves — see sheet_definitions/weapons upstream. */
+  fallbacks?: Partial<Record<LpcAnimation, GearLayerFallback>>;
+};
 export type ItemBaseLpc = {
   layers: GearLayer[];
   /** Full helms that would clip badly with above-head hair. */
@@ -103,6 +114,24 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  * class-agnostic accessory slots and, separately, one weapon per class —
  * Phase 2's drop rolls and the admin grant tool pick bases by band.
  */
+// Shared fallback tables for the weapon bases below — upstream ships no
+// `run` art for any weapon, so every staff/bow borrows its `walk`/`shoot`
+// pose for idle and run; see task-8-brief.md for the upstream sheet audit
+// this is based on.
+const STAFF_IDLE_RUN_FALLBACKS: Partial<Record<LpcAnimation, GearLayerFallback>> = {
+  idle: { from: 'walk', mode: 'hold' },
+  run: { from: 'walk', mode: 'cycle' },
+};
+
+// Bows ship no 64px `walk` art at all (their only walk art is a 128px
+// oversize sheet, incompatible with this project's 64px pipeline — see
+// commit 20fbca4), so idle/walk/run all borrow the drawn-bow `shoot` pose.
+const BOW_FALLBACKS: Partial<Record<LpcAnimation, GearLayerFallback>> = {
+  idle: { from: 'shoot', mode: 'hold' },
+  walk: { from: 'shoot', mode: 'hold' },
+  run: { from: 'shoot', mode: 'hold' },
+};
+
 export const ITEM_BASES: ItemBase[] = [
   { id: 'leather_cap', slot: 'helmet', name: 'Leather Cap', icon: 'fa-helmet-safety', itemLevel: 1, implicit: { id: 'max_health', value: 15 }, lpc: { layers: [{ path: 'hat/cloth/leather_cap/adult/leather', z: 60 }] } },
   { id: 'iron_helm', slot: 'helmet', name: 'Iron Helm', icon: 'fa-helmet-safety', itemLevel: 7, implicit: { id: 'max_health', value: 60 }, lpc: { layers: [{ path: 'hat/helmet/barbuta/{body}', z: 60 }], hidesHair: true } },
@@ -116,15 +145,90 @@ export const ITEM_BASES: ItemBase[] = [
   // it moved to L7 (see the Task 1 report for that move's rationale).
   { id: 'carved_amulet', slot: 'amulet', name: 'Carved Amulet', icon: 'fa-gem', itemLevel: 4, implicit: { id: 'max_mana', value: 25 } },
   { id: 'moon_amulet', slot: 'amulet', name: 'Moon Amulet', icon: 'fa-gem', itemLevel: 7, implicit: { id: 'max_mana', value: 25 } },
-  { id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 }, lpc: { layers: [{ path: 'weapon/magic/simple/background/simple', z: 5 }, { path: 'weapon/magic/simple/foreground/simple', z: 70 }] } },
-  { id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 }, lpc: { layers: [{ path: 'weapon/magic/gnarled/universal/background/gnarled', z: 5 }, { path: 'weapon/magic/gnarled/universal/foreground/gnarled', z: 70 }] } },
-  { id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake', classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 }, lpc: { layers: [{ path: 'weapon/magic/crystal/universal/background/purple', z: 5 }, { path: 'weapon/magic/crystal/universal/foreground/purple', z: 70 }] } },
+  {
+    id: 'apprentice_staff', slot: 'weapon', name: 'Apprentice Staff', icon: 'fa-staff-snake',
+    classRestriction: 'mage', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 },
+    lpc: { layers: [
+      { path: 'weapon/magic/simple/background/simple', z: 5, fallbacks: STAFF_IDLE_RUN_FALLBACKS },
+      { path: 'weapon/magic/simple/foreground/simple', z: 70, fallbacks: STAFF_IDLE_RUN_FALLBACKS },
+    ] },
+  },
+  {
+    id: 'gnarled_staff', slot: 'weapon', name: 'Gnarled Staff', icon: 'fa-staff-snake',
+    classRestriction: 'mage', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 },
+    lpc: { layers: [
+      {
+        path: 'weapon/magic/gnarled/universal/background/gnarled', z: 5,
+        fallbacks: {
+          ...STAFF_IDLE_RUN_FALLBACKS,
+          spellcast: { from: 'spellcast', path: 'weapon/magic/simple/background/simple', mode: 'cycle' },
+        },
+      },
+      {
+        path: 'weapon/magic/gnarled/universal/foreground/gnarled', z: 70,
+        fallbacks: {
+          ...STAFF_IDLE_RUN_FALLBACKS,
+          spellcast: { from: 'spellcast', path: 'weapon/magic/simple/foreground/simple', mode: 'cycle' },
+        },
+      },
+    ] },
+  },
+  {
+    id: 'archmage_staff', slot: 'weapon', name: 'Archmage Staff', icon: 'fa-staff-snake',
+    classRestriction: 'mage', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },
+    lpc: { layers: [
+      {
+        path: 'weapon/magic/crystal/universal/background/purple', z: 5,
+        fallbacks: {
+          ...STAFF_IDLE_RUN_FALLBACKS,
+          spellcast: {
+            from: 'spellcast', path: 'weapon/magic/simple/background/simple', mode: 'cycle',
+            tint: '#8a5fc4', tintMode: 'fabric',
+          },
+        },
+      },
+      {
+        path: 'weapon/magic/crystal/universal/foreground/purple', z: 70,
+        fallbacks: {
+          ...STAFF_IDLE_RUN_FALLBACKS,
+          spellcast: {
+            from: 'spellcast', path: 'weapon/magic/simple/foreground/simple', mode: 'cycle',
+            tint: '#8a5fc4', tintMode: 'fabric',
+          },
+        },
+      },
+    ] },
+  },
   // fa-bow-arrow is Font Awesome PRO — not present in the free 6.5.0 bundle
   // this project loads (client/index.html); fa-crosshairs is the free
   // fallback used for all bow bases until a licensed bow glyph is vendored.
-  { id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 }, lpc: { layers: [{ path: 'weapon/ranged/bow/normal/universal/background/normal', z: 5 }, { path: 'weapon/ranged/bow/normal/universal/foreground/normal', z: 70 }] } },
-  { id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 }, lpc: { layers: [{ path: 'weapon/ranged/bow/recurve/universal/background/recurve', z: 5 }, { path: 'weapon/ranged/bow/recurve/universal/foreground/recurve', z: 70 }] } },
-  { id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs', classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 }, lpc: { layers: [{ path: 'weapon/ranged/bow/great/universal/background/great', z: 5 }, { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70 }] } },
+  {
+    id: 'short_bow', slot: 'weapon', name: 'Short Bow', icon: 'fa-crosshairs',
+    classRestriction: 'ranger', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 },
+    lpc: { layers: [
+      { path: 'weapon/ranged/bow/normal/universal/background/normal', z: 5, fallbacks: BOW_FALLBACKS },
+      { path: 'weapon/ranged/bow/normal/universal/foreground/normal', z: 70, fallbacks: BOW_FALLBACKS },
+    ] },
+  },
+  {
+    id: 'war_bow', slot: 'weapon', name: 'War Bow', icon: 'fa-crosshairs',
+    classRestriction: 'ranger', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 },
+    lpc: { layers: [
+      { path: 'weapon/ranged/bow/recurve/universal/background/recurve', z: 5, fallbacks: BOW_FALLBACKS },
+      { path: 'weapon/ranged/bow/recurve/universal/foreground/recurve', z: 70, fallbacks: BOW_FALLBACKS },
+    ] },
+  },
+  // The Great Bow's background layer has no shoot sheet upstream either — its
+  // fallbacks resolve to nothing (loadImage returns null) and that layer is
+  // skipped for idle/walk/run, exactly as it already is today.
+  {
+    id: 'great_bow', slot: 'weapon', name: 'Great Bow', icon: 'fa-crosshairs',
+    classRestriction: 'ranger', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },
+    lpc: { layers: [
+      { path: 'weapon/ranged/bow/great/universal/background/great', z: 5, fallbacks: BOW_FALLBACKS },
+      { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70, fallbacks: BOW_FALLBACKS },
+    ] },
+  },
 ];
 
 export const UNIQUE_ITEMS: UniqueItem[] = [
