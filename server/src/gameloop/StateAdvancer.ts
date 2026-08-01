@@ -7,6 +7,7 @@ import {
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
+  DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
@@ -40,6 +41,10 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
   } else if (ownerAM.element === 'freeze') {
     target.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
     target.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
+    if (el.freeze.deepFreeze && (target.freezeRootReadyAt ?? 0) <= tick) {
+      target.rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
+      target.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
+    }
   } else if (ownerAM.element === 'poison') {
     target.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
     target.poisonDps = el.poison.damagePerSecond * atkDamageMult;
@@ -158,6 +163,7 @@ export function advanceState(
     }
     if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
+    if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
   }
@@ -169,7 +175,8 @@ export function advanceState(
     const poisonActive = (p.poisonUntil ?? 0) > tick;
     const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1) * p.statMults.manaRegen;
     const newMana = Math.min(p.maxMana, p.mana + regen);
-    const speedMult = ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
+    const rooted = (p.rootUntil ?? 0) > tick;
+    const speedMult = rooted ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;

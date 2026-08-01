@@ -46,6 +46,8 @@ export type PlayerState = {
   burnDps?: number;
   slowUntil?: number;
   slowFactor?: number; // movement speed multiplier while slowed (e.g. 0.7)
+  rootUntil?: number;          // Deep Freeze keystone: move speed 0 while set
+  freezeRootReadyAt?: number;  // per-target ICD gate for the next root
   poisonUntil?: number;
   poisonDps?: number;
   poisonManaReduction?: number; // fraction of mana regen removed

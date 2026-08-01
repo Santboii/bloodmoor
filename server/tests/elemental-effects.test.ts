@@ -275,3 +275,36 @@ describe('Ignite keystone', () => {
     expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
   });
 });
+
+describe('Deep Freeze keystone', () => {
+  const dfSkills = { p1: rangerSkillsWith([['archer.freeze', 4]]), p2: new Map<NodeId, number>() };
+
+  it('first freeze roots the target; the root expires; the 6s ICD blocks re-roots', () => {
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    const p2 = state.players['p2'];
+    expect(p2.rootUntil).toBeGreaterThan(state.tick);
+    expect(p2.freezeRootReadyAt).toBeGreaterThan(state.tick + 5 * TICK_RATE);
+
+    // Rooted: movement input does nothing.
+    const x0 = state.players['p2'].position.x;
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    expect(state.players['p2'].position.x).toBe(x0);
+
+    // After the root expires (0.4s) they can move again, though still slowed.
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    const x1 = state.players['p2'].position.x;
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    expect(state.players['p2'].position.x).toBeGreaterThan(x1);
+
+    // A second freeze inside the ICD refreshes the slow but not the root.
+    state.projectiles.push({
+      id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+      position: { x: state.players['p2'].position.x - 30, y: 1000 }, velocity: { x: 560, y: 0 },
+      damageMin: 60, damageMax: 90,
+    });
+    for (let i = 0; i < 6; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect((state.players['p2'].rootUntil ?? 0) <= state.tick).toBe(true);
+  });
+});
