@@ -72,6 +72,8 @@ export type Projectile = {
   // they fly clear of the obstacle/target they spawned on instead of
   // detonating immediately and stacking blasts.
   noHitUntil?: number;
+  redirectCount?: number;   // guided redirects completed (momentum damage rider)
+  relentless?: boolean;     // Guided keystone: unlimited redirects
 };
 
 export type FireWallState = {

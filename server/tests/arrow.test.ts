@@ -106,3 +106,26 @@ describe('arrowDamage', () => {
     expect(dmg).toBeLessThanOrEqual(90);
   });
 });
+
+describe('guided momentum and relentless', () => {
+  it('counts completed redirects', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 2 });
+    const enemy = { x: 500, y: 400 };
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, enemy);   // first redirect fires on tick 30
+    expect(p.redirectCount).toBe(1);
+  });
+
+  it('non-relentless arrows stop redirecting after their budget', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1 });
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.homing).toBe(-1);   // spent
+  });
+
+  it('relentless arrows keep re-acquiring past the budget', () => {
+    let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1, relentless: true });
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.homing).toBeGreaterThan(0);   // timer restarted
+    for (let i = 0; i < 30; i++) p = advanceArrow(p, { x: 500, y: 400 });
+    expect(p.redirectCount).toBe(2);
+  });
+});

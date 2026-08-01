@@ -12,6 +12,7 @@ type ArrowConfig = {
   homing?: number;
   homingTickReduction?: number;
   guidedRedirects?: number;
+  relentless?: boolean;
 };
 
 const GUIDED_REDIRECT_TICKS = 30;
@@ -45,6 +46,8 @@ export function spawnArrow(
     homing: homingTicks,
     homingRedirects,
     homingInterval: homingTicks,
+    redirectCount: 0,
+    relentless: cfg.relentless,
   };
 }
 
@@ -53,6 +56,7 @@ export function advanceArrow(p: Projectile, enemyPos?: Vec2): Projectile {
   let vy = p.velocity.y;
   let homing = p.homing ?? 0;
   let redirects = p.homingRedirects ?? 0;
+  let redirectCount = p.redirectCount ?? 0;
 
   if (homing > 0) {
     homing--;
@@ -63,9 +67,10 @@ export function advanceArrow(p: Projectile, enemyPos?: Vec2): Projectile {
       const spd = Math.sqrt(vx * vx + vy * vy);
       vx = (dx / len) * spd;
       vy = (dy / len) * spd;
-      if (redirects > 0) {
+      redirectCount++;
+      if (p.relentless || redirects > 0) {
         homing = p.homingInterval ?? GUIDED_REDIRECT_TICKS;
-        redirects--;
+        if (!p.relentless) redirects--;
       } else {
         homing = -1;
       }
@@ -76,6 +81,7 @@ export function advanceArrow(p: Projectile, enemyPos?: Vec2): Projectile {
     ...p,
     homing,
     homingRedirects: redirects,
+    redirectCount,
     velocity: { x: vx, y: vy },
     position: {
       x: p.position.x + vx * DELTA,

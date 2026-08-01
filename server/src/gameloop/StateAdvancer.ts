@@ -4,7 +4,7 @@ import {
   FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
-  RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK,
+  RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
@@ -250,6 +250,7 @@ export function advanceState(
         homing: aMods.arrow.homing,
         homingTickReduction: aMods.arrow.homingTickReduction,
         guidedRedirects: aMods.arrow.guidedRedirects,
+        relentless: aMods.arrow.relentless,
       });
       projectiles = [...projectiles, arrow];
     } else if (spell === 6) {
@@ -358,7 +359,8 @@ export function advanceState(
         if (arrowHitsPlayer(moved, player.position, pid)) {
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
-            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
+            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * momentum * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
             // Elemental arrows apply the shooter's status effect on hit —
             // but never full-strength slows/DoTs on teammates (friendly fire
             // is deliberately reduced; a full 2s slow would undercut that).
