@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts';
 import type { NodeId, InputFrame } from '@arena/shared';
-import { ARROW_SPEED, DELTA, RAIN_DELAY_TICKS } from '@arena/shared';
+import { ARROW_SPEED, DELTA, RAIN_DELAY_TICKS, RAIN_DAMAGE_PER_TICK, EXPOSED_DAMAGE_MULT, effectAtRank } from '@arena/shared';
 
 describe('Ranger combat integration', () => {
   const rangerSkills = new Map<NodeId, number>([
@@ -249,5 +249,87 @@ describe('Ranger combat integration', () => {
     state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
     const lost = before - state.players['p2'].hp;
     expect(lost).toBeCloseTo(45 / 60, 5);   // one RAIN_DAMAGE_PER_TICK, not two
+  });
+
+  it('Exposed sees this tick\'s Stormcall-drifted zone, not last tick\'s (regression)', () => {
+    // fireWalls must be expiry-filtered and Stormcall-drifted BEFORE the
+    // arrow-hit section reads it, or exposedMultiplier judges "in zone" off
+    // a one-tick-stale position. Set up a zone that starts just outside the
+    // Exposed radius (dist 87 > threshold 86.5) and drifts by exactly one
+    // unit this tick (STORMCALL_DRIFT_SPEED * DELTA === 1) to land just
+    // inside it (dist 86 < 86.5) — both distances are exact integers, so
+    // there's no floating-point ambiguity about which side of the line
+    // they're on. An arrow already sitting on the target must land with the
+    // 1.15x Exposed bonus applied THIS tick.
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer.rain_of_arrows' as NodeId, 1],
+      ['archer.sustained_rain' as NodeId, 6],   // Stormcall keystone (drift)
+      ['archer.piercing_rain' as NodeId, 4],    // Exposed keystone (past cap)
+    ]);
+    const state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
+    ]);
+    state.fireWalls.push({
+      id: 'rain_zone_test', ownerId: 'p1', segments: [], expiresAt: 10_000,
+      shape: 'circle', center: { x: 1513, y: 1000 }, radius: 70.5,
+    });
+    state.projectiles.push({
+      id: 'ar_test', ownerId: 'p1', type: 'arrow',
+      position: { x: 1600, y: 1000 }, velocity: { x: 0, y: 0 }, radius: 8,
+      damageMin: 100, damageMax: 100, homing: 0, homingRedirects: 0, homingInterval: 0, redirectCount: 0,
+    });
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const before = state.players['p2'].hp;
+    const next = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    const lost = before - next.players['p2'].hp;
+
+    const zone = next.fireWalls.find(fw => fw.id === 'rain_zone_test');
+    expect(zone!.center).toEqual({ x: 1514, y: 1000 });   // drifted the expected one unit
+
+    // arrow (100 dmg, fixed via damageMin===damageMax) + this tick's rain
+    // zone tick — both must carry the 1.15x Exposed bonus, since both read
+    // the same already-drifted zone position.
+    const rainDamageMultiplier = 1 + effectAtRank(0.25, 4);
+    const expectedArrow = 100 * EXPOSED_DAMAGE_MULT;
+    const expectedZoneTick = RAIN_DAMAGE_PER_TICK * rainDamageMultiplier * EXPOSED_DAMAGE_MULT;
+    expect(lost).toBeCloseTo(expectedArrow + expectedZoneTick, 5);
+  });
+
+  it('Predator clamps a teleport-driven enemy velocity spike to PLAYER_SPEED (regression)', () => {
+    // Predator derives enemy velocity from a single-tick position delta.
+    // A teleport can move a player up to TELEPORT_MAX_RANGE (600) in one
+    // tick, which unclamped reads as a 600 * TICK_RATE = 36,000 units/sec
+    // "velocity" — 180x PLAYER_SPEED. Left unclamped, the lead point lands
+    // far outside the 2000x2000 arena and the whole redirect is wasted.
+    const state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 500, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1300, y: 1000 } },
+    ]);
+    // A predator arrow already in flight, one tick from its redirect.
+    state.projectiles.push({
+      id: 'ar_predator_test', ownerId: 'p1', type: 'arrow',
+      position: { x: 500, y: 1000 }, velocity: { x: 560, y: 0 }, radius: 6,
+      damageMin: 60, damageMax: 90,
+      homing: 1, homingRedirects: 0, homingInterval: 30, redirectCount: 0,
+      predator: true,
+    });
+    const inputs: Record<string, InputFrame> = {
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p2: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1300, y: 400 } },   // teleport straight up, dist === TELEPORT_MAX_RANGE
+    };
+    const next = advanceState(state, inputs);
+    expect(next.players['p2'].position).toEqual({ x: 1300, y: 400 });
+
+    const arrow = next.projectiles.find(p => p.id === 'ar_predator_test')!;
+    expect(arrow.redirectCount).toBe(1);   // confirms the redirect actually fired
+    const angle = Math.atan2(arrow.velocity.y, arrow.velocity.x) * 180 / Math.PI;
+    // A clamped (magnitude PLAYER_SPEED=200) lead lands the redirect angle
+    // near -50°. An unclamped 36,000 units/sec "velocity" swings it to
+    // ~-89° (dominated entirely by the runaway y component). Assert it
+    // lands in the clamped range, comfortably short of the unclamped one.
+    expect(angle).toBeGreaterThan(-70);
+    expect(angle).toBeLessThan(-30);
   });
 });

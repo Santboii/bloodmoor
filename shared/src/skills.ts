@@ -127,6 +127,8 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Second Wind', description: 'Evade holds 2 charges.' } },
 ];
 
+const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
+
 // ── Spell bindings ──────────────────────────────────────────────────────────
 // Single source of truth for spell id ↔ unlock node ↔ keybind ↔ class.
 // Consumed by the server cast gate, the client HUD, input handling, and the
@@ -199,7 +201,7 @@ export function isStackable(node: SkillNode): boolean {
  *  keystone — the supercharge payoff. Rank must be the MERGED (tree + item
  *  affix) rank. */
 export function hasKeystone(id: NodeId, rank: number): boolean {
-  const node = SKILL_NODES.find(n => n.id === id);
+  const node = SKILL_NODES_BY_ID.get(id);
   if (!node?.stackable || !node.keystone) return false;
   return rank > node.stackable.softCap;
 }

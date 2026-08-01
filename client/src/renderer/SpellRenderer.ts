@@ -332,9 +332,17 @@ export class SpellRenderer {
       }
 
       if (fw.shape === 'circle' && fw.center && fw.radius) {
+        // Stormcall drifts a rain zone's center over its lifetime — reposition
+        // the disc and its falling-arrow particles every frame, not just once.
+        const group = this.fireWalls.get(fw.id);
+        const disc = group?.children[0];
+        if (disc) disc.position.set(fw.center.x, 1, fw.center.y);
         if (isRainZone) {
           const visual = this.rainZoneArrows.get(fw.id);
-          if (visual) this.updateFallingArrows(visual);
+          if (visual) {
+            visual.arrowGroup.position.set(fw.center.x, 0, fw.center.y);
+            this.updateFallingArrows(visual);
+          }
         } else if (this.shouldEmitContinuous) {
           this.particles.emitCrater(fw.center.x, fw.center.y, fw.radius);
         }

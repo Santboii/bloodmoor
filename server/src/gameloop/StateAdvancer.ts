@@ -1,7 +1,7 @@
 import {
   GameState, PlayerState, InputFrame, Vec2, SpellId, NodeId,
   SPELL_CONFIG, MANA_REGEN_PER_TICK, TICK_RATE,
-  FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
+  FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE, PLAYER_SPEED,
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS, EVADE_MAX_CHARGES,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
@@ -192,7 +192,8 @@ export function advanceState(
       // Second Wind: an expiring evade cooldown refills one charge; restart the
       // timer while a charge is still missing.
       if (spellKey === 8 && secondWind) {
-        evadeCharges = Math.min(EVADE_MAX_CHARGES, (evadeCharges ?? EVADE_MAX_CHARGES - 1) + 1);
+        // secondWind guarantees evadeCharges was seeded (non-undefined) above.
+        evadeCharges = Math.min(EVADE_MAX_CHARGES, evadeCharges! + 1);
         if (evadeCharges < EVADE_MAX_CHARGES) {
           newCooldowns[8] = Math.round(SPELL_CONFIG[8].cooldownTicks * rangerMods[id]!.evade.cooldownMultiplier * p.statMults.cooldown);
         }
@@ -437,6 +438,32 @@ export function advanceState(
   }
   echoVolleys = pendingEchoes;
 
+  // Expire fire walls / rain zones and apply Stormcall drift before the
+  // arrow-hit section below, so exposedMultiplier and in-zone checks this
+  // tick see the zone's current (not stale, not-yet-expired) position.
+  fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
+  fireWalls = fireWalls.map(fw => {
+    if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
+    if (!rangerMods[fw.ownerId]?.rain.stormcall) return fw;
+    let nearest: PlayerState | undefined;
+    let nearestDist = Infinity;
+    for (const other of Object.values(players)) {
+      if (other.id === fw.ownerId || other.hp <= 0) continue;
+      if ((other.invisibleUntil ?? 0) > tick) continue;
+      if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[fw.ownerId]?.teamId) continue;
+      const d = (other.position.x - fw.center!.x) ** 2 + (other.position.y - fw.center!.y) ** 2;
+      if (d < nearestDist) { nearestDist = d; nearest = other; }
+    }
+    if (!nearest) return fw;
+    const dx = nearest.position.x - fw.center!.x;
+    const dy = nearest.position.y - fw.center!.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const step = STORMCALL_DRIFT_SPEED * DELTA;
+    if (len <= step) return { ...fw, center: { ...nearest.position } };
+    return { ...fw, center: { x: fw.center!.x + (dx / len) * step, y: fw.center!.y + (dy / len) * step } };
+  });
+
   // 3. Advance projectiles, check hits
   const survivingProjectiles = [];
   const newProjectiles: typeof projectiles = [];
@@ -459,12 +486,19 @@ export function advanceState(
         })
       : undefined;
     if (proj.type === 'arrow') {
-      const enemyVel = enemyEntry && state.players[enemyEntry[0]]
-        ? {
-            x: (enemyEntry[1].position.x - state.players[enemyEntry[0]].position.x) * TICK_RATE,
-            y: (enemyEntry[1].position.y - state.players[enemyEntry[0]].position.y) * TICK_RATE,
-          }
-        : undefined;
+      // Predator: a single-tick position delta, scaled to units/sec. Teleports
+      // and evade dashes can move a player far more than a normal step in one
+      // tick, so clamp to PLAYER_SPEED — otherwise the lead point overshoots
+      // wildly and wastes the redirect.
+      let enemyVel: Vec2 | undefined;
+      if (enemyEntry && state.players[enemyEntry[0]]) {
+        const vx = (enemyEntry[1].position.x - state.players[enemyEntry[0]].position.x) * TICK_RATE;
+        const vy = (enemyEntry[1].position.y - state.players[enemyEntry[0]].position.y) * TICK_RATE;
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        enemyVel = speed > PLAYER_SPEED
+          ? { x: (vx / speed) * PLAYER_SPEED, y: (vy / speed) * PLAYER_SPEED }
+          : { x: vx, y: vy };
+      }
       const moved = advanceArrow(proj, enemyEntry?.[1].position, enemyVel);
       if (isArrowExpired(moved)) continue;
       let hit = false;
@@ -563,29 +597,8 @@ export function advanceState(
   }
   projectiles = [...survivingProjectiles, ...newProjectiles];
 
-  // 4. Fire wall / rain zone damage
-  fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
-  // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
-  fireWalls = fireWalls.map(fw => {
-    if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
-    if (!rangerMods[fw.ownerId]?.rain.stormcall) return fw;
-    let nearest: PlayerState | undefined;
-    let nearestDist = Infinity;
-    for (const other of Object.values(players)) {
-      if (other.id === fw.ownerId || other.hp <= 0) continue;
-      if ((other.invisibleUntil ?? 0) > tick) continue;
-      if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[fw.ownerId]?.teamId) continue;
-      const d = (other.position.x - fw.center!.x) ** 2 + (other.position.y - fw.center!.y) ** 2;
-      if (d < nearestDist) { nearestDist = d; nearest = other; }
-    }
-    if (!nearest) return fw;
-    const dx = nearest.position.x - fw.center!.x;
-    const dy = nearest.position.y - fw.center!.y;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const step = STORMCALL_DRIFT_SPEED * DELTA;
-    if (len <= step) return { ...fw, center: { ...nearest.position } };
-    return { ...fw, center: { x: fw.center!.x + (dx / len) * step, y: fw.center!.y + (dy / len) * step } };
-  });
+  // 4. Fire wall / rain zone damage (fireWalls already expiry-filtered and
+  // Stormcall-drifted above, before the arrow-hit section)
   const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
     const isRainZone = fw.id.startsWith('rain_zone_');

@@ -29,6 +29,7 @@ type SlotEntry = {
   lastPct: number;
   lastActive: boolean;
   lastNoMana: boolean;
+  lastCooling: boolean;
   lastCdText: string;
   lastCharges?: number;
 };
@@ -161,6 +162,7 @@ export class HUD {
         lastPct: 0,
         lastActive: false,
         lastNoMana: false,
+        lastCooling: false,
         lastCdText: '',
       });
     }
@@ -209,8 +211,16 @@ export class HUD {
       const pct = maxCd > 0 ? Math.round((cd / maxCd) * 1000) / 10 : 0;
       if (pct !== entry.lastPct) {
         entry.cd.style.height = `${pct}%`;
-        entry.slot.classList.toggle('cooling', pct > 0);
         entry.lastPct = pct;
+      }
+      // Second Wind keystone: the refill timer runs whenever a charge is
+      // missing, even though a cast is still legal with 1 of 2 charges up.
+      // Gate the "cannot cast" affordance on charges, not the timer's pct.
+      const evadeCharges = key === 8 ? me.evadeCharges : undefined;
+      const cooling = evadeCharges !== undefined ? evadeCharges === 0 : pct > 0;
+      if (cooling !== entry.lastCooling) {
+        entry.slot.classList.toggle('cooling', cooling);
+        entry.lastCooling = cooling;
       }
       const cdText = cd > 0 ? (cd / 60).toFixed(1) : '';
       if (cdText !== entry.lastCdText) {
