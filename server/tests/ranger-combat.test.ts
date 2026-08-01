@@ -104,6 +104,10 @@ describe('Ranger combat integration', () => {
     for (let i = 0; i < 10; i++) state = advanceState(state, { p1: idle, p2: idle }, sk);
     state = advanceState(state, { p1: evade, p2: idle }, sk);
     expect(state.players['p1'].evadeCharges).toBe(0);
+    const cdAfterSecond = state.players['p1'].cooldowns[8]!;
+    // The refill timer kept counting down through the second cast rather
+    // than being restarted by it.
+    expect(cdAfterSecond).toBeLessThan(cdAfterFirst);
 
     // Third cast is blocked at zero charges (dash finished, mana is plenty).
     for (let i = 0; i < 10; i++) state = advanceState(state, { p1: idle, p2: idle }, sk);
