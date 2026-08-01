@@ -308,3 +308,28 @@ describe('Deep Freeze keystone', () => {
     expect((state.players['p2'].rootUntil ?? 0) <= state.tick).toBe(true);
   });
 });
+
+describe('Withering Venom keystone', () => {
+  it('poison past cap drains flat mana on top of the regen cut', () => {
+    const skills = { p1: rangerSkillsWith([['archer.poison', 4]]), p2: new Map<NodeId, number>() };
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const p2 = state.players['p2'];
+    expect(p2.poisonManaDrain).toBe(10);
+
+    // One poisoned tick: regen is cut AND 10/s drains.
+    state.players['p2'].mana = 200;
+    const reduction = p2.poisonManaReduction!;
+    state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const expected = 200 + (18 / TICK_RATE) * (1 - reduction) - 10 / TICK_RATE;
+    expect(state.players['p2'].mana).toBeCloseTo(expected, 5);
+  });
+
+  it('the drain stops when poison expires', () => {
+    const skills = { p1: rangerSkillsWith([['archer.poison', 4]]), p2: new Map<NodeId, number>() };
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    for (let i = 0; i < 5 * TICK_RATE + 2; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].poisonManaDrain).toBeUndefined();
+  });
+});

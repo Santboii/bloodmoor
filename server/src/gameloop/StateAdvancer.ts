@@ -49,6 +49,7 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
     target.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
     target.poisonDps = el.poison.damagePerSecond * atkDamageMult;
     target.poisonManaReduction = el.poison.manaRegenReduction;
+    target.poisonManaDrain = el.poison.manaDrainPerSecond > 0 ? el.poison.manaDrainPerSecond : undefined;
   }
 }
 
@@ -160,11 +161,12 @@ export function advanceState(
     if (p.hp > 0) {
       if ((p.burnUntil ?? 0) > tick && p.burnDps) p.hp = Math.max(0, p.hp - p.burnDps / TICK_RATE);
       if ((p.poisonUntil ?? 0) > tick && p.poisonDps) p.hp = Math.max(0, p.hp - p.poisonDps / TICK_RATE);
+      if ((p.poisonUntil ?? 0) > tick && p.poisonManaDrain) p.mana = Math.max(0, p.mana - p.poisonManaDrain / TICK_RATE);
     }
     if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
     if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
-    if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; }
+    if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
   }
 

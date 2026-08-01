@@ -51,6 +51,7 @@ export type PlayerState = {
   poisonUntil?: number;
   poisonDps?: number;
   poisonManaReduction?: number; // fraction of mana regen removed
+  poisonManaDrain?: number; // Withering Venom keystone: flat mana/sec while poisoned
   // Shadowstep
   invisibleUntil?: number;
   appearance?: Appearance;
