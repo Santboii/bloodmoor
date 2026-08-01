@@ -414,6 +414,7 @@ export function advanceState(
   // 3. Advance projectiles, check hits
   const survivingProjectiles = [];
   const newProjectiles: typeof projectiles = [];
+  const igniteTicked = new Set<string>();   // `${ownerId}:${pid}` — one ignite burst per owner per target per tick
   for (const proj of projectiles) {
     const candidates = Object.entries(players).filter(([pid]) =>
       pid !== proj.ownerId &&
@@ -456,11 +457,16 @@ export function advanceState(
               players[moved.ownerId].teamId === player.teamId;
             const ownerAM = rangerMods[moved.ownerId];
             // Ignite keystone: hitting an already-burning target detonates the burn.
+            // Capped at one burst per owner per target per tick — otherwise a
+            // multi-arrow volley (Multi-shot / Barrage / Echo Volley) would
+            // detonate the freshly re-applied burn on every arrow in the same tick.
+            const igniteKey = `${moved.ownerId}:${pid}`;
             if (ownerAM && ownerAM.element === 'burn' && ownerAM.elemental.burn.ignite &&
-                (next.burnUntil ?? 0) > tick && next.hp > 0 && !sameTeam) {
+                (next.burnUntil ?? 0) > tick && next.hp > 0 && !sameTeam && !igniteTicked.has(igniteKey)) {
               next.hp = Math.max(0, next.hp - IGNITE_BURST_DAMAGE * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
               next.burnUntil = undefined;
               next.burnDps = undefined;
+              igniteTicked.add(igniteKey);
             }
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
               const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;

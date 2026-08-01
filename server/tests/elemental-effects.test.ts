@@ -239,4 +239,39 @@ describe('Ignite keystone', () => {
     expect(lost).toBeLessThanOrEqual(120 + burnDps * (ticksElapsed / TICK_RATE) + burnDps / TICK_RATE);
     expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
   });
+
+  it('caps the burst at one detonation per owner per target per tick, even with two arrows landing together', () => {
+    const skills = { p1: rangerSkillsWith([['archer.burn', 4]]), p2: new Map<NodeId, number>() };  // keystone rank
+    let state = stateWithArrowAboutToHit(baseState());
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // burning now
+
+    // Two deterministic same-owner arrows landing on the same tick — a
+    // stand-in for Multi-shot / Barrage / Echo Volley firing several arrows
+    // in one salvo. Both fixed at 80 damage so the burst cap is provable.
+    state.projectiles.push(
+      {
+        id: 'test_arrow_2', ownerId: 'p1', type: 'arrow',
+        position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+        damageMin: 80, damageMax: 80,
+      },
+      {
+        id: 'test_arrow_3', ownerId: 'p1', type: 'arrow',
+        position: { x: 1570, y: 1000 }, velocity: { x: 560, y: 0 },
+        damageMin: 80, damageMax: 80,
+      },
+    );
+    const tickBefore = state.tick;
+    let hpBefore = state.players['p2'].hp;
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const burnDps = state.players['p2'].burnDps!;
+    const ticksElapsed = state.tick - tickBefore;
+    const lost = hpBefore - state.players['p2'].hp;
+    // 2 * 80 arrow damage + exactly ONE 40 ignite burst + burn DoT over the
+    // elapsed ticks (±1 tick of DoT slack). A double-firing burst would push
+    // this to 240+, well past the upper bound.
+    expect(lost).toBeGreaterThanOrEqual(200);
+    expect(lost).toBeLessThanOrEqual(200 + burnDps * (ticksElapsed / TICK_RATE) + burnDps / TICK_RATE);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);   // re-applied by the same hit
+  });
 });
