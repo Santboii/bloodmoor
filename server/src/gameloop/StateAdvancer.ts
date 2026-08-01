@@ -5,10 +5,11 @@ import {
   DUEL_MODE,
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
+  ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
@@ -73,7 +74,7 @@ export function makeInitialState(
       appearance: p.appearance ?? CLASS_DEFAULT_APPEARANCE[p.charClass],
     };
   }
-  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
+  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
 }
 
 export function advanceState(
@@ -164,6 +165,7 @@ export function advanceState(
   let fireWalls = [...state.fireWalls];
   let meteors = [...state.meteors];
   let rainOfArrows: RainOfArrowsState[] = [...state.rainOfArrows];
+  let echoVolleys: EchoVolleyState[] = [...(state.echoVolleys ?? [])];
 
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
@@ -261,8 +263,10 @@ export function advanceState(
       const spreadPerArrow = Math.PI / (count + 1) * 0.4;
       const baseAngle = Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x);
       const volley = [];
+      const angles: number[] = [];
       for (let i = 0; i < count; i++) {
         const angle = baseAngle + (i - (count - 1) / 2) * spreadPerArrow;
+        angles.push(angle);
         const target = { x: p.position.x + Math.cos(angle) * 500, y: p.position.y + Math.sin(angle) * 500 };
         volley.push(spawnArrow(id, p.position, target, {
           speed: aMods.arrow.speed,
@@ -272,6 +276,16 @@ export function advanceState(
         }));
       }
       projectiles = [...projectiles, ...volley];
+      if (aMods.multishot.echoVolley) {
+        echoVolleys = [...echoVolleys, {
+          id: `echo_${id}_${tick}`,
+          ownerId: id,
+          fireAt: tick + ECHO_VOLLEY_DELAY_TICKS,
+          angles,
+          damageMin: Math.round(aMods.multishot.damageMin * ECHO_VOLLEY_DAMAGE_RATIO),
+          damageMax: Math.round(aMods.multishot.damageMax * ECHO_VOLLEY_DAMAGE_RATIO),
+        }];
+      }
     } else if (spell === 7) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -330,6 +344,26 @@ export function advanceState(
       }
     }
   }
+
+  // 2b. Fire due echo volleys from the caster's current position
+  const pendingEchoes: EchoVolleyState[] = [];
+  for (const echo of echoVolleys) {
+    if (tick < echo.fireAt) { pendingEchoes.push(echo); continue; }
+    const owner = players[echo.ownerId];
+    if (owner && owner.hp > 0) {
+      const ownerMods = rangerMods[echo.ownerId];
+      for (const angle of echo.angles) {
+        const target = { x: owner.position.x + Math.cos(angle) * 500, y: owner.position.y + Math.sin(angle) * 500 };
+        projectiles = [...projectiles, spawnArrow(echo.ownerId, owner.position, target, {
+          speed: ownerMods?.arrow.speed ?? ARROW_SPEED,
+          damageMin: echo.damageMin,
+          damageMax: echo.damageMax,
+          homing: 0,
+        })];
+      }
+    }
+  }
+  echoVolleys = pendingEchoes;
 
   // 3. Advance projectiles, check hits
   const survivingProjectiles = [];
@@ -529,7 +563,7 @@ export function advanceState(
     winner = result.winner;
   }
 
-  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, phase, winner, gameMode: state.gameMode, teams: state.teams };
+  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, echoVolleys, phase, winner, gameMode: state.gameMode, teams: state.teams };
 }
 
 function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, PlayerState> {

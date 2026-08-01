@@ -105,6 +105,15 @@ export type RainOfArrowsState = {
   strikeAt: number;
 };
 
+export type EchoVolleyState = {
+  id: string;
+  ownerId: string;
+  fireAt: number;      // server tick
+  angles: number[];    // world-space angles captured at cast
+  damageMin: number;   // already halved
+  damageMax: number;
+};
+
 export type GameState = {
   tick: number;
   players: Record<string, PlayerState>;
@@ -112,6 +121,7 @@ export type GameState = {
   fireWalls: FireWallState[];
   meteors: MeteorState[];
   rainOfArrows: RainOfArrowsState[];
+  echoVolleys?: EchoVolleyState[];
   phase: 'waiting' | 'countdown' | 'dueling' | 'ended';
   winner: string | null;
   gameMode: GameModeType;

@@ -88,4 +88,29 @@ describe('Ranger combat integration', () => {
     const next = advanceState(state, inputs, { p1: rangerSkills, p2: new Map() });
     expect(next.projectiles.filter(p => p.type === 'fireball')).toHaveLength(0);
   });
+
+  it('Echo Volley: barrage past cap fires a delayed half-damage second volley', () => {
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer.multishot' as NodeId, 1],
+      ['archer.barrage' as NodeId, 6],   // keystone rank
+    ]);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 6, aimTarget: { x: 1800, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
+    const firstVolley = state.projectiles.filter(p => p.type === 'arrow').length;
+    expect(state.echoVolleys).toHaveLength(1);
+
+    for (let i = 0; i < 15; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    const arrows = state.projectiles.filter(p => p.type === 'arrow');
+    expect(arrows.length).toBe(firstVolley * 2);           // echo doubled the volley
+    expect(state.echoVolleys).toHaveLength(0);             // consumed
+    const echoArrow = arrows[arrows.length - 1];
+    expect(echoArrow.damageMin).toBe(20);                  // 40 × 0.5
+    expect(echoArrow.damageMax).toBe(30);                  // 60 × 0.5
+  });
 });
