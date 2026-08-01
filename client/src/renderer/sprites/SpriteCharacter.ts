@@ -1,7 +1,7 @@
 // A player character as an LPC sprite billboard: one plane whose UVs window
 // a 64x64 frame of the composited per-animation texture, plus a blob shadow.
 import * as THREE from 'three';
-import { Appearance, LPC_ANIMATIONS, LpcAnimation, CharacterClass } from '@arena/shared';
+import { Appearance, GearVisuals, LPC_ANIMATIONS, LpcAnimation, CharacterClass } from '@arena/shared';
 import { worldUnitsPerTexel } from '../pixelation';
 import { FRAME, LpcDirection, frameRect, directionFromWorldAngle, animationFrame } from './lpc';
 import { compositeAppearance, disposeComposite } from './SpriteCompositor';
@@ -40,7 +40,7 @@ export class SpriteCharacter {
   private scratch: HTMLCanvasElement | null = null;
   private scratchTex: THREE.CanvasTexture | null = null;
 
-  constructor(appearance: Appearance, charClass: CharacterClass) {
+  constructor(appearance: Appearance, charClass: CharacterClass, gear: GearVisuals = {}) {
     this.castAnim = charClass === 'ranger' ? 'shoot' : 'spellcast';
 
     const size = FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
@@ -59,7 +59,7 @@ export class SpriteCharacter {
     shadow.position.y = 0.5;
     this.group.add(shadow);
 
-    compositeAppearance(appearance).then(tex => {
+    compositeAppearance(appearance, gear).then(tex => {
       this.textures = tex;
       this.material.visible = true;
       this.applyFrame(true);

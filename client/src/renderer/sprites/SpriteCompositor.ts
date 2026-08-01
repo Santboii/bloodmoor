@@ -1,8 +1,9 @@
 // Composites the LPC layer sheets for one appearance into a single canvas
 // per animation. Runs once per player per appearance — never per frame.
 import * as THREE from 'three';
-import { Appearance, layersFor, LPC_ANIMATIONS, LpcAnimation } from '@arena/shared';
+import { Appearance, GearVisuals, layersForLoadout, LPC_ANIMATIONS, LpcAnimation } from '@arena/shared';
 import { FRAME } from './lpc';
+import { tintSheet } from './tint';
 
 const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
 
@@ -23,8 +24,9 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
 
 export async function compositeAppearance(
   a: Appearance,
+  gear: GearVisuals = {},
 ): Promise<Record<LpcAnimation, THREE.CanvasTexture | null>> {
-  const layers = layersFor(a);
+  const layers = layersForLoadout(a, gear);
   const out = {} as Record<LpcAnimation, THREE.CanvasTexture | null>;
 
   for (const anim of Object.keys(LPC_ANIMATIONS) as LpcAnimation[]) {
@@ -32,8 +34,15 @@ export async function compositeAppearance(
     const images = await Promise.all(
       layers.map(l => loadImage(`/assets/lpc/${l.path}/${anim}.png`)),
     );
+    // Idle fallback: a layer with no idle sheet (weapons) borrows its walk
+    // sheet's frame 0 — the LPC standing pose — for both idle frames.
+    const idleFallback: (HTMLImageElement | null)[] = await Promise.all(
+      layers.map((l, i) => (anim === 'idle' && images[i] === null)
+        ? loadImage(`/assets/lpc/${l.path}/walk.png`)
+        : Promise.resolve(null)),
+    );
     const present = images.filter((i): i is HTMLImageElement => i !== null);
-    if (present.length === 0) { out[anim] = null; continue; }
+    if (present.length === 0 && idleFallback.every(f => f === null)) { out[anim] = null; continue; }
 
     const rows = meta.singleRow ? 1 : 4;
     const canvas = document.createElement('canvas');
@@ -41,28 +50,21 @@ export async function compositeAppearance(
     canvas.height = rows * FRAME;
     const ctx = canvas.getContext('2d')!;
     images.forEach((img, i) => {
-      if (!img) return;
-      const tint = layers[i].tint;
-      if (!tint) { ctx.drawImage(img, 0, 0); return; }
-      // Tint the base LPC sheet, preserving its alpha. Skin is a pure
-      // multiply (tint hexes tuned for it); fabric/hair adds a screen pass
-      // that restores the highlight ramp multiply crushes — without it,
-      // fitted clothes lose the shading that conveys body shape.
-      const tmp = document.createElement('canvas');
-      tmp.width = canvas.width; tmp.height = canvas.height;
-      const t = tmp.getContext('2d')!;
-      t.drawImage(img, 0, 0);
-      t.globalCompositeOperation = 'multiply';
-      t.fillStyle = tint;
-      t.fillRect(0, 0, tmp.width, tmp.height);
-      if (layers[i].tintMode === 'fabric') {
-        t.globalCompositeOperation = 'screen';
-        t.fillStyle = '#464646';
-        t.fillRect(0, 0, tmp.width, tmp.height);
+      let source: HTMLImageElement | HTMLCanvasElement | null = img;
+      if (!source && idleFallback[i]) {
+        const stand = document.createElement('canvas');
+        stand.width = canvas.width; stand.height = canvas.height;
+        const sctx = stand.getContext('2d')!;
+        for (let f = 0; f < meta.frames; f++) {
+          // walk frame 0 of each direction row → every idle frame column
+          sctx.drawImage(idleFallback[i]!, 0, 0, FRAME, rows * FRAME, f * FRAME, 0, FRAME, rows * FRAME);
+        }
+        source = stand;
       }
-      t.globalCompositeOperation = 'destination-in';
-      t.drawImage(img, 0, 0);
-      ctx.drawImage(tmp, 0, 0);
+      if (!source) return;
+      const tint = layers[i].tint;
+      if (!tint) { ctx.drawImage(source, 0, 0); return; }
+      ctx.drawImage(tintSheet(source, canvas.width, canvas.height, tint, layers[i].tintMode), 0, 0);
     });
 
     const tex = new THREE.CanvasTexture(canvas);
