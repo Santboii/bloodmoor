@@ -41,8 +41,11 @@ export type LpcLayer = {
 
 /** A layer's sheet donor for an animation it has no art of its own for —
  * defined here (not items.ts) because it references LpcAnimation and both
- * GearLayer and LpcLayer need it; items.ts re-exports it. See Task 8 report
- * for why this replaced the hardcoded idle-from-walk special case. */
+ * GearLayer and LpcLayer need it; items.ts re-exports it. Generalizes what
+ * began as a hardcoded idle-from-walk case in the compositor: upstream
+ * ships no run art for any weapon, no spellcast for the gnarled/crystal
+ * staves, and no 64px walk for bows, so those animations borrow frames
+ * rather than dropping the weapon layer entirely. */
 export type GearLayerFallback = {
   /** Animation whose sheet supplies the frames. */
   from: LpcAnimation;

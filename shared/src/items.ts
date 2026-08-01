@@ -116,8 +116,12 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  */
 // Shared fallback tables for the weapon bases below — upstream ships no
 // `run` art for any weapon, so every staff/bow borrows its `walk`/`shoot`
-// pose for idle and run; see task-8-brief.md for the upstream sheet audit
-// this is based on.
+// pose for idle and run. Source of truth for what each weapon actually has:
+// sheet_definitions/weapons/**.json in the LPC generator repo, whose
+// `animations` arrays are: simple staff [spellcast, thrust, walk, hurt];
+// gnarled/crystal staves [walk, hurt, thrust_oversize]; all bows
+// [walk, shoot, hurt, walk_128] — where bow `walk` is served only by the
+// 128px oversize sheets this 64px pipeline can't consume.
 const STAFF_IDLE_RUN_FALLBACKS: Partial<Record<LpcAnimation, GearLayerFallback>> = {
   idle: { from: 'walk', mode: 'hold' },
   run: { from: 'walk', mode: 'cycle' },
