@@ -6,7 +6,7 @@ import {
   ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
   RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
-  STORMCALL_DRIFT_SPEED, DELTA,
+  STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   computeLoadout,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
@@ -322,6 +322,22 @@ export function advanceState(
       rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, input.aimTarget, tick, {
         radiusMultiplier: aMods.rain.radiusMultiplier,
       })];
+      if (aMods.rain.twinStorm) {
+        let nearest: PlayerState | undefined;
+        let nearestDist = Infinity;
+        for (const other of Object.values(players)) {
+          if (other.id === id || other.hp <= 0) continue;
+          if ((other.invisibleUntil ?? 0) > tick) continue;
+          if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[id].teamId) continue;
+          const d = (other.position.x - p.position.x) ** 2 + (other.position.y - p.position.y) ** 2;
+          if (d < nearestDist) { nearestDist = d; nearest = other; }
+        }
+        if (nearest) {
+          rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, nearest.position, tick, {
+            radiusMultiplier: aMods.rain.radiusMultiplier * TWIN_STORM_RADIUS_RATIO,
+          })];
+        }
+      }
     } else if (spell === 8) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -531,11 +547,17 @@ export function advanceState(
     if (len <= step) return { ...fw, center: { ...nearest.position } };
     return { ...fw, center: { x: fw.center!.x + (dx / len) * step, y: fw.center!.y + (dy / len) * step } };
   });
+  const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
     const isRainZone = fw.id.startsWith('rain_zone_');
     const widthMult = isRainZone ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
     for (const [pid] of Object.entries(players)) {
       if (fireWallDamagesPlayer(fw, players[pid].position, pid, widthMult)) {
+        if (isRainZone) {
+          const dupKey = `${fw.ownerId}:${pid}`;
+          if (rainTicked.has(dupKey)) continue;
+          rainTicked.add(dupKey);
+        }
         const invuln = (players[pid].invulnUntil ?? 0) > tick;
         if (!invuln) {
           const dmg = isRainZone

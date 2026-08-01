@@ -163,4 +163,44 @@ describe('Ranger combat integration', () => {
     expect(zone).toBeDefined();
     expect(zone!.center!.x).toBeGreaterThan(1000);   // moved toward p2 at x=1800
   });
+
+  it('Twin Storm: casting also marks a half-size zone on the enemy', () => {
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer.rain_of_arrows' as NodeId, 1],
+      ['archer.wide_rain' as NodeId, 6],   // keystone rank
+    ]);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
+    expect(state.rainOfArrows).toHaveLength(2);
+    const [primary, twin] = state.rainOfArrows;
+    expect(twin.target).toEqual({ x: 1800, y: 1000 });     // enemy position at cast
+    expect(twin.radius).toBeCloseTo(primary.radius / 2, 5);
+  });
+
+  it('overlapping same-owner rain zones tick a target at most once per tick', () => {
+    const skills = new Map<NodeId, number>([
+      ['archer.power_shot' as NodeId, 1],
+      ['archer.rain_of_arrows' as NodeId, 1],
+    ]);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
+    ]);
+    // Two already-detonated zones stacked on p2.
+    state.fireWalls.push(
+      { id: 'rain_zone_a', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+      { id: 'rain_zone_b', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+    );
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const before = state.players['p2'].hp;
+    state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
+    const lost = before - state.players['p2'].hp;
+    expect(lost).toBeCloseTo(45 / 60, 5);   // one RAIN_DAMAGE_PER_TICK, not two
+  });
 });
