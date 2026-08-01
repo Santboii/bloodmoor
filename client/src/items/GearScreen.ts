@@ -9,6 +9,7 @@ import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
+import { iconCellAttrs, applyItemIcons } from './itemIcon';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -149,6 +150,7 @@ const STYLES = `
 .gr-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;white-space:pre-line;}
 .gr-confirm-buttons{display:flex;gap:12px;justify-content:center;}
 .gr-confirm-yes,.gr-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+.gr-slot-icon,.gr-details-icon{width:40px;height:40px;display:flex;align-items:center;justify-content:center;}
 `;
 
 export class GearScreen {
@@ -284,6 +286,7 @@ export class GearScreen {
       onLogout: () => this.navHandlers.onLogout(),
     });
     this.attachItemListeners();
+    applyItemIcons(this.el);
     this.renderDetails(this.selectedId);
   }
 
@@ -301,7 +304,7 @@ export class GearScreen {
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
     return `<div class="gr-slot${selected}" style="grid-area:${slot};box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}" data-equipped="1">
-      <div class="gr-slot-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -313,7 +316,7 @@ export class GearScreen {
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
     return `<div class="gr-card${selected}" style="box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}">
-      <div class="gr-slot-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -468,7 +471,7 @@ export class GearScreen {
 
     panel.innerHTML = `
       <div class="gr-details-head">
-        <div class="gr-details-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="gr-details-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div>
           <div class="gr-details-name" style="color:${color}">${esc(name)}</div>
           <div class="gr-details-kind">${esc(base.name)} · ${esc(BASE_SLOT_LABELS[base.slot])}</div>
@@ -488,6 +491,7 @@ export class GearScreen {
       if (sellBtn.disabled) return;
       this.handleSell(item);
     });
+    applyItemIcons(panel);
   }
 
   /**
