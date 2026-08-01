@@ -49,21 +49,19 @@ const LAYERS = [
   'weapon/magic/gnarled/universal/foreground/gnarled',
   'weapon/magic/crystal/universal/background/purple',
   'weapon/magic/crystal/universal/foreground/purple',
-  // Bows keep their walk sheets in a sibling subtree (walk/{background,
-  // foreground}/<color>.png) instead of under universal/ — srcByAnim points
-  // the walk fetch there while shoot/hurt use the dest path as usual.
-  { dest: 'weapon/ranged/bow/normal/universal/background/normal',
-    srcByAnim: { walk: 'weapon/ranged/bow/normal/walk/background/normal' } },
-  { dest: 'weapon/ranged/bow/normal/universal/foreground/normal',
-    srcByAnim: { walk: 'weapon/ranged/bow/normal/walk/foreground/normal' } },
-  { dest: 'weapon/ranged/bow/recurve/universal/background/recurve',
-    srcByAnim: { walk: 'weapon/ranged/bow/recurve/walk/background/recurve' } },
-  { dest: 'weapon/ranged/bow/recurve/universal/foreground/recurve',
-    srcByAnim: { walk: 'weapon/ranged/bow/recurve/walk/foreground/recurve' } },
-  { dest: 'weapon/ranged/bow/great/universal/background/great',
-    srcByAnim: { walk: 'weapon/ranged/bow/great/walk/background/great' } },
-  { dest: 'weapon/ranged/bow/great/universal/foreground/great',
-    srcByAnim: { walk: 'weapon/ranged/bow/great/walk/foreground/great' } },
+  // Bows have no 64px-frame walk sheet upstream at all — the only walk art
+  // that exists there is a 128px-oversize, 8-column sheet incompatible with
+  // this project's universal LPC layout (see the dimension gate below).
+  // Plain entries below mean walk is simply MISSING for bows, which is the
+  // correct degradation: compositeAppearance skips drawing a layer with no
+  // sheet for the current animation, and iconFor's ANIM_PREFERENCE falls
+  // through past the missing walk to a compatible sheet (shoot).
+  'weapon/ranged/bow/normal/universal/background/normal',
+  'weapon/ranged/bow/normal/universal/foreground/normal',
+  'weapon/ranged/bow/recurve/universal/background/recurve',
+  'weapon/ranged/bow/recurve/universal/foreground/recurve',
+  'weapon/ranged/bow/great/universal/background/great',
+  'weapon/ranged/bow/great/universal/foreground/great',
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)
@@ -75,38 +73,68 @@ function candidates(layer, anim) {
   return [
     `${BASE}/${dir}/${anim}/${color}.png`, // colored layout
     `${BASE}/${layer}/${anim}.png`,        // plain layout
-    `${BASE}/${layer}.png`,                // anim baked into the path (bow walk overrides)
   ];
 }
 
+// Expected 64px-frame sheet dimensions per animation, mirroring
+// shared/src/appearance.ts LPC_ANIMATIONS (frames * 64 wide; singleRow ? 64
+// : 256 tall). A sheet in any other format silently clips or smears when
+// compositeAppearance draws it onto a 64px canvas (see the bow `walk`
+// incident this gate exists to catch) — so any mismatch is a hard failure.
+const EXPECTED_DIMS = {
+  walk:      { w: 9 * 64,  h: 4 * 64 },
+  run:       { w: 8 * 64,  h: 4 * 64 },
+  idle:      { w: 2 * 64,  h: 4 * 64 },
+  spellcast: { w: 7 * 64,  h: 4 * 64 },
+  shoot:     { w: 13 * 64, h: 4 * 64 },
+  hurt:      { w: 6 * 64,  h: 1 * 64 },
+};
+
+/** Read width/height straight out of the PNG IHDR chunk (bytes 16-23 of a
+ * valid PNG): width is a big-endian uint32 at offset 16, height at offset
+ * 20. No dependency needed for two field reads. */
+function pngDimensions(buf) {
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
 let ok = 0, missing = [];
+const badDims = [];
 const saved = new Set(); // `${layer}/${anim}` for every sheet actually written to disk
-const entries = LAYERS.map(l => typeof l === 'string' ? { dest: l, srcByAnim: {} } : l);
-const seen = new Set();
-for (const entry of entries) {
-  if (seen.has(entry.dest)) continue;
-  seen.add(entry.dest);
+for (const layer of LAYERS) {
   for (const anim of ANIMS) {
-    const srcLayer = entry.srcByAnim[anim] ?? entry.dest;
-    const dest = join(OUT, entry.dest, `${anim}.png`);
+    const dest = join(OUT, layer, `${anim}.png`);
     let wasSaved = false;
-    for (const url of candidates(srcLayer, anim)) {
+    let wasBadDims = false;
+    for (const url of candidates(layer, anim)) {
       const res = await fetch(url);
       if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        const { width, height } = pngDimensions(buf);
+        const expected = EXPECTED_DIMS[anim];
+        if (width !== expected.w || height !== expected.h) {
+          badDims.push(`${layer}/${anim}: got ${width}x${height}, expected ${expected.w}x${expected.h} (${url})`);
+          wasBadDims = true;
+          break;
+        }
         await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+        await writeFile(dest, buf);
         ok++; wasSaved = true;
-        saved.add(`${srcLayer}/${anim}`);
+        saved.add(`${layer}/${anim}`);
         break;
       }
     }
-    if (!wasSaved) missing.push(`${srcLayer}/${anim}`);
+    if (!wasSaved && !wasBadDims) missing.push(`${layer}/${anim}`);
   }
 }
 console.log(`saved ${ok} sheets`);
 if (missing.length) {
   console.log('MISSING (needs investigation, not necessarily fatal):');
   for (const m of missing) console.log('  ' + m);
+}
+if (badDims.length) {
+  console.error(`WRONG DIMENSIONS: ${badDims.length} sheet(s) do not match the expected 64px-frame layout — not saved:`);
+  for (const b of badDims) console.error('  ' + b);
+  process.exit(1);
 }
 
 // --- Attribution: CREDITS.csv upstream is the generator's FULL collection

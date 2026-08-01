@@ -7,6 +7,7 @@ export { accountMenuItems, skillsBadge } from '../ui/navBar';
 export type { AccountMenuItem, NavKey } from '../ui/navBar';
 import { SpritePreview } from '../renderer/sprites/SpritePreview';
 import { RARITY_COLORS, itemBase, itemDisplayName } from '../items/GearScreen';
+import { iconCellAttrs, applyItemIcons } from '../items/itemIcon';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -161,6 +162,7 @@ const STYLES = `
 .bm-result-spoils{max-width:280px;margin:0 auto 20px;padding:12px 16px;background:var(--px-border-dark);opacity:0;animation:bm-rise 0.5s ease-out forwards;}
 .bm-result-spoils-label{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;color:var(--px-border-light);margin-bottom:8px;}
 .bm-result-spoils-item{display:flex;align-items:center;justify-content:center;gap:8px;font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:0.5px;}
+.bm-result-spoils-icon{width:14px;height:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
 .bm-result-buttons{display:flex;flex-direction:column;gap:8px;opacity:0;animation:bm-rise 0.5s ease-out forwards;}
 .bm-btn-rematch{width:100%;padding:13px 40px;font-size:9px;letter-spacing:1px;}
 .bm-btn-return{width:100%;padding:12px 40px;background:transparent;font-size:8px;letter-spacing:1px;}
@@ -474,7 +476,7 @@ export class LobbyUI {
       const name = itemDisplayName(droppedItem, droppedBase);
       spoilsHtml = `<div class="bm-result-spoils" style="animation-delay:${rewardDelay}s;box-shadow:inset 0 0 0 2px ${color}">
         <div class="bm-result-spoils-label">War Spoils</div>
-        <div class="bm-result-spoils-item"><i class="fa ${droppedBase.icon}" style="color:${color}"></i><span style="color:${color}">${escapeHtml(name)}</span></div>
+        <div class="bm-result-spoils-item"><span class="bm-result-spoils-icon"${iconCellAttrs(droppedBase)} style="color:${color}"><i class="fa ${droppedBase.icon}"></i></span><span style="color:${color}">${escapeHtml(name)}</span></div>
       </div>`;
       rewardDelay += 0.3;
     }
@@ -501,6 +503,8 @@ export class LobbyUI {
           <button id="bm-return-lobby" class="bm-btn-return px-btn">Return to Lobby</button>
         </div>
       </div>`;
+
+    applyItemIcons(this.ui);
 
     if (matchResult && matchResult.xpGained > 0) {
       const xpEl = this.ui.querySelector('#bm-xp-count');

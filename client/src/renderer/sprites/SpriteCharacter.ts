@@ -39,6 +39,7 @@ export class SpriteCharacter {
   private lastFrameKey = '';
   private scratch: HTMLCanvasElement | null = null;
   private scratchTex: THREE.CanvasTexture | null = null;
+  private disposed = false;
 
   constructor(appearance: Appearance, charClass: CharacterClass, gear: GearVisuals = {}) {
     this.castAnim = charClass === 'ranger' ? 'shoot' : 'spellcast';
@@ -60,6 +61,10 @@ export class SpriteCharacter {
     this.group.add(shadow);
 
     compositeAppearance(appearance, gear).then(tex => {
+      if (this.disposed) {
+        disposeComposite(tex);
+        return;
+      }
       this.textures = tex;
       this.material.visible = true;
       this.applyFrame(true);
@@ -189,6 +194,7 @@ export class SpriteCharacter {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.plane.geometry.dispose();
     this.material.dispose();
     this.scratchTex?.dispose();
