@@ -20,12 +20,31 @@ import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
 import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage } from '../spells/Arrow.ts';
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
+import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
   appearance?: Appearance;
   items?: ItemRow[]; // equipped gear — computeLoadout folds these into the StatBlock below
 };
+
+/** Applies/refreshes the owner's elemental status on a tick-local player
+ *  object. Gear damage mult is baked into the DoT at application (the tick
+ *  loop has no attacker id once the effect is fields on the target). */
+function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, atkDamageMult: number, tick: number): void {
+  const el = ownerAM.elemental;
+  if (ownerAM.element === 'burn') {
+    target.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
+    target.burnDps = el.burn.damagePerSecond * atkDamageMult;
+  } else if (ownerAM.element === 'freeze') {
+    target.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
+    target.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
+  } else if (ownerAM.element === 'poison') {
+    target.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
+    target.poisonDps = el.poison.damagePerSecond * atkDamageMult;
+    target.poisonManaReduction = el.poison.manaRegenReduction;
+  }
+}
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
   const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
@@ -410,24 +429,8 @@ export function advanceState(
               players[moved.ownerId].teamId === player.teamId;
             const ownerAM = rangerMods[moved.ownerId];
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
-              const el = ownerAM.elemental;
-              // The attacker's gear damageMult is baked into the DoT's
-              // dps HERE (at application) rather than multiplied per tick —
-              // the tick loop (0.5 above) has no attacker id to look up once
-              // the effect is just fields on the target, so this is simpler
-              // and numerically equivalent to scaling every tick.
               const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;
-              if (ownerAM.element === 'burn') {
-                next.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
-                next.burnDps = el.burn.damagePerSecond * atkDamageMult;
-              } else if (ownerAM.element === 'freeze') {
-                next.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
-                next.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
-              } else if (ownerAM.element === 'poison') {
-                next.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
-                next.poisonDps = el.poison.damagePerSecond * atkDamageMult;
-                next.poisonManaReduction = el.poison.manaRegenReduction;
-              }
+              applyElementStatus(next, ownerAM, atkDamageMult, tick);
             }
             players[pid] = next;
           }
@@ -507,6 +510,15 @@ export function advanceState(
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
+          if (isRainZone) {
+            const ownerAM = rangerMods[fw.ownerId];
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[fw.ownerId]?.teamId !== undefined &&
+              players[fw.ownerId].teamId === players[pid].teamId;
+            if (ownerAM && ownerAM.element !== 'none' && players[pid].hp > 0 && !sameTeam) {
+              applyElementStatus(players[pid], ownerAM, players[fw.ownerId]?.statMults.damage ?? 1, tick);
+            }
+          }
         }
       }
     }

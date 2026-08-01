@@ -100,6 +100,35 @@ describe('elemental arrow effects', () => {
   });
 });
 
+describe('rain zone element application', () => {
+  it('a freeze ranger\'s rain zone slows players standing in it', () => {
+    const skills = {
+      p1: rangerSkillsWith([['archer.rain_of_arrows', 1], ['archer.freeze', 2]]),
+      p2: new Map<NodeId, number>(),
+    };
+    let state = baseState();
+    // Rain centered on p2; zone spawns after RAIN_DELAY_TICKS, then ticks damage.
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle() }, skills);
+    for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].hp).toBeLessThan(MAX_HP);          // zone damaged them
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect(state.players['p2'].slowFactor).toBeLessThan(1);
+  });
+
+  it('a burn ranger\'s rain zone applies burn', () => {
+    const skills = {
+      p1: rangerSkillsWith([['archer.rain_of_arrows', 1], ['archer.burn', 1]]),
+      p2: new Map<NodeId, number>(),
+    };
+    let state = baseState();
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    state = advanceState(state, { p1: cast, p2: idle() }, skills);
+    for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);
+  });
+});
+
 describe('evade utility skills', () => {
   const evadeCast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 500, y: 1000 } };
 
