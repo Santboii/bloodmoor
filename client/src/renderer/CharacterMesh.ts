@@ -1,6 +1,6 @@
 // client/src/renderer/CharacterMesh.ts
 import * as THREE from 'three';
-import { CLASS_DEFAULT_APPEARANCE, type Appearance, type CharacterClass } from '@arena/shared';
+import { CLASS_DEFAULT_APPEARANCE, type Appearance, type CharacterClass, type GearVisuals } from '@arena/shared';
 import { SpriteCharacter } from './sprites/SpriteCharacter';
 import { snapToTexel, worldUnitsPerTexel } from './pixelation';
 
@@ -23,11 +23,12 @@ export class CharacterMesh {
   constructor(
     charClass: CharacterClass,
     appearance: Appearance | undefined,
+    gear: GearVisuals | undefined,
     color: number,
     displayName: string,
     labelContainer: HTMLElement
   ) {
-    this.sprite = new SpriteCharacter(appearance ?? CLASS_DEFAULT_APPEARANCE[charClass], charClass);
+    this.sprite = new SpriteCharacter(appearance ?? CLASS_DEFAULT_APPEARANCE[charClass], charClass, gear ?? {});
     this.group.add(this.sprite.group);
 
     // Glow ring on ground

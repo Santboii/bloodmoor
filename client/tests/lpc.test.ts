@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FRAME, frameRect, directionFromWorldAngle, animationFrame } from '../src/renderer/sprites/lpc';
+import { FRAME, frameRect, directionFromWorldAngle, animationFrame, donorFrameMap } from '../src/renderer/sprites/lpc';
 
 describe('frameRect', () => {
   it('indexes rows by direction and columns by frame', () => {
@@ -68,5 +68,19 @@ describe('animationFrame', () => {
 
   it('clamps at the final frame when not looping', () => {
     expect(animationFrame('hurt', 10, false)).toBe(5);
+  });
+});
+
+describe('donorFrameMap', () => {
+  it('hold freezes every target frame on the donor\'s first frame', () => {
+    expect(donorFrameMap(9, 7, 'hold')).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('cycle maps frame i to donor frame i while the donor is long enough', () => {
+    expect(donorFrameMap(4, 9, 'cycle')).toEqual([0, 1, 2, 3]);
+  });
+
+  it('cycle clamps at the donor\'s last frame once the target runs longer', () => {
+    expect(donorFrameMap(9, 7, 'cycle')).toEqual([0, 1, 2, 3, 4, 5, 6, 6, 6]);
   });
 });

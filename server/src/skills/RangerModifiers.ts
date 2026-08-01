@@ -1,4 +1,4 @@
-import { ARROW_SPEED, EVADE_RANGE, effectAtRank, deriveElement } from '@arena/shared';
+import { ARROW_SPEED, EVADE_RANGE, effectAtRank, deriveElement, hasKeystone, WITHERING_VENOM_MANA_DRAIN } from '@arena/shared';
 import type { NodeId, ArrowElement } from '@arena/shared';
 
 export type ElementType = ArrowElement;
@@ -10,20 +10,24 @@ export type ArrowModifiers = {
   homing: number;
   guidedRedirects: number;
   homingTickReduction: number;
+  relentless: boolean;
+  predator: boolean;
 };
 
 export type MultishotModifiers = {
   arrowCount: number;
   damageMin: number;
   damageMax: number;
+  echoVolley: boolean;
 };
 
 export type RainModifiers = {
-  sustained: boolean;
   durationMultiplier: number;
-  piercing: boolean;
   damageMultiplier: number;
   radiusMultiplier: number;
+  stormcall: boolean;
+  exposed: boolean;
+  twinStorm: boolean;
 };
 
 export type EvadeModifiers = {
@@ -31,22 +35,26 @@ export type EvadeModifiers = {
   combatRoll: boolean;
   shadowstep: boolean;
   cooldownMultiplier: number;
+  secondWind: boolean;
 };
 
 export type BurnModifiers = {
   damagePerSecond: number;
   duration: number;
+  ignite: boolean;
 };
 
 export type FreezeModifiers = {
   slowPercent: number;
   duration: number;
+  deepFreeze: boolean;
 };
 
 export type PoisonModifiers = {
   damagePerSecond: number;
   duration: number;
   manaRegenReduction: number;
+  manaDrainPerSecond: number;
 };
 
 export type ElementalModifiers = {
@@ -67,6 +75,7 @@ export type RangerSpellModifiers = {
 export function buildRangerModifiers(skills: Map<NodeId, number>): RangerSpellModifiers {
   const rank = (id: NodeId) => skills.get(id) ?? 0;
   const has = (id: NodeId) => rank(id) > 0;
+  const ks = (id: NodeId) => hasKeystone(id, rank(id));
 
   let homing = 0;
   if (has('archer.guided')) homing = 1;
@@ -95,40 +104,48 @@ export function buildRangerModifiers(skills: Map<NodeId, number>): RangerSpellMo
       damageMax: 90,
       homing,
       guidedRedirects: guidedRank,
-      homingTickReduction: homingRank > 0 ? Math.floor(effectAtRank(2, homingRank)) : 0,
+      homingTickReduction: homingRank > 0 ? Math.floor(effectAtRank(6, homingRank)) : 0,
+      relentless: ks('archer.guided'),
+      predator: ks('archer.homing'),
     },
     multishot: {
       arrowCount: 3 + (barrageRank > 0 ? Math.floor(effectAtRank(2, barrageRank)) : 0),
       damageMin: 40,
       damageMax: 60,
+      echoVolley: ks('archer.barrage'),
     },
     rain: {
-      sustained: has('archer.sustained_rain'),
-      durationMultiplier: sustainedRank > 0 ? 1 + effectAtRank(0.15, sustainedRank) : 1,
-      piercing: has('archer.piercing_rain'),
+      durationMultiplier: sustainedRank > 0 ? 1 + effectAtRank(0.35, sustainedRank) : 1,
       damageMultiplier: piercingRank > 0 ? 1 + effectAtRank(0.25, piercingRank) : 1,
       radiusMultiplier: wideRank > 0 ? 1 + effectAtRank(0.15, wideRank) : 1,
+      stormcall: ks('archer.sustained_rain'),
+      exposed: ks('archer.piercing_rain'),
+      twinStorm: ks('archer.wide_rain'),
     },
     evade: {
       range: EVADE_RANGE,
       combatRoll: has('archer_utility.combat_roll'),
       shadowstep: has('archer_utility.shadowstep'),
       cooldownMultiplier: acrobaticsRank > 0 ? 1 - effectAtRank(0.10, acrobaticsRank) : 1,
+      secondWind: ks('archer_utility.acrobatics'),
     },
     element,
     elemental: {
       burn: {
-        damagePerSecond: 10 + (burnRank > 0 ? effectAtRank(8, burnRank) : 0),
+        damagePerSecond: 10 + (burnRank > 0 ? effectAtRank(12, burnRank) : 0),
         duration: 3,
+        ignite: ks('archer.burn'),
       },
       freeze: {
-        slowPercent: 0.30 + (freezeRank > 0 ? effectAtRank(0.06, freezeRank) : 0),
+        slowPercent: 0.30 + (freezeRank > 0 ? effectAtRank(0.09, freezeRank) : 0),
         duration: 2,
+        deepFreeze: ks('archer.freeze'),
       },
       poison: {
-        damagePerSecond: 4 + (poisonRank > 0 ? effectAtRank(5, poisonRank) : 0),
+        damagePerSecond: 4 + (poisonRank > 0 ? effectAtRank(7, poisonRank) : 0),
         duration: 5,
-        manaRegenReduction: 0.30 + (poisonRank > 0 ? effectAtRank(0.05, poisonRank) : 0),
+        manaRegenReduction: 0.30 + (poisonRank > 0 ? effectAtRank(0.07, poisonRank) : 0),
+        manaDrainPerSecond: ks('archer.poison') ? WITHERING_VENOM_MANA_DRAIN : 0,
       },
     },
   };

@@ -12,6 +12,8 @@ type ArrowConfig = {
   homing?: number;
   homingTickReduction?: number;
   guidedRedirects?: number;
+  relentless?: boolean;
+  predator?: boolean;
 };
 
 const GUIDED_REDIRECT_TICKS = 30;
@@ -45,27 +47,41 @@ export function spawnArrow(
     homing: homingTicks,
     homingRedirects,
     homingInterval: homingTicks,
+    redirectCount: 0,
+    relentless: cfg.relentless,
+    predator: cfg.predator,
   };
 }
 
-export function advanceArrow(p: Projectile, enemyPos?: Vec2): Projectile {
+export function advanceArrow(p: Projectile, enemyPos?: Vec2, enemyVel?: Vec2): Projectile {
   let vx = p.velocity.x;
   let vy = p.velocity.y;
   let homing = p.homing ?? 0;
   let redirects = p.homingRedirects ?? 0;
+  let redirectCount = p.redirectCount ?? 0;
 
   if (homing > 0) {
     homing--;
     if (homing === 0 && enemyPos) {
-      const dx = enemyPos.x - p.position.x;
-      const dy = enemyPos.y - p.position.y;
+      let aimX = enemyPos.x;
+      let aimY = enemyPos.y;
+      if (p.predator && enemyVel) {
+        const dist = Math.sqrt((enemyPos.x - p.position.x) ** 2 + (enemyPos.y - p.position.y) ** 2);
+        const spd0 = Math.sqrt(vx * vx + vy * vy) || 1;
+        const t = dist / spd0;   // seconds to reach the target's current spot
+        aimX += enemyVel.x * t;
+        aimY += enemyVel.y * t;
+      }
+      const dx = aimX - p.position.x;
+      const dy = aimY - p.position.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
       const spd = Math.sqrt(vx * vx + vy * vy);
       vx = (dx / len) * spd;
       vy = (dy / len) * spd;
-      if (redirects > 0) {
+      redirectCount++;
+      if (p.relentless || redirects > 0) {
         homing = p.homingInterval ?? GUIDED_REDIRECT_TICKS;
-        redirects--;
+        if (!p.relentless) redirects--;
       } else {
         homing = -1;
       }
@@ -76,6 +92,7 @@ export function advanceArrow(p: Projectile, enemyPos?: Vec2): Projectile {
     ...p,
     homing,
     homingRedirects: redirects,
+    redirectCount,
     velocity: { x: vx, y: vy },
     position: {
       x: p.position.x + vx * DELTA,

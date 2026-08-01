@@ -302,6 +302,9 @@ export class Room {
       for (const rain of this.state.rainOfArrows) {
         if (rain.ownerId === oldSocketId) rain.ownerId = newSocketId;
       }
+      for (const echo of this.state.echoVolleys ?? []) {
+        if (echo.ownerId === oldSocketId) echo.ownerId = newSocketId;
+      }
     }
   }
 }

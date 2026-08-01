@@ -8,6 +8,7 @@ import { LOOTBOX_PRICES } from '@arena/shared';
 import type { LootboxTier, ItemRow, AffixId, RolledAffix } from '@arena/shared';
 import { RARITY_COLORS, itemBase, itemDisplayName } from './GearScreen';
 import * as sfx from '../audio/sfx';
+import { iconCellAttrs, applyItemIcons } from './itemIcon';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -119,6 +120,7 @@ const STYLES = `
 .sh-reveal-name{font-family:'Press Start 2P',monospace;font-size:8px;line-height:1.5;}
 .sh-reveal-note{font-size:13px;color:var(--px-success);font-style:italic;}
 .sh-empty{grid-column:1 / -1;color:var(--px-border-light);font-size:15px;text-align:center;padding:20px 0;}
+.sh-vslot-icon,.sh-reveal-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;}
 `;
 
 export class ShopScreen {
@@ -245,6 +247,7 @@ export class ShopScreen {
     `;
 
     this.attachListeners();
+    applyItemIcons(this.el);
     this.renderDetails(this.selectedSlotIndex);
   }
 
@@ -267,7 +270,7 @@ export class ShopScreen {
     return `
       <div class="${cardClass}" data-slot="${slot.slotIndex}" style="box-shadow:inset 0 0 0 2px ${color}">
         ${state === 'sold' ? '<div class="sh-sold-badge">SOLD</div>' : ''}
-        <div class="sh-vslot-icon" style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
+        <div class="sh-vslot-icon"${iconCellAttrs(slot.base)} style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
         <div class="sh-vslot-name" style="color:${color}">${esc(slot.base.name)}</div>
         <div class="sh-vslot-price"><i class="fa fa-coins"></i> ${slot.price}</div>
         ${slot.crossClass ? '<div class="sh-crossclass">⚠ No current class can use this</div>' : ''}
@@ -305,7 +308,7 @@ export class ShopScreen {
     const name = itemDisplayName(item, base);
     return `
       <div class="sh-reveal" style="box-shadow:inset 0 0 0 2px ${color}">
-        <div class="sh-reveal-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="sh-reveal-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div class="sh-reveal-name" style="color:${color}">${esc(name)}</div>
         <div class="sh-reveal-note">Sent to stash</div>
       </div>`;
@@ -331,7 +334,7 @@ export class ShopScreen {
 
     panel.innerHTML = `
       <div class="sh-details-head">
-        <div class="sh-details-icon" style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
+        <div class="sh-details-icon"${iconCellAttrs(slot.base)} style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
         <div>
           <div class="sh-details-name" style="color:${color}">${esc(slot.base.name)}</div>
           <div class="sh-details-kind">${esc(slot.rarity)} · Lvl ${slot.base.itemLevel}+</div>
@@ -341,6 +344,7 @@ export class ShopScreen {
       ${affixHtml}
       ${classHtml}
     `;
+    applyItemIcons(panel);
   }
 
   private attachListeners(): void {

@@ -48,3 +48,15 @@ export function animationFrame(anim: LpcAnimation, elapsedSec: number, loop: boo
   const raw = Math.floor(elapsedSec * meta.fps);
   return loop ? raw % meta.frames : Math.min(raw, meta.frames - 1);
 }
+
+/** Donor sheet frame index to draw for each frame of the target animation.
+ *  'hold' freezes the donor's first frame; 'cycle' advances with the target,
+ *  clamped to the donor's last frame (donor animations are often shorter). */
+export function donorFrameMap(
+  targetFrames: number,
+  donorFrames: number,
+  mode: 'hold' | 'cycle',
+): number[] {
+  return Array.from({ length: targetFrames }, (_, i) =>
+    mode === 'hold' ? 0 : Math.min(i, donorFrames - 1));
+}

@@ -136,6 +136,9 @@ const STYLES = `
 .st-node-supercharged .st-node-circle{box-shadow:0 0 0 3px #ddb84a,0 0 14px rgba(221,184,74,0.45);background:radial-gradient(circle at 38% 38%,#2a2000,#0e0a00);}
 .st-node-supercharged .st-node-icon{color:#ddb84a;}
 .st-node-supercharged .st-node-name{color:#ddb84a;}
+.st-keystone{margin-top:8px;padding:8px;background:rgba(221,184,74,0.06);box-shadow:0 0 0 1px rgba(221,184,74,0.3);font-size:11px}
+.st-keystone-name{color:#ddb84a;margin-bottom:4px}
+.st-keystone-active{background:rgba(221,184,74,0.14)}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
 .st-node-name{font-family:'Press Start 2P',monospace;font-size:7px;text-align:center;max-width:84px;margin-top:6px;line-height:1.5;}
 /* corner badges replace the old cost/rank text rows */
@@ -483,6 +486,17 @@ export class SkillTreeUI {
     const icon = NODE_ICONS[id] ?? 'fa-star';
     const kind = node.isSpell ? 'Active Spell' : 'Passive';
 
+    let keystoneHtml = '';
+    if (node.keystone && isStackable(node)) {
+      const cap = node.stackable!.softCap;
+      const active = currentRank > cap;
+      keystoneHtml = `
+        <div class="st-keystone${active ? ' st-keystone-active' : ''}">
+          <div class="st-keystone-name">⚡ ${esc(node.keystone.name)}${active ? ' — ACTIVE' : ` — unlocks at rank ${cap + 1}`}</div>
+          <div>${esc(node.keystone.description)}</div>
+        </div>`;
+    }
+
     // Rank track for stackables: filled segments up to the soft cap; ranks
     // beyond it render as extra gold segments so "past cap" stays visible.
     let rankTrack = '';
@@ -588,6 +602,7 @@ export class SkillTreeUI {
         </div>
       </div>
       <div class="st-details-desc">${esc(node.description)}</div>
+      ${keystoneHtml}
       ${rankTrack}
       ${reqHtml}
       <div class="st-details-status">${status}</div>
@@ -598,7 +613,7 @@ export class SkillTreeUI {
     const superBtn = panel.querySelector('#st-super-btn') as HTMLButtonElement | null;
     if (superBtn && !superBtn.disabled) {
       const currentRankNow = this.ranks.get(id) ?? 0;
-      superBtn.addEventListener('click', () => this.buyNode(id, rankUpCost(node, currentRankNow), currentRankNow + 1));
+      superBtn.addEventListener('click', () => this.confirmSupercharge(id, node, currentRankNow));
     }
   }
 
@@ -671,6 +686,18 @@ export class SkillTreeUI {
 
   private handleUnlock(id: NodeId, cost: number): void {
     this.buyNode(id, cost, 1);
+  }
+
+  private confirmSupercharge(id: NodeId, node: SkillNode, currentRank: number): void {
+    const cost = rankUpCost(node, currentRank);
+    const text = [
+      `${node.name}: Rank ${currentRank} → ${currentRank + 1}`,
+      `Cost: ${cost} pt${cost > 1 ? 's' : ''} — each rank past the cap gives less and costs 1 pt more.`,
+      ...(node.keystone && currentRank === node.stackable!.softCap
+        ? [`Unlocks keystone: ${node.keystone.name} — ${node.keystone.description}`]
+        : []),
+    ].join('\n');
+    this.showConfirm('Supercharge', text, () => this.buyNode(id, cost, currentRank + 1));
   }
 
   /**

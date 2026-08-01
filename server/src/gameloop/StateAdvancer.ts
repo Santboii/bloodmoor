@@ -1,15 +1,19 @@
 import {
   GameState, PlayerState, InputFrame, Vec2, SpellId, NodeId,
   SPELL_CONFIG, MANA_REGEN_PER_TICK, TICK_RATE,
-  FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE,
+  FIREWALL_DAMAGE_PER_TICK, FIREWALL_MAX_LENGTH, TELEPORT_MAX_RANGE, METEOR_AOE_RADIUS, FIREBALL_RADIUS, PLAYER_HALF_SIZE, PLAYER_SPEED,
   DUEL_MODE,
-  ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS,
-  RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK,
+  ARROW_SPEED, EVADE_RANGE, EVADE_INVULN_TICKS, EVADE_DURATION_TICKS, EVADE_MAX_CHARGES,
+  RAIN_SUSTAINED_TICKS, RAIN_DAMAGE_PER_TICK, GUIDED_MOMENTUM_PER_REDIRECT,
+  ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
+  STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
+  DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   computeLoadout,
+  gearVisualsFor,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState } from '@arena/shared';
-import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
+import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
@@ -19,12 +23,46 @@ import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
 import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage } from '../spells/Arrow.ts';
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
+import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
   appearance?: Appearance;
   items?: ItemRow[]; // equipped gear — computeLoadout folds these into the StatBlock below
 };
+
+/** Applies/refreshes the owner's elemental status on a tick-local player
+ *  object. Gear damage mult is baked into the DoT at application (the tick
+ *  loop has no attacker id once the effect is fields on the target). */
+function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, atkDamageMult: number, tick: number): void {
+  const el = ownerAM.elemental;
+  if (ownerAM.element === 'burn') {
+    target.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
+    target.burnDps = el.burn.damagePerSecond * atkDamageMult;
+  } else if (ownerAM.element === 'freeze') {
+    target.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
+    target.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
+    if (el.freeze.deepFreeze && (target.freezeRootReadyAt ?? 0) <= tick) {
+      target.rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
+      target.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
+    }
+  } else if (ownerAM.element === 'poison') {
+    target.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
+    target.poisonDps = el.poison.damagePerSecond * atkDamageMult;
+    target.poisonManaReduction = el.poison.manaRegenReduction;
+    target.poisonManaDrain = el.poison.manaDrainPerSecond > 0 ? el.poison.manaDrainPerSecond : undefined;
+  }
+}
+
+/** Exposed keystone: 1.15 when the target stands in one of the owner's rain
+ *  zones, else 1. */
+function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null, targetPos: Vec2, fireWalls: FireWallState[]): number {
+  if (!ownerAM?.rain.exposed) return 1;
+  const inZone = fireWalls.some(fw =>
+    fw.shape === 'circle' && fw.id.startsWith('rain_zone_') && fw.ownerId === ownerId &&
+    (targetPos.x - fw.center!.x) ** 2 + (targetPos.y - fw.center!.y) ** 2 <= (fw.radius! + PLAYER_HALF_SIZE) ** 2);
+  return inZone ? EXPOSED_DAMAGE_MULT : 1;
+}
 
 function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
   const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
@@ -71,9 +109,10 @@ export function makeInitialState(
       cooldowns: {},
       teamId: teamLookup[p.id],
       appearance: p.appearance ?? CLASS_DEFAULT_APPEARANCE[p.charClass],
+      gear: gearVisualsFor(p.items ?? []),
     };
   }
-  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
+  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
 }
 
 export function advanceState(
@@ -124,10 +163,12 @@ export function advanceState(
     if (p.hp > 0) {
       if ((p.burnUntil ?? 0) > tick && p.burnDps) p.hp = Math.max(0, p.hp - p.burnDps / TICK_RATE);
       if ((p.poisonUntil ?? 0) > tick && p.poisonDps) p.hp = Math.max(0, p.hp - p.poisonDps / TICK_RATE);
+      if ((p.poisonUntil ?? 0) > tick && p.poisonManaDrain) p.mana = Math.max(0, p.mana - p.poisonManaDrain / TICK_RATE);
     }
     if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
-    if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; }
+    if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
+    if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
   }
 
@@ -138,14 +179,27 @@ export function advanceState(
     const poisonActive = (p.poisonUntil ?? 0) > tick;
     const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1) * p.statMults.manaRegen;
     const newMana = Math.min(p.maxMana, p.mana + regen);
-    const speedMult = ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
+    const rooted = (p.rootUntil ?? 0) > tick;
+    const speedMult = rooted ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
+    const secondWind = !!rangerMods[id]?.evade.secondWind;
+    let evadeCharges = secondWind ? (p.evadeCharges ?? EVADE_MAX_CHARGES) : p.evadeCharges;
     const newCooldowns: Partial<Record<SpellId, number>> = {};
     for (const [k, v] of Object.entries(p.cooldowns)) {
+      const spellKey = Number(k) as SpellId;
       const remaining = (v as number) - 1;
-      if (remaining > 0) newCooldowns[Number(k) as SpellId] = remaining;
+      if (remaining > 0) { newCooldowns[spellKey] = remaining; continue; }
+      // Second Wind: an expiring evade cooldown refills one charge; restart the
+      // timer while a charge is still missing.
+      if (spellKey === 8 && secondWind) {
+        // secondWind guarantees evadeCharges was seeded (non-undefined) above.
+        evadeCharges = Math.min(EVADE_MAX_CHARGES, evadeCharges! + 1);
+        if (evadeCharges < EVADE_MAX_CHARGES) {
+          newCooldowns[8] = Math.round(SPELL_CONFIG[8].cooldownTicks * rangerMods[id]!.evade.cooldownMultiplier * p.statMults.cooldown);
+        }
+      }
     }
     const phantomActive = (p.phantomStepUntil ?? 0) > state.tick;
     players[id] = {
@@ -156,6 +210,7 @@ export function advanceState(
       cooldowns: newCooldowns,
       castingSpell: null,
       phantomStepUntil: phantomActive ? p.phantomStepUntil : undefined,
+      evadeCharges,
     };
   }
 
@@ -164,6 +219,7 @@ export function advanceState(
   let fireWalls = [...state.fireWalls];
   let meteors = [...state.meteors];
   let rainOfArrows: RainOfArrowsState[] = [...state.rainOfArrows];
+  let echoVolleys: EchoVolleyState[] = [...(state.echoVolleys ?? [])];
 
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
@@ -185,8 +241,10 @@ export function advanceState(
     const cfg = SPELL_CONFIG[spell];
     const phantomActive = (p.phantomStepUntil ?? 0) > tick;
     const effectiveManaCost = phantomActive ? 0 : cfg.manaCost;
+    const secondWind = spell === 8 && !!rangerMods[id]?.evade.secondWind;
+    const charges = secondWind ? (p.evadeCharges ?? EVADE_MAX_CHARGES) : 0;
     if (p.mana < effectiveManaCost) continue;
-    if ((p.cooldowns[spell] ?? 0) > 0) continue;
+    if (secondWind ? charges <= 0 : (p.cooldowns[spell] ?? 0) > 0) continue;
 
     let cooldownMultiplier = 1;
     if (spell === 8 && rangerMods[id]) {
@@ -197,7 +255,10 @@ export function advanceState(
     players[id] = {
       ...p,
       mana: p.mana - effectiveManaCost,
-      cooldowns: phantomActive ? { ...p.cooldowns } : { ...p.cooldowns, [spell]: cooldownTicks },
+      cooldowns: phantomActive ? { ...p.cooldowns }
+        : secondWind && (p.cooldowns[8] ?? 0) > 0 ? { ...p.cooldowns }   // refill already ticking
+        : { ...p.cooldowns, [spell]: cooldownTicks },
+      evadeCharges: secondWind ? charges - 1 : p.evadeCharges,
       castingSpell: spell,
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
     };
@@ -250,6 +311,8 @@ export function advanceState(
         homing: aMods.arrow.homing,
         homingTickReduction: aMods.arrow.homingTickReduction,
         guidedRedirects: aMods.arrow.guidedRedirects,
+        relentless: aMods.arrow.relentless,
+        predator: aMods.arrow.predator,
       });
       projectiles = [...projectiles, arrow];
     } else if (spell === 6) {
@@ -259,8 +322,10 @@ export function advanceState(
       const spreadPerArrow = Math.PI / (count + 1) * 0.4;
       const baseAngle = Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x);
       const volley = [];
+      const angles: number[] = [];
       for (let i = 0; i < count; i++) {
         const angle = baseAngle + (i - (count - 1) / 2) * spreadPerArrow;
+        angles.push(angle);
         const target = { x: p.position.x + Math.cos(angle) * 500, y: p.position.y + Math.sin(angle) * 500 };
         volley.push(spawnArrow(id, p.position, target, {
           speed: aMods.arrow.speed,
@@ -270,14 +335,38 @@ export function advanceState(
         }));
       }
       projectiles = [...projectiles, ...volley];
+      if (aMods.multishot.echoVolley) {
+        echoVolleys = [...echoVolleys, {
+          id: `echo_${id}_${tick}`,
+          ownerId: id,
+          fireAt: tick + ECHO_VOLLEY_DELAY_TICKS,
+          angles,
+          damageMin: Math.round(aMods.multishot.damageMin * ECHO_VOLLEY_DAMAGE_RATIO),
+          damageMax: Math.round(aMods.multishot.damageMax * ECHO_VOLLEY_DAMAGE_RATIO),
+        }];
+      }
     } else if (spell === 7) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
       rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, input.aimTarget, tick, {
-        sustained: aMods.rain.sustained,
-        piercing: aMods.rain.piercing,
         radiusMultiplier: aMods.rain.radiusMultiplier,
       })];
+      if (aMods.rain.twinStorm) {
+        let nearest: PlayerState | undefined;
+        let nearestDist = Infinity;
+        for (const other of Object.values(players)) {
+          if (other.id === id || other.hp <= 0) continue;
+          if ((other.invisibleUntil ?? 0) > tick) continue;
+          if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[id].teamId) continue;
+          const d = (other.position.x - p.position.x) ** 2 + (other.position.y - p.position.y) ** 2;
+          if (d < nearestDist) { nearestDist = d; nearest = other; }
+        }
+        if (nearest) {
+          rainOfArrows = [...rainOfArrows, spawnRainOfArrows(id, nearest.position, tick, {
+            radiusMultiplier: aMods.rain.radiusMultiplier * TWIN_STORM_RADIUS_RATIO,
+          })];
+        }
+      }
     } else if (spell === 8) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -331,9 +420,56 @@ export function advanceState(
     }
   }
 
+  // 2b. Fire due echo volleys from the caster's current position
+  const pendingEchoes: EchoVolleyState[] = [];
+  for (const echo of echoVolleys) {
+    if (tick < echo.fireAt) { pendingEchoes.push(echo); continue; }
+    const owner = players[echo.ownerId];
+    if (owner && owner.hp > 0) {
+      const ownerMods = rangerMods[echo.ownerId];
+      for (const angle of echo.angles) {
+        const target = { x: owner.position.x + Math.cos(angle) * 500, y: owner.position.y + Math.sin(angle) * 500 };
+        projectiles = [...projectiles, spawnArrow(echo.ownerId, owner.position, target, {
+          speed: ownerMods?.arrow.speed ?? ARROW_SPEED,
+          damageMin: echo.damageMin,
+          damageMax: echo.damageMax,
+          homing: 0,
+        })];
+      }
+    }
+  }
+  echoVolleys = pendingEchoes;
+
+  // Expire fire walls / rain zones and apply Stormcall drift before the
+  // arrow-hit section below, so exposedMultiplier and in-zone checks this
+  // tick see the zone's current (not stale, not-yet-expired) position.
+  fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
+  fireWalls = fireWalls.map(fw => {
+    if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
+    if (!rangerMods[fw.ownerId]?.rain.stormcall) return fw;
+    let nearest: PlayerState | undefined;
+    let nearestDist = Infinity;
+    for (const other of Object.values(players)) {
+      if (other.id === fw.ownerId || other.hp <= 0) continue;
+      if ((other.invisibleUntil ?? 0) > tick) continue;
+      if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[fw.ownerId]?.teamId) continue;
+      const d = (other.position.x - fw.center!.x) ** 2 + (other.position.y - fw.center!.y) ** 2;
+      if (d < nearestDist) { nearestDist = d; nearest = other; }
+    }
+    if (!nearest) return fw;
+    const dx = nearest.position.x - fw.center!.x;
+    const dy = nearest.position.y - fw.center!.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const step = STORMCALL_DRIFT_SPEED * DELTA;
+    if (len <= step) return { ...fw, center: { ...nearest.position } };
+    return { ...fw, center: { x: fw.center!.x + (dx / len) * step, y: fw.center!.y + (dy / len) * step } };
+  });
+
   // 3. Advance projectiles, check hits
   const survivingProjectiles = [];
   const newProjectiles: typeof projectiles = [];
+  const igniteTicked = new Set<string>();   // `${ownerId}:${pid}` — one ignite burst per owner per target per tick
   for (const proj of projectiles) {
     const candidates = Object.entries(players).filter(([pid]) =>
       pid !== proj.ownerId &&
@@ -352,7 +488,20 @@ export function advanceState(
         })
       : undefined;
     if (proj.type === 'arrow') {
-      const moved = advanceArrow(proj, enemyEntry?.[1].position);
+      // Predator: a single-tick position delta, scaled to units/sec. Teleports
+      // and evade dashes can move a player far more than a normal step in one
+      // tick, so clamp to PLAYER_SPEED — otherwise the lead point overshoots
+      // wildly and wastes the redirect.
+      let enemyVel: Vec2 | undefined;
+      if (enemyEntry && state.players[enemyEntry[0]]) {
+        const vx = (enemyEntry[1].position.x - state.players[enemyEntry[0]].position.x) * TICK_RATE;
+        const vy = (enemyEntry[1].position.y - state.players[enemyEntry[0]].position.y) * TICK_RATE;
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        enemyVel = speed > PLAYER_SPEED
+          ? { x: (vx / speed) * PLAYER_SPEED, y: (vy / speed) * PLAYER_SPEED }
+          : { x: vx, y: vy };
+      }
+      const moved = advanceArrow(proj, enemyEntry?.[1].position, enemyVel);
       if (isArrowExpired(moved)) continue;
       let hit = false;
       for (const [pid, player] of Object.entries(players)) {
@@ -360,7 +509,8 @@ export function advanceState(
         if (arrowHitsPlayer(moved, player.position, pid)) {
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
-            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
+            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * momentum * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode) * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls)) };
             // Elemental arrows apply the shooter's status effect on hit —
             // but never full-strength slows/DoTs on teammates (friendly fire
             // is deliberately reduced; a full 2s slow would undercut that).
@@ -368,25 +518,21 @@ export function advanceState(
               players[moved.ownerId]?.teamId !== undefined &&
               players[moved.ownerId].teamId === player.teamId;
             const ownerAM = rangerMods[moved.ownerId];
+            // Ignite keystone: hitting an already-burning target detonates the burn.
+            // Capped at one burst per owner per target per tick — otherwise a
+            // multi-arrow volley (Multi-shot / Barrage / Echo Volley) would
+            // detonate the freshly re-applied burn on every arrow in the same tick.
+            const igniteKey = `${moved.ownerId}:${pid}`;
+            if (ownerAM && ownerAM.element === 'burn' && ownerAM.elemental.burn.ignite &&
+                (next.burnUntil ?? 0) > tick && next.hp > 0 && !sameTeam && !igniteTicked.has(igniteKey)) {
+              next.hp = Math.max(0, next.hp - IGNITE_BURST_DAMAGE * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
+              next.burnUntil = undefined;
+              next.burnDps = undefined;
+              igniteTicked.add(igniteKey);
+            }
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
-              const el = ownerAM.elemental;
-              // The attacker's gear damageMult is baked into the DoT's
-              // dps HERE (at application) rather than multiplied per tick —
-              // the tick loop (0.5 above) has no attacker id to look up once
-              // the effect is just fields on the target, so this is simpler
-              // and numerically equivalent to scaling every tick.
               const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;
-              if (ownerAM.element === 'burn') {
-                next.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
-                next.burnDps = el.burn.damagePerSecond * atkDamageMult;
-              } else if (ownerAM.element === 'freeze') {
-                next.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
-                next.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
-              } else if (ownerAM.element === 'poison') {
-                next.poisonUntil = tick + Math.round(el.poison.duration * TICK_RATE);
-                next.poisonDps = el.poison.damagePerSecond * atkDamageMult;
-                next.poisonManaReduction = el.poison.manaRegenReduction;
-              }
+              applyElementStatus(next, ownerAM, atkDamageMult, tick);
             }
             players[pid] = next;
           }
@@ -453,19 +599,35 @@ export function advanceState(
   }
   projectiles = [...survivingProjectiles, ...newProjectiles];
 
-  // 4. Fire wall / rain zone damage
-  fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  // 4. Fire wall / rain zone damage (fireWalls already expiry-filtered and
+  // Stormcall-drifted above, before the arrow-hit section)
+  const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
     const isRainZone = fw.id.startsWith('rain_zone_');
     const widthMult = isRainZone ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
     for (const [pid] of Object.entries(players)) {
       if (fireWallDamagesPlayer(fw, players[pid].position, pid, widthMult)) {
+        if (isRainZone) {
+          const dupKey = `${fw.ownerId}:${pid}`;
+          if (rainTicked.has(dupKey)) continue;
+          rainTicked.add(dupKey);
+        }
         const invuln = (players[pid].invulnUntil ?? 0) > tick;
         if (!invuln) {
           const dmg = isRainZone
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
+                * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
+          if (isRainZone) {
+            const ownerAM = rangerMods[fw.ownerId];
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[fw.ownerId]?.teamId !== undefined &&
+              players[fw.ownerId].teamId === players[pid].teamId;
+            if (ownerAM && ownerAM.element !== 'none' && players[pid].hp > 0 && !sameTeam) {
+              applyElementStatus(players[pid], ownerAM, players[fw.ownerId]?.statMults.damage ?? 1, tick);
+            }
+          }
         }
       }
     }
@@ -522,7 +684,7 @@ export function advanceState(
     winner = result.winner;
   }
 
-  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, phase, winner, gameMode: state.gameMode, teams: state.teams };
+  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, echoVolleys, phase, winner, gameMode: state.gameMode, teams: state.teams };
 }
 
 function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, PlayerState> {

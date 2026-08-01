@@ -12,8 +12,6 @@ describe('buildRangerModifiers', () => {
     expect(m.multishot.arrowCount).toBe(3);
     expect(m.multishot.damageMin).toBe(40);
     expect(m.multishot.damageMax).toBe(60);
-    expect(m.rain.sustained).toBe(false);
-    expect(m.rain.piercing).toBe(false);
     expect(m.evade.range).toBe(EVADE_RANGE);
     expect(m.evade.combatRoll).toBe(false);
     expect(m.evade.shadowstep).toBe(false);
@@ -45,7 +43,6 @@ describe('buildRangerModifiers', () => {
 
   it('applies sustained_rain with duration multiplier', () => {
     const m = buildRangerModifiers(new Map([['archer.rain_of_arrows', 1], ['archer.sustained_rain', 1]]));
-    expect(m.rain.sustained).toBe(true);
     expect(m.rain.durationMultiplier).toBeGreaterThan(1);
   });
 
@@ -56,7 +53,6 @@ describe('buildRangerModifiers', () => {
 
   it('applies piercing_rain with damage multiplier', () => {
     const m = buildRangerModifiers(new Map([['archer.rain_of_arrows', 1], ['archer.piercing_rain', 1]]));
-    expect(m.rain.piercing).toBe(true);
     expect(m.rain.damageMultiplier).toBeGreaterThan(1);
   });
 
@@ -116,5 +112,51 @@ describe('buildRangerModifiers', () => {
     const m3 = buildRangerModifiers(new Map([['archer.guided', 1], ['archer.homing', 3]]));
     expect(m1.arrow.homingTickReduction).toBeGreaterThan(0);
     expect(m3.arrow.homingTickReduction).toBeGreaterThan(m1.arrow.homingTickReduction);
+  });
+});
+
+describe('keystone flags', () => {
+  it('are all off at or below the soft cap', () => {
+    const m = buildRangerModifiers(new Map([
+      ['archer.power_shot', 1], ['archer.guided', 4], ['archer.homing', 3],
+      ['archer.multishot', 1], ['archer.barrage', 5],
+      ['archer.rain_of_arrows', 1], ['archer.sustained_rain', 5],
+      ['archer.piercing_rain', 3], ['archer.wide_rain', 5],
+      ['archer.burn', 3],
+      ['archer_utility.evade', 1], ['archer_utility.acrobatics', 3],
+    ]));
+    expect(m.arrow.relentless).toBe(false);
+    expect(m.arrow.predator).toBe(false);
+    expect(m.multishot.echoVolley).toBe(false);
+    expect(m.rain.stormcall).toBe(false);
+    expect(m.rain.exposed).toBe(false);
+    expect(m.rain.twinStorm).toBe(false);
+    expect(m.evade.secondWind).toBe(false);
+    expect(m.elemental.burn.ignite).toBe(false);
+    expect(m.elemental.poison.manaDrainPerSecond).toBe(0);
+  });
+
+  it('switch on at soft cap + 1', () => {
+    const m = buildRangerModifiers(new Map([
+      ['archer.power_shot', 1], ['archer.guided', 5], ['archer.homing', 4],
+      ['archer.multishot', 1], ['archer.barrage', 6],
+      ['archer.rain_of_arrows', 1], ['archer.sustained_rain', 6],
+      ['archer.piercing_rain', 4], ['archer.wide_rain', 6],
+      ['archer.freeze', 4],
+      ['archer_utility.evade', 1], ['archer_utility.acrobatics', 4],
+    ]));
+    expect(m.arrow.relentless).toBe(true);
+    expect(m.arrow.predator).toBe(true);
+    expect(m.multishot.echoVolley).toBe(true);
+    expect(m.rain.stormcall).toBe(true);
+    expect(m.rain.exposed).toBe(true);
+    expect(m.rain.twinStorm).toBe(true);
+    expect(m.evade.secondWind).toBe(true);
+    expect(m.elemental.freeze.deepFreeze).toBe(true);
+  });
+
+  it('withering venom sets a flat mana drain', () => {
+    const m = buildRangerModifiers(new Map([['archer.power_shot', 1], ['archer.poison', 4]]));
+    expect(m.elemental.poison.manaDrainPerSecond).toBe(10);
   });
 });

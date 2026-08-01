@@ -1,15 +1,17 @@
 import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
-  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree, sellPriceFor,
+  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
 } from '@arena/shared';
 import type {
-  ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass,
+  ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass, Appearance,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
 import * as sfx from '../audio/sfx';
+import { iconCellAttrs, applyItemIcons } from './itemIcon';
+import { SpritePreview } from '../renderer/sprites/SpritePreview';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -150,6 +152,9 @@ const STYLES = `
 .gr-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;white-space:pre-line;}
 .gr-confirm-buttons{display:flex;gap:12px;justify-content:center;}
 .gr-confirm-yes,.gr-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+.gr-slot-icon,.gr-details-icon{width:40px;height:40px;display:flex;align-items:center;justify-content:center;}
+.gr-paperdoll{display:flex;justify-content:center;margin-bottom:10px;}
+.gr-paperdoll canvas{width:128px;height:128px;image-rendering:pixelated;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
 `;
 
 export class GearScreen {
@@ -172,6 +177,8 @@ export class GearScreen {
   // disable before the first await, not after).
   private sellPending = new Set<string>();
   private sellErrorById = new Map<string, string>();
+  private paperdoll: SpritePreview | null = null;
+  private appearance: Appearance = CLASS_DEFAULT_APPEARANCE['mage'];
 
   constructor(
     container: HTMLElement,
@@ -189,10 +196,11 @@ export class GearScreen {
     container.appendChild(this.el);
   }
 
-  async show(characterId: string, charClass: CharacterClass, charLevel: number): Promise<NavKey> {
+  async show(characterId: string, charClass: CharacterClass, charLevel: number, appearance: Appearance): Promise<NavKey> {
     this.characterId = characterId;
     this.charClass = charClass;
     this.charLevel = charLevel;
+    this.appearance = appearance;
     this.selectedId = null;
     this.sellPending.clear();
     this.sellErrorById.clear();
@@ -217,6 +225,8 @@ export class GearScreen {
     this.el.style.display = 'none';
     this.navTeardown?.();
     this.navTeardown = null;
+    this.paperdoll?.dispose();
+    this.paperdoll = null;
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
@@ -266,6 +276,7 @@ export class GearScreen {
         ${this.loading ? `<div class="bm-loading">Loading gear…</div>` : `
         <div class="gr-columns">
           <div class="gr-col-doll">
+            <div class="gr-paperdoll"><canvas id="gr-paperdoll-canvas"></canvas></div>
             <div class="gr-doll-label">Equipped</div>
             <div class="gr-doll-grid">${dollHtml}</div>
           </div>
@@ -286,7 +297,17 @@ export class GearScreen {
       onSettings: () => this.navHandlers.onSettings(),
     });
     this.attachItemListeners();
+    applyItemIcons(this.el);
     this.renderDetails(this.selectedId);
+
+    this.paperdoll?.dispose();
+    this.paperdoll = null;
+    const pdCanvas = this.el.querySelector('#gr-paperdoll-canvas') as HTMLCanvasElement | null;
+    if (pdCanvas) {
+      this.paperdoll = new SpritePreview(pdCanvas, 2, 'walk');
+      const equipped = this.items.filter(i => i.equipped_by === this.characterId);
+      void this.paperdoll.setAppearance(this.appearance, gearVisualsFor(equipped));
+    }
   }
 
   private renderDollSlot(slot: EquipSlot): string {
@@ -303,7 +324,7 @@ export class GearScreen {
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
     return `<div class="gr-slot${selected}" style="grid-area:${slot};box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}" data-equipped="1">
-      <div class="gr-slot-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -315,7 +336,7 @@ export class GearScreen {
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
     return `<div class="gr-card${selected}" style="box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}">
-      <div class="gr-slot-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -472,7 +493,7 @@ export class GearScreen {
 
     panel.innerHTML = `
       <div class="gr-details-head">
-        <div class="gr-details-icon" style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="gr-details-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div>
           <div class="gr-details-name" style="color:${color}">${esc(name)}</div>
           <div class="gr-details-kind">${esc(base.name)} · ${esc(BASE_SLOT_LABELS[base.slot])}</div>
@@ -492,6 +513,7 @@ export class GearScreen {
       if (sellBtn.disabled) return;
       this.handleSell(item);
     });
+    applyItemIcons(panel);
   }
 
   /**
