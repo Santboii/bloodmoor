@@ -74,6 +74,7 @@ export type Projectile = {
   noHitUntil?: number;
   redirectCount?: number;   // guided redirects completed (momentum damage rider)
   relentless?: boolean;     // Guided keystone: unlimited redirects
+  predator?: boolean;       // Predator keystone: leads moving targets
 };
 
 export type FireWallState = {

@@ -129,3 +129,21 @@ describe('guided momentum and relentless', () => {
     expect(p.redirectCount).toBe(2);
   });
 });
+
+describe('predator keystone', () => {
+  it('predator redirects lead a moving target', () => {
+    const mk = (predator: boolean) => {
+      let p = spawnArrow('p1', { x: 0, y: 0 }, { x: 1000, y: 0 }, { homing: 1, guidedRedirects: 1, predator });
+      const enemyPos = { x: 500, y: 400 };
+      const enemyVel = { x: 0, y: 200 };   // moving down-screen
+      for (let i = 0; i < 30; i++) p = advanceArrow(p, enemyPos, enemyVel);
+      return p;
+    };
+    const plain = mk(false);
+    const pred = mk(true);
+    // Leading the target angles the velocity further toward +y than aiming at
+    // the current position does.
+    const angle = (v: { x: number; y: number }) => Math.atan2(v.y, v.x);
+    expect(angle(pred.velocity)).toBeGreaterThan(angle(plain.velocity));
+  });
+});

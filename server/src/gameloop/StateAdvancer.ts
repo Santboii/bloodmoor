@@ -251,6 +251,7 @@ export function advanceState(
         homingTickReduction: aMods.arrow.homingTickReduction,
         guidedRedirects: aMods.arrow.guidedRedirects,
         relentless: aMods.arrow.relentless,
+        predator: aMods.arrow.predator,
       });
       projectiles = [...projectiles, arrow];
     } else if (spell === 6) {
@@ -351,7 +352,13 @@ export function advanceState(
         })
       : undefined;
     if (proj.type === 'arrow') {
-      const moved = advanceArrow(proj, enemyEntry?.[1].position);
+      const enemyVel = enemyEntry && state.players[enemyEntry[0]]
+        ? {
+            x: (enemyEntry[1].position.x - state.players[enemyEntry[0]].position.x) * TICK_RATE,
+            y: (enemyEntry[1].position.y - state.players[enemyEntry[0]].position.y) * TICK_RATE,
+          }
+        : undefined;
+      const moved = advanceArrow(proj, enemyEntry?.[1].position, enemyVel);
       if (isArrowExpired(moved)) continue;
       let hit = false;
       for (const [pid, player] of Object.entries(players)) {
