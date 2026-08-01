@@ -14,9 +14,9 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
-import type { CharacterRecord, CharacterClass } from '@arena/shared';
+import type { CharacterRecord, CharacterClass, GearVisuals } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
@@ -72,6 +72,12 @@ let predictor: Predictor | null = null;
 
 let accessToken = '';
 let activeCharacter: CharacterRecord | null = null;
+// Equipped-gear visuals for the active character, kept in step with
+// activeCharacter — refreshed in refreshLoadout, cleared to {} wherever
+// activeCharacter is cleared or switched. Used both to dress the Gear
+// screen's paperdoll (via GearScreen itself) and to keep the lobby home
+// hero preview geared (lobby.updateHeroGear).
+let activeGear: GearVisuals = {};
 let ownedSpells = new Set<SpellId>();
 let playerElement: ArrowElement = 'none';
 
@@ -111,6 +117,9 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   // rebuild the spell bar for the previous account. Callers that set
   // activeCharacter before calling (character select) still pass this check.
   if (activeCharacter?.id !== characterId) return;
+
+  activeGear = gearVisualsFor(items);
+  lobby.updateHeroGear(activeGear);
 
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
@@ -191,6 +200,7 @@ async function handleLogout(): Promise<void> {
     stopGame();
     accessToken = '';
     activeCharacter = null;
+    activeGear = {};
     handlersRegistered = false;
     myId = '';
     currentRoomId = '';
@@ -220,6 +230,7 @@ function renderLobbyHome(): void {
       activeCharacter.class,
       activeCharacter.level,
       appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+      activeGear,
     );
   } else {
     lobby.showHome(myDisplayName);
@@ -238,7 +249,12 @@ async function runSection(key: Exclude<NavKey, 'arena'>): Promise<NavKey> {
   }
   if (key === 'gear') {
     if (!activeCharacter) return 'arena';
-    const next = await gearScreen.show(activeCharacter.id, activeCharacter.class, activeCharacter.level);
+    const next = await gearScreen.show(
+      activeCharacter.id,
+      activeCharacter.class,
+      activeCharacter.level,
+      appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
+    );
     queueLoadoutSync();
     return next;
   }
@@ -291,6 +307,7 @@ const adminScreen = new AdminScreen(uiOverlay, navContext, navAccountHandlers);
 const charSelect = new CharacterSelectUI(uiOverlay, {
   onSelectCharacter: async (character) => {
     activeCharacter = character;
+    activeGear = {};
     await refreshLoadout(character.id, character.class);
     charSelect.hide();
     lobby.show();
@@ -300,6 +317,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
       character.class,
       character.level,
       appearanceFromRow(character.appearance, character.class),
+      activeGear,
     );
     void refreshGold();
   },
@@ -308,6 +326,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     stopGame();
     accessToken = '';
     activeCharacter = null;
+    activeGear = {};
     handlersRegistered = false;
     myId = '';
     currentRoomId = '';
@@ -464,17 +483,7 @@ const lobby = new LobbyUI(uiOverlay, {
     allPlayerNames = {};
     currentMode = '1v1';
     myTeamId = undefined;
-    if (activeCharacter) {
-      lobby.showHome(
-        activeCharacter.name,
-        activeCharacter.skill_points_available,
-        activeCharacter.class,
-        activeCharacter.level,
-        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
-      );
-    } else {
-      lobby.showHome(myDisplayName);
-    }
+    renderLobbyHome();
     void refreshGold();
   },
   onSendChatMessage: (text) => socket.sendChatMessage(text),
@@ -658,17 +667,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
   });
 
   socket.onRoomNotFound(() => {
-    if (activeCharacter) {
-      lobby.showHome(
-        activeCharacter.name,
-        activeCharacter.skill_points_available,
-        activeCharacter.class,
-        activeCharacter.level,
-        appearanceFromRow(activeCharacter.appearance, activeCharacter.class),
-      );
-    } else {
-      lobby.showHome(myDisplayName);
-    }
+    renderLobbyHome();
     void refreshGold();
   });
 }

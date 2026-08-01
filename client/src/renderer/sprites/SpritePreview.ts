@@ -2,7 +2,7 @@
 // onto a plain 2D canvas. Used by the appearance picker and the lobby
 // hero scene — no Three.js scene needed for UI widgets.
 import type { CanvasTexture } from 'three';
-import type { Appearance, LpcAnimation } from '@arena/shared';
+import type { Appearance, GearVisuals, LpcAnimation } from '@arena/shared';
 import { compositeAppearance, disposeComposite } from './SpriteCompositor';
 import { FRAME, frameRect, animationFrame, LpcDirection } from './lpc';
 
@@ -30,14 +30,14 @@ export class SpritePreview {
    * immediately; a request counter keeps a slow stale composite from
    * overwriting a newer one. Resolves false only on compositing failure.
    */
-  setAppearance(a: Appearance): Promise<boolean> {
+  setAppearance(a: Appearance, gear: GearVisuals = {}): Promise<boolean> {
     const reqId = ++this.requestId;
     if (this.composite) {
       disposeComposite(this.composite);
       this.composite = null;
     }
     this.animStart = null;
-    return compositeAppearance(a).then(
+    return compositeAppearance(a, gear).then(
       tex => {
         if (this.disposed || reqId !== this.requestId) {
           disposeComposite(tex);

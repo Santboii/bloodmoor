@@ -1,4 +1,4 @@
-import type { Appearance, ItemRow } from '@arena/shared';
+import type { Appearance, GearVisuals, ItemRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, setNavGold, injectNavBarCss,
@@ -209,6 +209,8 @@ export class LobbyUI {
   // session" (guests get no gold pill), as opposed to an authed account
   // legitimately sitting at 0 gold.
   private goldAmount: number | null = null;
+  private heroAppearance: Appearance | null = null;
+  private heroGear: GearVisuals = {};
 
   constructor(container: HTMLElement, private cb: LobbyCallbacks) {
     const style = document.createElement('style');
@@ -250,6 +252,14 @@ export class LobbyUI {
     setNavGold(this.ui, gold);
   }
 
+  /** Re-dress the home hero when equipped gear changes; no-op off-home. */
+  updateHeroGear(gear: GearVisuals): void {
+    this.heroGear = gear;
+    if (this.heroPreview && this.heroAppearance) {
+      void this.heroPreview.setAppearance(this.heroAppearance, gear);
+    }
+  }
+
   /** Home-screen chrome (sprite raf loop, account-menu document listener)
    * must not outlive the home render. */
   private teardownHome(): void {
@@ -263,8 +273,10 @@ export class LobbyUI {
     }
   }
 
-  showHome(username?: string, points?: number, charClass?: string, level?: number, appearance?: Appearance | null): void {
+  showHome(username?: string, points?: number, charClass?: string, level?: number, appearance?: Appearance | null, gear: GearVisuals = {}): void {
     this.teardownHome();
+    this.heroAppearance = appearance ?? null;
+    this.heroGear = gear;
     this.setBackdrop('hall');
     this.stopPolling();
     const prefilledCode = new URLSearchParams(window.location.search).get('room') ?? '';
@@ -342,7 +354,7 @@ export class LobbyUI {
       const canvas = this.ui.querySelector('#bm-hero-canvas') as HTMLCanvasElement;
       const preview = new SpritePreview(canvas, 2, 'idle');
       this.heroPreview = preview;
-      preview.setAppearance(appearance!).then(ok => {
+      preview.setAppearance(appearance!, gear).then(ok => {
         if (!ok && this.heroPreview === preview) {
           // Composite failed (bad appearance / missing sheet): degrade to the
           // silhouette rather than a frozen empty canvas.
