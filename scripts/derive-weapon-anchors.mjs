@@ -32,6 +32,7 @@ const ANIMS = {
   spellcast: { frames: 7, rows: 4 },
   shoot: { frames: 13, rows: 4 },
   hurt: { frames: 6, rows: 1 },
+  thrust: { frames: 8, rows: 4 },
 };
 const DIRS = ['up', 'left', 'down', 'right']; // LPC row order
 

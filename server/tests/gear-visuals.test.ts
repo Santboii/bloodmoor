@@ -207,7 +207,7 @@ describe('weapon attachment integrity', () => {
           // frame. Anything beyond these means the detector latched onto the
           // other arm — the failure that puts a weapon on the wrong side of
           // the body.
-          const limit = ['spellcast', 'shoot', 'hurt'].includes(anim) ? 13
+          const limit = ['spellcast', 'shoot', 'hurt', 'thrust'].includes(anim) ? 13
             : anim === 'run' ? 10
             : 8;
           for (let i = 1; i < row.length; i++) {

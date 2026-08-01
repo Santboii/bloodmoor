@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 
 const BASE = 'https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/spritesheets';
 const OUT = 'client/public/assets/lpc';
-const ANIMS = ['walk', 'run', 'idle', 'spellcast', 'shoot', 'hurt'];
+const ANIMS = ['walk', 'run', 'idle', 'spellcast', 'shoot', 'hurt', 'thrust'];
 
 // Mirror of shared/src/appearance.ts layersFor() for both defaults —
 // kept inline so the script runs without a build step.
@@ -116,6 +116,7 @@ const EXPECTED_DIMS = {
   spellcast: { w: 7 * 64,  h: 4 * 64 },
   shoot:     { w: 13 * 64, h: 4 * 64 },
   hurt:      { w: 6 * 64,  h: 1 * 64 },
+  thrust:    { w: 8 * 64,  h: 4 * 64 },  // LPC's staff/spear attack
 };
 
 /** Read width/height straight out of the PNG IHDR chunk (bytes 16-23 of a
