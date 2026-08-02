@@ -75,7 +75,7 @@ describe('resolveSlots', () => {
 
 import { readFileSync } from 'node:fs';
 
-describe('set_spell_slot migration guardrails', () => {
+describe('set_spell_slots migration guardrails', () => {
   const sql = readFileSync(
     new URL('../../supabase/migrations/20260802000000_spell_slots.sql', import.meta.url),
     'utf8',

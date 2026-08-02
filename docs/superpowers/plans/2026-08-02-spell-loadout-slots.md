@@ -338,7 +338,7 @@ Append to `server/tests/spell-slots.test.ts`:
 ```ts
 import { readFileSync } from 'node:fs';
 
-describe('set_spell_slot migration guardrails', () => {
+describe('set_spell_slots migration guardrails', () => {
   const sql = readFileSync(
     new URL('../../supabase/migrations/20260802000000_spell_slots.sql', import.meta.url),
     'utf8',
@@ -658,7 +658,7 @@ git commit -m "feat(input): drive spell selection from six assignable slots"
 - Modify: `client/src/main.ts` — `refreshLoadout` (`:118-149`), match start (`:715-725`)
 
 **Interfaces:**
-- Consumes: `set_spell_slot` / `character_spell_slots` from Task 2, `resolveSlots` from Task 1, `InputHandler.setSlots` from Task 4.
+- Consumes: `set_spell_slots` / `character_spell_slots` from Task 2, `resolveSlots` from Task 1, `InputHandler.setSlots` from Task 4.
 - Produces: a module-level `activeSlots: (SpellId | null)[]` that both the HUD and the input handler read.
 
 - [ ] **Step 1: Add the module-level slot state**
@@ -728,7 +728,7 @@ Expected: PASS.
 - [ ] **Step 6: Manually verify persistence end to end**
 
 Run the app. With a logged-in mage: confirm the bar matches the pre-change layout. Then insert a row directly via the Supabase SQL editor —
-`select set_spell_slot('<character-id>'::uuid, 6::smallint, 1::smallint);`
+`select set_spell_slots('<character-id>'::uuid, array[null,null,null,null,null,1]::smallint[]);`
 — reload, and confirm Fireball has moved to slot 6 and slot 1 now holds Fire Wall.
 
 - [ ] **Step 7: Commit**
@@ -848,7 +848,7 @@ git commit -m "refactor(spells): rename the spell keybind to defaultSlot"
 - Modify: `client/src/skills/SkillTreeUI.ts` — CSS block (near `:133`), `render()` markup (`:363-392`), `reload()` (`:299-344`), and new handler methods beside `buyNode` (`:709-728`)
 
 **Interfaces:**
-- Consumes: `set_spell_slot` RPC (Task 2), `resolveSlots` (Task 1).
+- Consumes: `set_spell_slots` RPC (Task 2), `resolveSlots` (Task 1).
 - Produces: a slot bar at the bottom of the skill tree screen. Click a slot — it highlights — to open a picker of unlocked spells below it; click a spell to assign it, or the dedicated "— Clear —" item to empty the slot.
 
 - [ ] **Step 1: Load the character's slots in `reload()`**
