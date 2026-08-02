@@ -11,6 +11,8 @@ import {
   ICEBOLT_CHILL_FACTOR, ICEBOLT_CHILL_TICKS,
   BLIZZARD_DAMAGE_PER_TICK,
   FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
+  FROZEN_ORB_SHARD_SPEED, FROZEN_ORB_SHARD_DAMAGE_MIN, FROZEN_ORB_SHARD_DAMAGE_MAX,
+  FROZEN_ORB_SHARD_LIFETIME_TICKS,
   IMPALER_PIERCE_DAMAGE_BONUS,
   PERMAFROST_LINGER_TICKS,
   CATACLYSMIC_ORB_DAMAGE, CATACLYSMIC_ORB_RADIUS,
@@ -321,12 +323,14 @@ export function advanceState(
         pierce:     m.pierce,
         splinters:  m.splinters,
         impaler:    m.impaler,
+        flechette:  m.flechette,
       })];
     } else if (spell === 10) {
       const m = mods.blizzard;
       fireWalls = [...fireWalls, spawnBlizzard(id, input.aimTarget, tick, {
         durationMultiplier: m.durationMultiplier,
         radiusMultiplier:   m.radiusMultiplier,
+        blindingSquall:     m.blindingSquall,
       })];
     } else if (spell === 11) {
       const m = mods.frozenOrb;
@@ -604,53 +608,106 @@ export function advanceState(
       if (!hit) survivingProjectiles.push(moved);
     } else if (proj.type === 'icebolt' || proj.type === 'iceshard') {
       const moved = advanceIceBolt(proj);
-      if (isIceBoltExpired(moved)) continue;
+      // Shards (from a Frozen Orb volley or a Splintering Ice burst) carry a
+      // tick-based expiry so they don't fly the entire arena — see
+      // FROZEN_ORB_SHARD_LIFETIME_TICKS. Ordinary ice bolts have no
+      // `expiresAt` and rely solely on the bounds/pillar check.
+      if ((moved.expiresAt !== undefined && tick >= moved.expiresAt) || isIceBoltExpired(moved)) continue;
       let hit = false;
       for (const [pid, player] of Object.entries(players)) {
         if (player.hp <= 0) continue;
         if (iceBoltHitsPlayer(moved, player.position, pid)) {
           hit = true;
           const invuln = (player.invulnUntil ?? 0) > tick;
+          const ownerIceBolt = modifiers[moved.ownerId]?.iceBolt;
+          // Teammates take the (already reduced) damage but never the
+          // chill/Frostbite bonus — the same rule the arrow branch applies to
+          // elemental status, for the same reason: a full-strength slow (or
+          // an amplified friendly-fire hit) would undercut deliberately-
+          // reduced friendly fire. See :523-525.
+          const sameTeam = resolvedMode.teamsEnabled &&
+            players[moved.ownerId]?.teamId !== undefined &&
+            players[moved.ownerId].teamId === player.teamId;
           if (!invuln) {
             const next = { ...player };
-            const ownerIceBolt = modifiers[moved.ownerId]?.iceBolt;
             // Frostbite: the deeper the target's chill, the harder the bolt lands.
             //
             // Read the slow BEFORE this bolt applies its own chill. Otherwise every
             // bolt pays itself the bonus on first contact and the talent silently
             // becomes a flat damage increase, which is not what it says it does.
             const slowBefore = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
-            const frostbiteMult = 1 + (ownerIceBolt?.frostbite ?? 0) * (1 - slowBefore);
+            const frostbiteMult = !sameTeam ? 1 + (ownerIceBolt?.frostbite ?? 0) * (1 - slowBefore) : 1;
             // Impaler: unlimited pierce (handled below via `survivesHit`), and
             // each enemy already pierced (piercedIds, before this hit is
             // recorded) adds +8% damage to this and every later hit.
             const impalerMult = moved.impaler ? 1 + (moved.piercedIds?.length ?? 0) * IMPALER_PIERCE_DAMAGE_BONUS : 1;
             // Chill reuses the ranger's slow fields; the strongest slow wins
             // so a Blizzard tick cannot be downgraded by a passing bolt.
-            //
-            // Teammates take the (already reduced) damage but never the
-            // chill — the same rule the arrow branch applies to elemental
-            // status, for the same reason: a full-strength slow would
-            // undercut deliberately-reduced friendly fire. See :523-525.
-            const sameTeam = resolvedMode.teamsEnabled &&
-              players[moved.ownerId]?.teamId !== undefined &&
-              players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam) {
               const incoming = ownerIceBolt?.chillFactor ?? ICEBOLT_CHILL_FACTOR;
               const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
               next.slowFactor = Math.min(existing, incoming);
-              next.slowUntil = tick + (ownerIceBolt?.chillTicks ?? ICEBOLT_CHILL_TICKS);
-              // Flash Freeze: an Ice Bolt landing roots the target, gated by
-              // the same 6s per-target ICD (freezeRootReadyAt) the ranger's
-              // Deep Freeze shares — a target rooted by either source is
-              // protected from both for 6s.
-              if (ownerIceBolt?.flashFreeze && (next.freezeRootReadyAt ?? 0) <= tick) {
+              // Absolute Cold: +50% chill duration.
+              const chillDurationMult = modifiers[moved.ownerId]?.frozenOrb.absoluteCold ? 1.5 : 1;
+              next.slowUntil = tick + Math.round((ownerIceBolt?.chillTicks ?? ICEBOLT_CHILL_TICKS) * chillDurationMult);
+              // Flash Freeze: an Ice Bolt hitting an UNCHILLED target roots
+              // them, gated by the same 6s per-target ICD (freezeRootReadyAt)
+              // the ranger's Deep Freeze shares — a target rooted by either
+              // source is protected from both for 6s. `slowBefore === 1`
+              // means no active chill going into this hit; without this, a
+              // continuously-chilled target would never re-root under the
+              // tooltip's rule but would every 6s under the code, so the
+              // tooltip (the safer, rarer-CC version) wins.
+              if (ownerIceBolt?.flashFreeze && slowBefore === 1 && (next.freezeRootReadyAt ?? 0) <= tick) {
                 next.rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
                 next.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
               }
             }
             next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * frostbiteMult * impalerMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
             players[pid] = next;
+          }
+          // Splintering Ice: shatter into `moved.split` ice shards on any
+          // physical impact — this is shrapnel, not damage, so it fires
+          // whether or not the hit landed (invuln blocks damage/chill, not
+          // the shatter). Only original ice bolts carry `.split`; shards
+          // never do, so this cannot recurse.
+          if ((moved.split ?? 0) > 0) {
+            let targetPos: Vec2 | undefined;
+            if (moved.flechette) {
+              // Flechette: home toward the nearest OTHER enemy instead of
+              // scattering — not the target just struck (piercedIds below
+              // already blocks re-hitting it, so aiming shards back at it
+              // would just waste them).
+              let nearestDist = Infinity;
+              for (const [otherId, other] of Object.entries(players)) {
+                if (otherId === pid || otherId === moved.ownerId || other.hp <= 0) continue;
+                if ((other.invisibleUntil ?? 0) > tick) continue;
+                if (resolvedMode.teamsEnabled &&
+                    players[moved.ownerId]?.teamId !== undefined &&
+                    other.teamId === players[moved.ownerId].teamId) continue;
+                const d = (other.position.x - moved.position.x) ** 2 + (other.position.y - moved.position.y) ** 2;
+                if (d < nearestDist) { nearestDist = d; targetPos = other.position; }
+              }
+            }
+            const shardCount = moved.split!;
+            const baseAngle = Math.atan2(moved.velocity.y, moved.velocity.x);
+            for (let i = 0; i < shardCount; i++) {
+              const angle = targetPos
+                ? Math.atan2(targetPos.y - moved.position.y, targetPos.x - moved.position.x)
+                : baseAngle + (i * 2 * Math.PI) / shardCount;
+              newProjectiles.push({
+                id: `ishard_${moved.id}_${i}_${tick}`,
+                ownerId: moved.ownerId,
+                type: 'iceshard',
+                position: { x: moved.position.x, y: moved.position.y },
+                velocity: { x: Math.cos(angle) * FROZEN_ORB_SHARD_SPEED, y: Math.sin(angle) * FROZEN_ORB_SHARD_SPEED },
+                damageMin: FROZEN_ORB_SHARD_DAMAGE_MIN,
+                damageMax: FROZEN_ORB_SHARD_DAMAGE_MAX,
+                expiresAt: tick + FROZEN_ORB_SHARD_LIFETIME_TICKS,
+                // Must not immediately re-hit the target just struck.
+                piercedIds: [pid],
+              });
+            }
           }
           // Pierce budget is checked before decrementing: this hit consumes
           // one unit of the remaining budget, so the bolt survives only if
@@ -733,7 +790,12 @@ export function advanceState(
   const survivingOrbs: FrozenOrbState[] = [];
   for (const orb of frozenOrbs) {
     const advancedOrb = advanceFrozenOrb(orb);
-    if (isFrozenOrbExpired(advancedOrb, tick)) {
+    // The orb has no radius field of its own — isIceBoltExpired's bounds/
+    // pillar predicate defaults to ICEBOLT_RADIUS, a reasonable point-check.
+    // Without this, an orb that drifts past the arena wall or into a pillar
+    // keeps "firing" volleys whose shards spawn out of bounds and are
+    // dropped on their first step — a silent fizzle instead of an expiry.
+    if (isFrozenOrbExpired(advancedOrb, tick) || isIceBoltExpired(advancedOrb)) {
       // Cataclysmic Orb keystone: detonate exactly once, on the tick the orb
       // expires (never before — this branch only runs once expiry is true —
       // and never again, since the orb is dropped this same tick).
@@ -783,10 +845,15 @@ export function advanceState(
           // Ice Bolt alone to Blizzard too. Read the slow BEFORE this zone's
           // own chill refresh below, for the same reason the Ice Bolt branch
           // reads it pre-chill: otherwise the zone would pay itself the bonus
-          // every tick regardless of any pre-existing chill.
+          // every tick regardless of any pre-existing chill. Gated on
+          // !sameTeam — a chilled teammate must not take amplified friendly
+          // fire (mirrors the Ice Bolt branch's frostbiteMult gate).
           const ownerIceBolt = modifiers[fw.ownerId]?.iceBolt;
+          const rimeheartSameTeam = resolvedMode.teamsEnabled &&
+            players[fw.ownerId]?.teamId !== undefined &&
+            players[fw.ownerId].teamId === players[pid].teamId;
           const blizzardSlowBefore = (players[pid].slowUntil ?? 0) > tick ? (players[pid].slowFactor ?? 1) : 1;
-          const rimeheartMult = (isBlizzard && ownerIceBolt?.rimeheart)
+          const rimeheartMult = (isBlizzard && ownerIceBolt?.rimeheart && !rimeheartSameTeam)
             ? 1 + ownerIceBolt.frostbite * (1 - blizzardSlowBefore)
             : 1;
           const dmg = isRainZone
@@ -818,7 +885,9 @@ export function advanceState(
               const incoming = ICEBOLT_CHILL_FACTOR;
               const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
               target.slowFactor = Math.min(existing, incoming);
-              target.slowUntil = tick + ICEBOLT_CHILL_TICKS;
+              // Absolute Cold: +50% chill duration.
+              const chillDurationMult = modifiers[fw.ownerId]?.frozenOrb.absoluteCold ? 1.5 : 1;
+              target.slowUntil = tick + Math.round(ICEBOLT_CHILL_TICKS * chillDurationMult);
             }
           }
         }
@@ -839,8 +908,14 @@ export function advanceState(
     for (const [pid, player] of Object.entries(players)) {
       if (player.hp <= 0) continue;
       if (!fireWallDamagesPlayer(fw, player.position, pid, 1)) continue;
-      const ticksInside = (fw.dwell?.[pid] ?? 0) + 1;
+      // Invulnerability (e.g. an evade mid-dwell) pauses dwell accrual — no
+      // other status accrues through i-frames — and blocks the root itself,
+      // matching every sibling root/damage check in this file (Flash Freeze
+      // at :626, the blizzard damage/chill block at :843, etc).
+      const invulnP = (player.invulnUntil ?? 0) > tick;
+      const ticksInside = invulnP ? (fw.dwell?.[pid] ?? 0) : (fw.dwell?.[pid] ?? 0) + 1;
       dwell[pid] = ticksInside;
+      if (invulnP) continue;
       const sameTeam = resolvedMode.teamsEnabled &&
         players[fw.ownerId]?.teamId !== undefined &&
         players[fw.ownerId].teamId === player.teamId;
