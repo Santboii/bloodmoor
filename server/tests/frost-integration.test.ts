@@ -171,6 +171,47 @@ describe('blizzard through the real stepping path', () => {
   });
 });
 
+describe('frozen orb entity-count ceiling', () => {
+  // Final whole-branch review measured a fully-specced orb at ~126 concurrent
+  // shards when FROZEN_ORB_SHARD_LIFETIME_TICKS went unread (shards flew the
+  // whole arena instead of expiring). With the fix, only shards from the
+  // last two volleys can be alive at once: the shard lifetime (30 ticks) is
+  // exactly 2x the volley interval (15 ticks), so at most 2 volleys' worth
+  // overlap. With Shard Storm at rank 4 (one past its rank-3 soft cap, so
+  // its keystone is live too), shardsPerVolley is
+  // FROZEN_ORB_SHARDS_PER_VOLLEY(4) + floor(effectAtRank(2, 4)) = 9, giving
+  // a measured peak of 18 concurrent projectiles. The ceiling below is that
+  // measured peak plus headroom, not a tight bound — it exists to catch a
+  // regression back to unbounded shard lifetime, not to lock in the exact
+  // count.
+  it('keeps concurrent projectiles bounded for a fully-specced orb over its full lifetime', () => {
+    const skills = {
+      p1: new Map<NodeId, number>([
+        ['frost.frozen_orb' as NodeId, 1],
+        ['frost.shard_storm' as NodeId, 4],
+        ['frost.glacial_drift' as NodeId, 6],
+        ['frost.cold_mastery' as NodeId, 6],
+      ]),
+      p2: new Map<NodeId, number>(),
+    };
+    const CEILING = 24;
+    let state = baseState();
+    state = advanceState(state, { p1: cast(11), p2: idle() }, skills);
+    expect(state.frozenOrbs.length).toBe(1);
+
+    let maxSeen = state.projectiles.length;
+    // Run well past the orb's full lifetime (150 ticks base, longer with
+    // Glacial Drift) so the whole spray-and-expire cycle is exercised.
+    for (let i = 0; i < 400; i++) {
+      state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+      maxSeen = Math.max(maxSeen, state.projectiles.length);
+      expect(state.projectiles.length).toBeLessThan(CEILING);
+    }
+    expect(state.frozenOrbs.length).toBe(0); // the orb itself is long gone
+    expect(maxSeen).toBeGreaterThan(0); // sanity: the orb actually fired
+  });
+});
+
 describe('pierce through the real stepping path', () => {
   // The module tests cover the predicates in isolation. Only this exercises
   // the dispatch and per-tick stepping, where removal timing and piercedIds

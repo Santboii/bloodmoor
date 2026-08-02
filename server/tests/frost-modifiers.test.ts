@@ -97,3 +97,37 @@ describe('modifier node ids are real', () => {
     }
   });
 });
+
+describe('every frost modifier field is consumed', () => {
+  // Mirrors the "ids are real" guard above, at the other end of the pipe:
+  // buildSpellModifiers can compute a field faithfully and it can still be
+  // completely inert if nothing downstream ever reads it — that is exactly
+  // how Splintering Ice's Flechette, Blinding Squall, and Absolute Cold
+  // shipped as no-ops (final whole-branch review, 2026-08-02). Source-
+  // scanning StateAdvancer.ts for `.<field>` is the same established
+  // pattern as the id guard above: cheap, and it catches "never referenced
+  // anywhere" mechanically, even if it can't prove the reference is
+  // load-bearing.
+  it('is read at least once in StateAdvancer.ts', () => {
+    const source = readFileSync(
+      new URL('../src/gameloop/StateAdvancer.ts', import.meta.url), 'utf8',
+    );
+    const iceBoltFields = [
+      'speed', 'damageMin', 'damageMax', 'pierce', 'splinters', 'chillFactor',
+      'chillTicks', 'impaler', 'flashFreeze', 'frostbite', 'rimeheart', 'flechette',
+    ];
+    const blizzardFields = [
+      'durationMultiplier', 'radiusMultiplier', 'damageMultiplier',
+      'permafrost', 'absoluteZero', 'blindingSquall',
+    ];
+    const frozenOrbFields = [
+      'speedMultiplier', 'lifetimeMultiplier', 'shardsPerVolley',
+      'damageMin', 'damageMax', 'detonateOnExpiry', 'absoluteCold',
+    ];
+    const allFields = [...new Set([...iceBoltFields, ...blizzardFields, ...frozenOrbFields])];
+    for (const field of allFields) {
+      const re = new RegExp(`\\.${field}\\b`);
+      expect(re.test(source), `${field} is never read in StateAdvancer.ts`).toBe(true);
+    }
+  });
+});
