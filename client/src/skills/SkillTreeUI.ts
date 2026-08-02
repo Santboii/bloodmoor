@@ -164,7 +164,8 @@ const STYLES = `
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
-.st-col-main{flex:1 1 400px;min-width:380px;max-width:640px;}
+.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;}
 /* Both columns are pinned to the same workspace height (set inline) so the
    page height never depends on which class is open or how much the details
    panel has to say — the panel absorbs the difference by scrolling itself. */
@@ -435,7 +436,7 @@ export class SkillTreeUI {
           </div>
         </div>
 
-        <div class="st-columns">
+        <div class="st-columns${!isRanger ? ' has-frost' : ''}">
           <div class="st-col-main" style="height:${WORKSPACE_H}px">
             <div class="st-tree-label">${mainLabel}</div>
             <div class="st-tree-container" style="height:${mainContainerHeight}">
