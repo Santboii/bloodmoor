@@ -33,6 +33,12 @@ const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
   weapon: 'Weapon', helmet: 'Helmet', armor: 'Armor', leggings: 'Leggings', ring: 'Ring', amulet: 'Amulet',
 };
 
+/** Admin manifest tables show which node a talent affix targets — the shared
+ * affixLabel deliberately omits it, since players see the rank, not the id. */
+function adminAffixLabel(a: RolledAffix): string {
+  return a.id === 'talent' && a.node ? `${affixLabel(a)} (${a.node})` : affixLabel(a);
+}
+
 /** This tool's server-side counterpart (`admin_update_drop_table`) enforces
  * `is_admin`; these client-side seed values only drive the Reset button and
  * must match the spec/migration seed exactly (match_drop 70/24/5.5/0.5,
@@ -447,7 +453,7 @@ export class AdminScreen {
         <td>${esc(b.name)}</td>
         <td>${b.itemLevel}</td>
         <td>${b.classRestriction ? esc(b.classRestriction) : '—'}</td>
-        <td>${esc(affixLabel(b.implicit))}</td>
+        <td>${esc(adminAffixLabel(b.implicit))}</td>
       </tr>`).join('');
 
     const uniqueRows = UNIQUE_ITEMS.map(u => {
@@ -458,7 +464,7 @@ export class AdminScreen {
         <td style="color:${RARITY_COLORS.unique}">${esc(u.name)}</td>
         <td>${esc(base?.name ?? u.baseId)}</td>
         <td>${u.levelReq}</td>
-        <td>${u.affixes.map(a => esc(affixLabel(a))).join('<br>')}</td>
+        <td>${u.affixes.map(a => esc(adminAffixLabel(a))).join('<br>')}</td>
         <td class="ad-flavor">${esc(u.flavor)}</td>
       </tr>`;
     }).join('');
@@ -514,8 +520,8 @@ export class AdminScreen {
           <div class="ad-preview">
             <div class="ad-preview-name" style="color:${RARITY_COLORS.unique}">${esc(unique.name)}</div>
             <div class="ad-preview-flavor">${esc(unique.flavor)}</div>
-            <div class="ad-preview-row">${esc(affixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
-            ${unique.affixes.map(a => `<div class="ad-preview-row">${esc(affixLabel(a))}</div>`).join('')}
+            <div class="ad-preview-row">${esc(adminAffixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
+            ${unique.affixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('')}
             <div class="ad-preview-row">Level Req: ${unique.levelReq}</div>
           </div>` : `<div class="ad-preview-empty">Unknown base for this unique.</div>`;
       } else {
@@ -540,12 +546,12 @@ export class AdminScreen {
 
       const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
       if (base) {
-        const rows = this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(affixLabel(a))}</div>`).join('');
+        const rows = this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('');
         const rerollBtn = this.grantRarity !== 'basic' ? `<button id="ad-reroll" class="px-btn ad-reroll-btn">🎲 Reroll</button>` : '';
         previewHtml = `
           <div class="ad-preview">
             <div class="ad-preview-name" style="color:${RARITY_COLORS[this.grantRarity]}">${esc(base.name)}</div>
-            <div class="ad-preview-row">${esc(affixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
+            <div class="ad-preview-row">${esc(adminAffixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
             ${rows || `<div class="ad-dim">No rolled affixes${this.grantRarity === 'basic' ? ' (basic)' : ''}</div>`}
             <div class="ad-preview-row">Level Req: ${base.itemLevel}</div>
             ${rerollBtn}
