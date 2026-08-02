@@ -64,6 +64,7 @@ const scene = new Scene(container);
 // Tie the canvas to "a match is actually running" instead.
 function setArenaVisible(visible: boolean): void {
   container.style.display = visible ? '' : 'none';
+  scene.setRenderingEnabled(visible);
 }
 setArenaVisible(false);
 

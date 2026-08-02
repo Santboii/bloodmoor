@@ -1,39 +1,30 @@
-// Pixel-look constants and pure helpers. Kept DOM/WebGL-free so they are
+// Asset-scale constants and pure helpers. Kept DOM/WebGL-free so they are
 // unit-testable in node.
+//
+// The low-res render pipeline is gone — the scene renders at native
+// resolution and the pixel look comes from the assets themselves
+// (NearestFilter sprites, posterized tiles). What remains here is the legacy
+// 360p texel grid as a world-scale anchor, plus the asset posterizer.
 
-/** Fixed internal render height in pixels — THE pixel-look knob. */
+/** The texel grid pixel-art assets were authored against: world scale is
+ * defined as if the screen were 360 internal pixels tall. */
 export const INTERNAL_HEIGHT = 360;
 
 /** Orthographic half-height of the camera frustum in world units. */
 export const FRUSTUM_HALF_HEIGHT = 330;
 
-/** Internal render-target size for a given CSS canvas size. */
-export function internalRenderSize(
-  cssWidth: number,
-  cssHeight: number,
-  internalHeight = INTERNAL_HEIGHT,
-): { width: number; height: number } {
-  const height = Math.max(1, internalHeight);
-  const width = Math.max(1, Math.round((cssWidth / Math.max(1, cssHeight)) * height));
-  return { width, height };
-}
+/** HiDPI cap shared by the renderer and particle point-size scaling — the
+ * two must agree or ember sizes drift from the drawing buffer. */
+export const MAX_PIXEL_RATIO = 2;
 
-/**
- * World units covered by one internal pixel vertically. Camera and entity
- * positions snap to multiples of this to avoid sub-texel shimmer.
- */
+/** World units covered by one texel of the asset grid. Sprite world sizes
+ * are derived from this so art keeps its authored proportions. */
 export function worldUnitsPerTexel(internalHeight = INTERNAL_HEIGHT): number {
   return (2 * FRUSTUM_HALF_HEIGHT) / internalHeight;
 }
 
-export function snapToTexel(value: number, texel: number): number {
-  return Math.round(value / texel) * texel;
-}
-
 /** Color quantization pass. Set PALETTE_ENABLED = false to disable. */
 // Disabled: the Bayer dither read as grain rather than pixel-art cohesion.
-// The 360p nearest-neighbor upscale already carries the pixel look; smooth
-// gradients underneath match the Core Keeper reference.
 export const PALETTE_ENABLED = false;
 export const PALETTE_LEVELS = 32; // per-channel levels; lower = crunchier
 

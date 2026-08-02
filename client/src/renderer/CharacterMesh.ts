@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { CLASS_DEFAULT_APPEARANCE, type Appearance, type CharacterClass, type GearVisuals } from '@arena/shared';
 import { SpriteCharacter } from './sprites/SpriteCharacter';
-import { snapToTexel, worldUnitsPerTexel } from './pixelation';
 
 const TARGET_HEIGHT = 50; // world units tall — kept for label offset math
 
@@ -64,9 +63,7 @@ export class CharacterMesh {
     }
     this.prevX = x;
     this.prevZ = y;
-    // Render on the texel grid; raw x/y stay in prevX/prevZ for velocity.
-    const texel = worldUnitsPerTexel();
-    this.group.position.set(snapToTexel(x, texel), 0, snapToTexel(y, texel));
+    this.group.position.set(x, 0, y);
   }
 
   update(delta: number, isCasting: boolean): void {
