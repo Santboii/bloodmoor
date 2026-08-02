@@ -160,14 +160,25 @@ const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spe
 /**
  * Resolve persisted slot rows into the character's hotbar.
  *
- * Explicit rows win. Owned spells with no row fill the lowest empty slots in
- * SPELL_BINDINGS declaration order, which reproduces the old fixed-key layout
- * for any character that has never edited a slot. Spells that do not fit stay
- * unslotted rather than displacing an explicit assignment.
+ * Three passes, in priority order:
+ *   1. Explicit rows win — the character put that spell there deliberately.
+ *   2. Every other owned spell seeds at its legacy default slot if that slot
+ *      is free. This is what keeps an existing character's bar identical to
+ *      what it is today: a mage owning Fireball and Meteor keeps them on
+ *      keys 1 and 3, with the gap where Fire Wall would go.
+ *   3. Anything still unplaced (its default slot was taken, or it has no
+ *      default at all) falls to the lowest empty slot.
+ *
+ * Spells that do not fit stay unslotted rather than displacing an assignment.
  */
 export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
   const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
   const placed = new Set<SpellId>();
+
+  const claim = (index: number, spell: SpellId) => {
+    slots[index] = spell;
+    placed.add(spell);
+  };
 
   for (const row of rows) {
     if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
@@ -176,16 +187,22 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
     if (!owned.has(spell)) continue;
     if (placed.has(spell)) continue;      // first row wins
     if (slots[row.slot - 1] !== null) continue;
-    slots[row.slot - 1] = spell;
-    placed.add(spell);
+    claim(row.slot - 1, spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    // `key` is today's fixed keybind. Task 6 renames it to `defaultSlot`,
+    // which is what it actually means once slots are assignable.
+    const index = binding.key - 1;
+    if (slots[index] === null) claim(index, binding.spell);
   }
 
   for (const binding of SPELL_BINDINGS) {
     if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
     const free = slots.indexOf(null);
     if (free === -1) break;
-    slots[free] = binding.spell;
-    placed.add(binding.spell);
+    claim(free, binding.spell);
   }
 
   return slots;

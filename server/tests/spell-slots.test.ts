@@ -14,14 +14,23 @@ describe('resolveSlots', () => {
     expect(resolveSlots(owned(1, 2, 3, 4), [])).toEqual([1, 2, 3, 4, null, null]);
   });
 
-  it('with no rows, closes gaps rather than preserving spell ids as slots', () => {
-    // A mage with only Fireball and Teleport gets them on keys 1 and 2.
-    expect(resolveSlots(owned(1, 4), [])).toEqual([1, 4, null, null, null, null]);
+  it('with no rows, seeds each spell at its legacy default slot', () => {
+    // A mage with only Fireball and Teleport keeps them on keys 1 and 4 —
+    // exactly where they sit today. Nothing is silently rebound.
+    expect(resolveSlots(owned(1, 4), [])).toEqual([1, null, null, 4, null, null]);
   });
 
-  it('honors explicit rows and auto-fills the rest into the lowest empty slots', () => {
+  it('falls back to the lowest empty slot when a default slot is taken', () => {
+    // Spell 5 is the ranger's Power Shot (defaultSlot 1); with the mage's
+    // Fireball already holding slot 1 it spills to the first free slot.
+    expect(resolveSlots(owned(1, 5), [])).toEqual([1, 5, null, null, null, null]);
+  });
+
+  it('honors an explicit row over the spell\'s default slot', () => {
+    // Fireball is pinned to slot 3; Fire Wall still takes its own default
+    // slot 2 rather than packing into slot 1.
     expect(resolveSlots(owned(1, 2), [{ slot: 3, spell: 1 }]))
-      .toEqual([2, null, 1, null, null, null]);
+      .toEqual([null, 2, 1, null, null, null]);
   });
 
   it('drops rows naming a spell the character does not own', () => {
