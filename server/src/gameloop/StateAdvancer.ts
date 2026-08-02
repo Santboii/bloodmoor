@@ -9,6 +9,7 @@ import {
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   ICEBOLT_CHILL_FACTOR, ICEBOLT_CHILL_TICKS,
+  BLIZZARD_DAMAGE_PER_TICK,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -19,6 +20,7 @@ import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport 
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
 import { spawnIceBolt, advanceIceBolt, isIceBoltExpired, iceBoltHitsPlayer, iceBoltDamage } from '../spells/IceBolt.ts';
+import { spawnBlizzard } from '../spells/Blizzard.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
@@ -307,6 +309,10 @@ export function advanceState(
       // mods.iceBolt arrives in Task 7 — no config yet so this task stays
       // independently testable.
       projectiles = [...projectiles, spawnIceBolt(id, p.position, input.aimTarget)];
+    } else if (spell === 10) {
+      // mods.blizzard arrives in Task 7 — no config yet so this task stays
+      // independently testable.
+      fireWalls = [...fireWalls, spawnBlizzard(id, input.aimTarget, tick)];
     } else if (spell === 5) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -651,7 +657,8 @@ export function advanceState(
   const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
     const isRainZone = fw.kind === 'rain';
-    const widthMult = isRainZone ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
+    const isBlizzard = fw.kind === 'blizzard';
+    const widthMult = isRainZone || isBlizzard ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
     for (const [pid] of Object.entries(players)) {
       if (fireWallDamagesPlayer(fw, players[pid].position, pid, widthMult)) {
         if (isRainZone) {
@@ -664,6 +671,8 @@ export function advanceState(
           const dmg = isRainZone
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
+            : isBlizzard
+            ? BLIZZARD_DAMAGE_PER_TICK
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {
@@ -673,6 +682,22 @@ export function advanceState(
               players[fw.ownerId].teamId === players[pid].teamId;
             if (ownerAM && ownerAM.element !== 'none' && players[pid].hp > 0 && !sameTeam) {
               applyElementStatus(players[pid], ownerAM, players[fw.ownerId]?.statMults.damage ?? 1, tick);
+            }
+          }
+          if (isBlizzard && players[pid].hp > 0) {
+            // Chill reuses the ranger's slow fields; the strongest slow wins
+            // so repeated per-tick chill refreshes rather than compounds.
+            // Teammates take the (already reduced) damage but never the
+            // chill — mirrors the Ice Bolt rule at :568-576.
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[fw.ownerId]?.teamId !== undefined &&
+              players[fw.ownerId].teamId === players[pid].teamId;
+            if (!sameTeam) {
+              const target = players[pid];
+              const incoming = ICEBOLT_CHILL_FACTOR;
+              const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+              target.slowFactor = Math.min(existing, incoming);
+              target.slowUntil = tick + ICEBOLT_CHILL_TICKS;
             }
           }
         }
