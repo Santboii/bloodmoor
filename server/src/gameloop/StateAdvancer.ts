@@ -11,17 +11,19 @@ import {
   FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
   MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS,
   ETERNAL_PYRE_MAX_TICKS, SEARING_CROSS_DAMAGE, SEARING_CROSS_BLAST,
+  METEOR_DELAY_TICKS, SHOWER_SPREAD, SHOWER_RADIUS_RATIO, SHOWER_DAMAGE_RATIO,
+  METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, MeteorState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight, segmentsIntersect } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, surfaceNormal, reflect } from '../spells/Fireball.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, wallDamagePerTick, advanceWall } from '../spells/FireWall.ts';
-import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
+import { spawnMeteor, steerMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
 import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage } from '../spells/Arrow.ts';
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
@@ -302,7 +304,29 @@ export function advanceState(
         firestorm:          mods.firewall.firestorm,
       })];
     } else if (spell === 3) {
-      meteors = [...meteors, spawnMeteor(id, input.aimTarget, tick, {})];
+      const mm = mods.meteor;
+      const opts = {
+        chunks: mm.chunks, ejecta: mm.ejecta,
+        steerRadius: mm.steerRadius, fallingStar: mm.fallingStar,
+      };
+      const cast: MeteorState[] = [];
+      // Extinction: the extras converge inward on a spiral and land first, so
+      // the full-size primary is the closing hit.
+      for (let i = 0; i < mm.showerCount; i++) {
+        const angle = (i / mm.showerCount) * Math.PI * 2;
+        const reach = mm.extinction ? SHOWER_SPREAD * (1 - i / (mm.showerCount + 1)) : SHOWER_SPREAD;
+        cast.push(spawnMeteor(id, {
+          x: input.aimTarget.x + Math.cos(angle) * reach,
+          y: input.aimTarget.y + Math.sin(angle) * reach,
+        }, tick, {
+          ...opts,
+          radiusRatio: SHOWER_RADIUS_RATIO,
+          damageRatio: SHOWER_DAMAGE_RATIO,
+          delayTicks: mm.extinction ? METEOR_DELAY_TICKS - (mm.showerCount - i) * 8 : METEOR_DELAY_TICKS,
+        }));
+      }
+      cast.push(spawnMeteor(id, input.aimTarget, tick, opts));
+      meteors = [...meteors, ...cast];
     } else if (spell === 4) {
       const tMods = mods.teleport;
       // Always clamp — a guest (no skill system) must not get unlimited range.
@@ -739,20 +763,55 @@ export function advanceState(
   }
 
   // 5. Meteor detonations
+  // Guided Descent: steer in-flight meteors toward their caster's live aim.
+  meteors = meteors.map(m => {
+    if (!m.steerRadius) return m;
+    const caster = players[m.ownerId];
+    const aim = caster && caster.hp > 0 ? inputs[m.ownerId]?.aimTarget : undefined;
+    let nearest: Vec2 | undefined;
+    if (m.fallingStar) {
+      let best = Infinity;
+      for (const other of Object.values(players)) {
+        if (other.id === m.ownerId || other.hp <= 0) continue;
+        if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === caster?.teamId) continue;
+        const d = (other.position.x - m.target.x) ** 2 + (other.position.y - m.target.y) ** 2;
+        if (d < best) { best = d; nearest = other.position; }
+      }
+    }
+    return steerMeteor(m, aim, tick, nearest);
+  });
+
   const survivingMeteors = [];
+  const newMeteors: MeteorState[] = [];
   for (const m of meteors) {
     if (meteorDetonates(m, tick)) {
       for (const [pid] of Object.entries(players)) {
         if (meteorHitsPlayer(m, players[pid].position, pid)) {
           const invuln = (players[pid].invulnUntil ?? 0) > tick;
           if (!invuln) {
-            players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - meteorDamage() * getDamageMultiplier(m.ownerId, pid, players, resolvedMode)) };
+            players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - meteorDamage(m) * getDamageMultiplier(m.ownerId, pid, players, resolvedMode)) };
           }
         }
       }
-      if (m.chunks) {
-        const crater = spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 3 * TICK_RATE);
-        fireWalls = [...fireWalls, crater];
+      // Molten Impact: the landing shatters into flaming chunks. Chunks carry
+      // `ejecta` but no `chunks`, so they never shatter further.
+      if ((m.chunks ?? 0) > 0) {
+        const count = m.chunks!;
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2;
+          newMeteors.push(spawnMeteor(m.ownerId, {
+            x: m.target.x + Math.cos(angle) * METEOR_CHUNK_DISTANCE,
+            y: m.target.y + Math.sin(angle) * METEOR_CHUNK_DISTANCE,
+          }, tick, {
+            radiusRatio: METEOR_CHUNK_RADIUS_RATIO,
+            damageRatio: (m.damageRatio ?? 1) * METEOR_CHUNK_DAMAGE_RATIO,
+            delayTicks: METEOR_CHUNK_DELAY_TICKS,
+            ejecta: m.ejecta,
+          }));
+        }
+      } else if (m.ejecta) {
+        // Ejecta: a chunk that lands leaves a burning crater.
+        fireWalls = [...fireWalls, spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 3 * TICK_RATE)];
       }
     } else {
       survivingMeteors.push(m);
@@ -790,7 +849,7 @@ export function advanceState(
     winner = result.winner;
   }
 
-  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, echoVolleys, phase, winner, gameMode: state.gameMode, teams: state.teams };
+  return { tick: tick + 1, players, projectiles, fireWalls, meteors: [...survivingMeteors, ...newMeteors], rainOfArrows, echoVolleys, phase, winner, gameMode: state.gameMode, teams: state.teams };
 }
 
 function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, PlayerState> {

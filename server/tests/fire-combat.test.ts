@@ -344,3 +344,100 @@ describe('Searing Heat crossing', () => {
     expect(keystone!.bounces ?? 0).toBe(1);
   });
 });
+
+describe('Molten Impact', () => {
+  function castMeteor(ranks: [NodeId, number][], ticks: number) {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.meteor', 1], ...ranks]),
+      b: new Map<NodeId, number>(),
+    };
+    state = advanceState(state, { a: { ...idle, castSpell: 3, aimTarget: { x: 700, y: 600 } }, b: idle }, sets);
+    for (let i = 0; i < ticks; i++) state = advanceState(state, { a: idle, b: idle }, sets);
+    return state;
+  }
+
+  it('spawns no chunks at rank 0', () => {
+    expect(castMeteor([], 95).meteors).toHaveLength(0);
+  });
+
+  it('spawns the rank-1 chunk count on impact', () => {
+    const state = castMeteor([['fire.molten_impact', 1]], 91);
+    expect(state.meteors).toHaveLength(3);
+    for (const c of state.meteors) expect(c.aoeRadius).toBeLessThan(60);
+  });
+
+  it('scales chunk count with rank', () => {
+    expect(castMeteor([['fire.molten_impact', 3]], 91).meteors).toHaveLength(5);
+  });
+
+  it('chunks do not shatter further', () => {
+    expect(castMeteor([['fire.molten_impact', 1]], 140).meteors).toHaveLength(0);
+  });
+
+  it('leaves craters only with Ejecta', () => {
+    expect(castMeteor([['fire.molten_impact', 1]], 140).fireWalls).toHaveLength(0);
+    expect(castMeteor([['fire.molten_impact', 4]], 140).fireWalls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Cataclysm', () => {
+  function cast(ranks: [NodeId, number][]) {
+    const state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.meteor', 1], ...ranks]),
+      b: new Map<NodeId, number>(),
+    };
+    return advanceState(state, { a: { ...idle, castSpell: 3, aimTarget: { x: 700, y: 600 } }, b: idle }, sets);
+  }
+
+  it('casts one meteor at rank 0', () => {
+    expect(cast([]).meteors).toHaveLength(1);
+  });
+
+  it('adds one scaled-down meteor per rank', () => {
+    const state = cast([['fire.cataclysm', 2]]);
+    expect(state.meteors).toHaveLength(3);
+    const extras = state.meteors.filter(m => (m.damageRatio ?? 1) < 1);
+    expect(extras).toHaveLength(2);
+    for (const e of extras) expect(e.aoeRadius).toBeLessThan(60);
+  });
+
+  it('Extinction makes the final impact full-size and lands it last', () => {
+    const state = cast([['fire.cataclysm', 4]]);
+    const full = state.meteors.filter(m => (m.damageRatio ?? 1) === 1);
+    expect(full).toHaveLength(1);
+    expect(full[0].strikeAt).toBe(Math.max(...state.meteors.map(m => m.strikeAt)));
+  });
+});
+
+describe('Guided Descent in flight', () => {
+  it('the meteor lands where the cursor moved, clamped to the steer radius', () => {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.meteor', 1], ['fire.blind_strike', 1]]),
+      b: new Map<NodeId, number>(),
+    };
+    const castAt = { x: 700, y: 600 };
+    state = advanceState(state, { a: { ...idle, castSpell: 3, aimTarget: castAt }, b: idle }, sets);
+    const steerTo = { x: 760, y: 600 };
+    for (let i = 0; i < 10; i++) {
+      state = advanceState(state, { a: { ...idle, aimTarget: steerTo }, b: idle }, sets);
+    }
+    expect(state.meteors[0].target.x).toBeCloseTo(760, 4);
+    expect(state.meteors[0].origin.x).toBeCloseTo(700, 4);
+  });
+
+  it('does not steer without the node', () => {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.meteor', 1]]),
+      b: new Map<NodeId, number>(),
+    };
+    state = advanceState(state, { a: { ...idle, castSpell: 3, aimTarget: { x: 700, y: 600 } }, b: idle }, sets);
+    for (let i = 0; i < 10; i++) {
+      state = advanceState(state, { a: { ...idle, aimTarget: { x: 760, y: 600 } }, b: idle }, sets);
+    }
+    expect(state.meteors[0].target.x).toBeCloseTo(700, 4);
+  });
+});
