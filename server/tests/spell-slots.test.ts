@@ -133,12 +133,20 @@ describe('default slots', () => {
     expect(slotOf(8)).toBe(4);  // Evade
   });
 
-  it('gives every current spell an explicit default slot', () => {
-    // `defaultSlot` is optional so Phase B's frost spells can omit it, but
-    // no spell that exists today may rely on that — omitting one here would
-    // silently move it to the lowest empty slot and change a live hotbar.
+  it('gives every pre-frost spell an explicit default slot', () => {
+    // Frost spells (9-11) deliberately have none — with only six slots the
+    // mage's seven spells cannot all hold a distinct default, so frost falls
+    // to the lowest empty slot. Spells 1-8 predate slots and must keep the
+    // exact key they had, or a live hotbar silently moves.
     for (const b of SPELL_BINDINGS) {
+      if (b.spell >= 9) continue;
       expect(b.defaultSlot).toBeDefined();
+    }
+  });
+
+  it('gives frost spells no default slot', () => {
+    for (const b of SPELL_BINDINGS.filter(x => x.spell >= 9)) {
+      expect(b.defaultSlot).toBeUndefined();
     }
   });
 });

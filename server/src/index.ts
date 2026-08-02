@@ -45,7 +45,7 @@ function sanitizeInput(raw: unknown): InputFrame | null {
 
   const castValid =
     r.castSpell === null ||
-    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 8);
+    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 11);
 
   if (!aimValid) return null;
 

@@ -3,9 +3,9 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
-export type ProjectileType = 'fireball' | 'arrow';
+export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
@@ -213,6 +213,36 @@ export const DEEP_FREEZE_COOLDOWN_TICKS = 6 * TICK_RATE;             // 360
 export const WITHERING_VENOM_MANA_DRAIN = 10;  // mana/sec
 export const EVADE_MAX_CHARGES = 2;
 
+// ── Frost constants ────────────────────────────────────────────────────────
+export const ICEBOLT_SPEED = 480;
+export const ICEBOLT_RADIUS = 8;
+export const ICEBOLT_DAMAGE_MIN = 60;
+export const ICEBOLT_DAMAGE_MAX = 85;
+/** Chill reuses slowUntil/slowFactor — the ranger's freeze arrows already
+ *  established this plumbing, so frost introduces no new status field. */
+export const ICEBOLT_CHILL_TICKS = Math.round(1.5 * TICK_RATE);  // 90
+export const ICEBOLT_CHILL_FACTOR = 0.85;
+
+export const BLIZZARD_RADIUS = 90;
+export const BLIZZARD_DURATION_TICKS = 4 * TICK_RATE;            // 240
+export const BLIZZARD_DAMAGE_PER_TICK = 45 / TICK_RATE;
+
+export const FROZEN_ORB_SPEED = 140;
+export const FROZEN_ORB_LIFETIME_TICKS = Math.round(2.5 * TICK_RATE);  // 150
+export const FROZEN_ORB_VOLLEY_INTERVAL_TICKS = 15;              // 10 volleys
+export const FROZEN_ORB_SHARDS_PER_VOLLEY = 4;
+export const FROZEN_ORB_SHARD_SPEED = 320;
+export const FROZEN_ORB_SHARD_LIFETIME_TICKS = 30;
+export const FROZEN_ORB_SHARD_DAMAGE_MIN = 25;
+export const FROZEN_ORB_SHARD_DAMAGE_MAX = 40;
+
+// ── Frost keystone constants ───────────────────────────────────────────────
+export const PERMAFROST_LINGER_TICKS = 2 * TICK_RATE;            // 120
+export const ABSOLUTE_ZERO_DWELL_TICKS = Math.round(1.5 * TICK_RATE); // 90
+export const CATACLYSMIC_ORB_DAMAGE = 120;
+export const CATACLYSMIC_ORB_RADIUS = 100;
+export const IMPALER_PIERCE_DAMAGE_BONUS = 0.08;
+
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },
   2: { manaCost: 60,  cooldownTicks: 180 },
@@ -222,6 +252,9 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   6: { manaCost: 50,  cooldownTicks: 24  },
   7: { manaCost: 80,  cooldownTicks: 240 },
   8: { manaCost: 30,  cooldownTicks: 90  },
+  9:  { manaCost: 20,  cooldownTicks: 24  },
+  10: { manaCost: 65,  cooldownTicks: 180 },
+  11: { manaCost: 100, cooldownTicks: 300 },
 };
 
 export const TELEPORT_MAX_RANGE = 600;

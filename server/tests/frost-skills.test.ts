@@ -67,3 +67,30 @@ describe('frost cost budget', () => {
     }
   });
 });
+
+import { SPELL_CONFIG, SPELL_BINDINGS, classOfSpell } from '@arena/shared';
+
+describe('frost spell wiring', () => {
+  it('binds all three frost spells to the mage', () => {
+    for (const spell of [9, 10, 11] as const) {
+      expect(classOfSpell(spell)).toBe('mage');
+    }
+  });
+
+  it('binds each frost spell to its unlocking node', () => {
+    const nodeFor = (s: number) => SPELL_BINDINGS.find(b => b.spell === s)?.node;
+    expect(nodeFor(9)).toBe('frost.ice_bolt');
+    expect(nodeFor(10)).toBe('frost.blizzard');
+    expect(nodeFor(11)).toBe('frost.frozen_orb');
+  });
+
+  it('costs less mana and cools faster than Fireball for the opener', () => {
+    expect(SPELL_CONFIG[9].manaCost).toBeLessThan(SPELL_CONFIG[1].manaCost);
+    expect(SPELL_CONFIG[9].cooldownTicks).toBeLessThan(SPELL_CONFIG[1].cooldownTicks);
+  });
+
+  it('prices the capstone like Meteor', () => {
+    expect(SPELL_CONFIG[11].manaCost).toBe(SPELL_CONFIG[3].manaCost);
+    expect(SPELL_CONFIG[11].cooldownTicks).toBe(SPELL_CONFIG[3].cooldownTicks);
+  });
+});
