@@ -1637,7 +1637,16 @@ Flexbox decides line breaks on each item's **unshrunk flex-basis**, not its `min
 The sum to control: `.st-col-main` basis + `.st-col-frost` basis + `.st-col-side` (fixed 340) + two 24px gaps.
 
 - `.st-columns{max-width:1400px}` — the outer cap. At the original `1060px` the cap itself was below any workable basis sum, so the row wrapped at *every* viewport width.
-- `.st-col-main{flex:1 1 400px;min-width:380px;max-width:640px}` and `.st-col-frost{flex:1 1 380px;min-width:380px}` — bases chosen so the sum is 400 + 380 + 340 + 48 = **1168px**, which fits a 1280px laptop. Both keep `flex-grow: 1`, so on wider screens they expand to fill up to the 1400px cap; the small bases cost nothing above the threshold.
+- `.st-col-frost{flex:1 1 380px;min-width:380px}`, and the narrowed main-column basis scoped to the three-column layout only:
+
+```css
+.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;}
+```
+
+with `has-frost` added to the `.st-columns` element on the mage path only. Bases then sum to 400 + 380 + 340 + 48 = **1168px** for the mage, fitting a 1280px laptop, while both columns keep `flex-grow: 1` so wider screens still fill to the 1400px cap.
+
+**Scoping matters: `.st-col-main` is shared with the ranger's archer tree.** Narrowing it globally also moves the ranger's own wrap threshold (main + side + gap: 924px → 764px), changing its layout in roughly an 812–972px viewport band. That band is a real behavior change to a class this task was told to leave alone, so gate the narrower basis behind the modifier rather than applying it to every class.
 
 With those values: one row from about 1168px up, wrapping below it. Leaving the bases at 560/420 would sum to 1368 and push the threshold past 1416px, silently wrapping on the very common 1280px width.
 
