@@ -43,8 +43,13 @@ const FALLING_ARROW_GEO = new THREE.BoxGeometry(2, 14, 2);
 const METEOR_RING_GEO = new THREE.RingGeometry(50, 58, 32);
 const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
 
-const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 });
+// HDR-bright fire: channel values above 1.0 survive into the half-float
+// composer buffer (tone mapping runs last), so bloom reads the fireball as a
+// real light source. ACES renders the core white-hot with an orange fringe,
+// and the 360p-pinned bloom smears it into the wide soft glow the old
+// pixelated pipeline had.
+const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.7, 0.8, 0.2) });
+const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 0.3, 0.09), transparent: true, opacity: 0.25 });
 const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
 
