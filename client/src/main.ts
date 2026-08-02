@@ -2,6 +2,7 @@ import { Scene } from './renderer/Scene';
 import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
 import { SpellRenderer, ArrowElement } from './renderer/SpellRenderer';
+import { RestAuraRenderer } from './renderer/RestAuraRenderer';
 import { StateBuffer } from './network/StateBuffer';
 import { Predictor, PredictOpts } from './network/Predictor';
 import { SocketClient } from './network/SocketClient';
@@ -81,6 +82,7 @@ let currentRoomId = '';
 let currentPlayers: Record<string, string> = {};
 let playerMeshes = new Map<string, CharacterMesh>();
 let spellRenderer: SpellRenderer | null = null;
+let restAura: RestAuraRenderer | null = null;
 let inputHandler: InputHandler | null = null;
 let allPlayerNames: Record<string, string> = {};
 let currentMode = '1v1';
@@ -711,9 +713,11 @@ function startGame(): void {
   for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
   playerMeshes.clear();
   spellRenderer?.dispose();
+  restAura?.dispose();
   inputHandler?.dispose();
 
   spellRenderer = new SpellRenderer(scene.scene, myId);
+  restAura = new RestAuraRenderer(scene.scene);
   spellRenderer.setArrowElement(playerElement);
   inputHandler = new InputHandler(scene, scene.renderer.domElement);
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
@@ -737,6 +741,8 @@ function stopGame(): void {
   inputHandler = null;
   spellRenderer?.dispose();
   spellRenderer = null;
+  restAura?.dispose();
+  restAura = null;
   for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
   playerMeshes.clear();
   hud.hide();
@@ -878,6 +884,7 @@ scene.startRenderLoop(() => {
   inputHandler.refreshMouseWorld();
 
   spellRenderer.update(state);
+  restAura?.update(state, delta);
   hud.update(state, inputHandler.getActiveSpell());
 });
 

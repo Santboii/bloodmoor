@@ -64,10 +64,10 @@ World→scene coordinate mapping copies whatever the existing
 
 ## Wiring
 
-Two lines in `client/src/main.ts`, beside the existing per-frame renderer
-calls: construct once with the scene, call
-`restAura.update(latestState, delta)` in the frame loop. These are the only
-edits outside the new file. Both lines are additions, chosen for minimal
+A handful of one-line insertions in `client/src/main.ts`, each directly
+adjacent to an existing `spellRenderer` lifecycle line (import, declaration,
+per-match construct + dispose, teardown, frame-loop update). These are the
+only edits outside the new file, and each is an addition, chosen for minimal
 merge surface against the parallel session's dirty `main.ts`.
 
 ## Out of scope
