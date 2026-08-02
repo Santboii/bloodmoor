@@ -6,7 +6,17 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CameraController } from './CameraController';
-import { internalRenderSize, FRUSTUM_HALF_HEIGHT, PALETTE_ENABLED, PALETTE_LEVELS } from './pixelation';
+import { FRUSTUM_HALF_HEIGHT, INTERNAL_HEIGHT, MAX_PIXEL_RATIO, PALETTE_ENABLED, PALETTE_LEVELS } from './pixelation';
+
+// Bloom's blur reach is measured in bloom-buffer pixels, so pin the buffer to
+// the legacy 360p grid: halos keep the wide soft spread they had under the
+// low-res pipeline (smooth light over sharp pixels) and the blur chain stays
+// cheap. Only aspect tracks the window.
+class PinnedBloomPass extends UnrealBloomPass {
+  setSize(width: number, height: number): void {
+    super.setSize(Math.round(INTERNAL_HEIGHT * (width / Math.max(1, height))), INTERNAL_HEIGHT);
+  }
+}
 
 const INITIAL_CENTER_X = 200;
 const INITIAL_CENTER_Z = 1000;
@@ -81,6 +91,7 @@ export class Scene {
   private cameraController: CameraController;
   private composer!: EffectComposer;
   private animFrameId = 0;
+  private renderingEnabled = false;
   private readonly _raycaster = new THREE.Raycaster();
   private readonly _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly _worldTarget = new THREE.Vector3();
@@ -88,18 +99,19 @@ export class Scene {
   private _canvasRect: DOMRect | null = null;
 
   constructor(container: HTMLElement) {
-    // Pixel look: the scene renders at INTERNAL_HEIGHT and is upscaled with
-    // nearest-neighbor sampling, so AA and HiDPI supersampling are disabled —
-    // they would only blur the pixels (and waste fill rate).
+    // The pixel look lives in the assets (NearestFilter sprites and
+    // posterized tiles); the scene itself renders at native resolution.
+    // antialias stays off: rendering happens in the composer's target, so
+    // canvas MSAA would never apply — and multisampling the composer buffers
+    // instead forces a resolve on every pass (measured as a renderer freeze
+    // on HiDPI). The billboard-over-flat-ground scene has almost no geometry
+    // silhouettes for MSAA to smooth anyway.
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    this.renderer.setPixelRatio(1);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // The canvas buffer is CSS-sized; the browser upscales it to device
-    // pixels on HiDPI — keep that upscale crisp too.
-    this.renderer.domElement.style.imageRendering = 'pixelated';
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -147,25 +159,26 @@ export class Scene {
 
   /** Call after scene objects are added. Creates EffectComposer pipeline. */
   initPostProcessing(): void {
-    const internal = internalRenderSize(window.innerWidth, window.innerHeight);
-    // NearestFilter on the composer buffers is what makes the final
-    // to-screen pass an unsmoothed pixel upscale.
-    const target = new THREE.WebGLRenderTarget(internal.width, internal.height, {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const pr = this.renderer.getPixelRatio();
+    // Plain single-sample target — see the antialias note in the constructor.
+    const target = new THREE.WebGLRenderTarget(w * pr, h * pr, {
       type: THREE.HalfFloatType,
-      magFilter: THREE.NearestFilter,
-      minFilter: THREE.NearestFilter,
     });
     this.composer = new EffectComposer(this.renderer, target);
-    this.composer.setSize(internal.width, internal.height);
+    // setSize before setPixelRatio: each call re-runs the other's sizing, and
+    // this order keeps the transient allocation small (w×h) instead of
+    // pr²-scaled (setPixelRatio first would briefly allocate 4× at dpr 2).
+    this.composer.setSize(w, h);
+    this.composer.setPixelRatio(pr);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(
-      new UnrealBloomPass(
-        new THREE.Vector2(internal.width / 2, internal.height / 2),
-        0.5,  // strength
-        0.4,  // radius
-        0.3,  // threshold
-      ),
-    );
+    this.composer.addPass(new PinnedBloomPass(
+      new THREE.Vector2(Math.round(INTERNAL_HEIGHT * (w / Math.max(1, h))), INTERNAL_HEIGHT),
+      0.5,  // strength
+      0.4,  // radius
+      0.3,  // threshold
+    ));
     if (PALETTE_ENABLED) {
       const palette = new ShaderPass(PaletteShader);
       palette.uniforms.levels.value = PALETTE_LEVELS;
@@ -173,6 +186,10 @@ export class Scene {
     }
     this.composer.addPass(new ShaderPass(VignetteShader));
     this.composer.addPass(new OutputPass());
+    // One warm-up frame while the loading screen is still up: compiles every
+    // pass's shaders so the first visible match frame doesn't hitch. The loop
+    // itself won't render until setRenderingEnabled(true) at match start.
+    this.composer.render();
   }
 
   updateCamera(playerX: number, playerZ: number, delta: number): void {
@@ -188,9 +205,12 @@ export class Scene {
     this.camera.top = FRUSTUM_HALF_HEIGHT;
     this.camera.bottom = -FRUSTUM_HALF_HEIGHT;
     this.camera.updateProjectionMatrix();
+    // Re-read devicePixelRatio: dragging the window across monitors changes
+    // it, and ParticleSystem's point-size scale reads the live value too.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(w, h);
-    const internal = internalRenderSize(w, h);
-    this.composer?.setSize(internal.width, internal.height);
+    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer?.setSize(w, h);
     this._canvasRect = null;
   };
 
@@ -200,11 +220,19 @@ export class Scene {
     return this._canvasRect;
   }
 
+  /** Gate GPU work on match visibility. The canvas is display:none outside a
+   * match, but drawing the native-res pipeline behind the menus still costs
+   * full GPU frames — enough swap backpressure to lag DOM interactions. */
+  setRenderingEnabled(enabled: boolean): void {
+    this.renderingEnabled = enabled;
+  }
+
   startRenderLoop(onFrame: () => void): void {
     if (this.animFrameId !== 0) return;
     const loop = () => {
       this.animFrameId = requestAnimationFrame(loop);
       onFrame();
+      if (!this.renderingEnabled) return;
       // Fall back to bare render before initPostProcessing() is called
       if (this.composer) {
         this.composer.render();

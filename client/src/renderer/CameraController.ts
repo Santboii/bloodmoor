@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { snapToTexel, worldUnitsPerTexel } from './pixelation';
 
 const LERP_FACTOR = 8;
 
@@ -21,15 +20,8 @@ export class CameraController {
     this.currentX += (playerX - this.currentX) * alpha;
     this.currentZ += (playerZ - this.currentZ) * alpha;
 
-    // Snap the rendered camera target to the texel grid — sub-texel camera
-    // motion makes every edge on screen shimmer at low internal resolution.
-    // The lerp above keeps working on raw coordinates so tracking stays smooth.
-    const texel = worldUnitsPerTexel();
-    const snappedX = snapToTexel(this.currentX, texel);
-    const snappedZ = snapToTexel(this.currentZ, texel);
-
     // Isometric offset: camera sits 200 units "behind" and above the target on XZ
-    this.camera.position.set(snappedX + 200, 600, snappedZ + 200);
-    this.camera.lookAt(snappedX, 0, snappedZ);
+    this.camera.position.set(this.currentX + 200, 600, this.currentZ + 200);
+    this.camera.lookAt(this.currentX, 0, this.currentZ);
   }
 }

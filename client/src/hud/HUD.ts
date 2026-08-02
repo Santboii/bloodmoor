@@ -1,4 +1,4 @@
-import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES } from '@arena/shared';
+import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, REST_CAST_TICKS, REST_COOLDOWN_TICKS } from '@arena/shared';
 import { Minimap } from './Minimap';
 import * as sfx from '../audio/sfx';
 
@@ -54,6 +54,12 @@ export class HUD {
   private lastHpText = '';
   private lastMpText = '';
   private lastLowPulse = false;
+  private restSlot: HTMLElement;
+  private restCd: HTMLElement;
+  private restCdTime: HTMLElement;
+  private lastRestPct = -1;
+  private lastRestState = '';
+  private lastRestCdText = '';
 
   constructor(container: HTMLElement) {
     this.minimap = new Minimap(container);
@@ -89,6 +95,9 @@ export class HUD {
         .spell-slot .charge-pips{position:absolute;left:3px;top:3px;display:flex;gap:3px;z-index:3}
         .charge-pips .pip{width:6px;height:6px;background:#3a3d46;box-shadow:0 0 0 1px var(--px-border-dark)}
         .charge-pips .pip.full{background:#ddb84a}
+        .spell-slot.channeling .cd-overlay{background:rgba(46,92,46,0.65)}
+        .spell-slot.channeling .cd-time{display:flex}
+        .spell-slot.resting{box-shadow:inset 0 2px 0 0 rgba(255,255,255,0.08),inset 0 -2px 0 0 rgba(0,0,0,0.45),0 0 0 2px #7ad97a,0 0 10px rgba(122,217,122,0.55)}
         /* --- enemy plates --- */
         .hud-enemies{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:7px;align-items:center}
         .hud-enemy-entry{background:var(--px-panel);padding:6px 10px 8px;box-shadow:0 -2px 0 0 var(--px-border-light),0 2px 0 0 var(--px-border-dark),-2px 0 0 0 var(--px-border-light),2px 0 0 0 var(--px-border-dark);text-align:center;transition:opacity .3s}
@@ -112,6 +121,14 @@ export class HUD {
           <div class="orb-label">LIFE</div>
         </div>
         <div class="spells" id="hud-spells"></div>
+        <div class="spells">
+          <div class="spell-slot" id="hud-rest">
+            <i class="fa fa-campground fa-fw slot-icon" style="color:#ddb84a"></i>
+            <span class="slot-key">R</span>
+            <div class="cd-overlay" style="height:0%"></div>
+            <span class="cd-time"></span>
+          </div>
+        </div>
         <div class="orb-wrap">
           <div class="orb orb-mp">
             <div class="orb-inner"><div class="orb-fill" id="hud-mp" style="transform:translateY(0%)"></div></div>
@@ -130,6 +147,9 @@ export class HUD {
     this.mpNum = this.el.querySelector('#hud-mp-num') as HTMLElement;
     this.spellsEl = this.el.querySelector('#hud-spells') as HTMLElement;
     this.enemiesEl = this.el.querySelector('#hud-enemies') as HTMLElement;
+    this.restSlot = this.el.querySelector('#hud-rest') as HTMLElement;
+    this.restCd = this.restSlot.querySelector('.cd-overlay') as HTMLElement;
+    this.restCdTime = this.restSlot.querySelector('.cd-time') as HTMLElement;
   }
 
   init(myId: string): void {
@@ -249,6 +269,33 @@ export class HUD {
             (_, i) => `<span class="pip${i < charges ? ' full' : ''}"></span>`).join('');
         }
       }
+    }
+
+    // Rest slot: wind-up fill takes priority, then the resting glow, then the
+    // cooldown sweep. All three derive from absolute ticks in the snapshot.
+    const tick = state.tick;
+    const castRemaining = Math.max(0, (me.restCastEndTick ?? 0) - tick);
+    const cdRemaining = Math.max(0, (me.restCooldownUntil ?? 0) - tick);
+    const casting = me.restCastEndTick !== undefined && castRemaining > 0;
+    const restState = casting ? 'channeling' : me.resting ? 'resting' : cdRemaining > 0 ? 'cooling' : '';
+    const restPct = restState === 'channeling'
+      ? Math.round((castRemaining / REST_CAST_TICKS) * 1000) / 10
+      : restState === 'cooling' ? Math.round((cdRemaining / REST_COOLDOWN_TICKS) * 1000) / 10 : 0;
+    if (restPct !== this.lastRestPct) {
+      this.restCd.style.height = `${restPct}%`;
+      this.lastRestPct = restPct;
+    }
+    if (restState !== this.lastRestState) {
+      this.restSlot.classList.toggle('channeling', restState === 'channeling');
+      this.restSlot.classList.toggle('resting', restState === 'resting');
+      this.restSlot.classList.toggle('cooling', restState === 'cooling');
+      this.lastRestState = restState;
+    }
+    const restCdText = restState === 'channeling' ? (castRemaining / 60).toFixed(1)
+      : restState === 'cooling' ? (cdRemaining / 60).toFixed(1) : '';
+    if (restCdText !== this.lastRestCdText) {
+      this.restCdTime.textContent = restCdText;
+      this.lastRestCdText = restCdText;
     }
 
     // Enemy HP bars — persistent rows, mutated only on change. Names come
