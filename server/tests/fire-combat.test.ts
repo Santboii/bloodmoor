@@ -172,3 +172,63 @@ describe('Chain Reaction', () => {
     }
   });
 });
+
+describe("Hunter's Ember", () => {
+  const pillar = PILLARS[0];
+  const from = { x: pillar.x - 300, y: pillar.y };
+  const aim = { x: pillar.x, y: pillar.y };
+
+  it('returns for one more pass instead of dying', () => {
+    const state = run([['fire.seeking_flame', 6]], 60, aim, from);
+    const fb = state.projectiles.find(p => p.type === 'fireball');
+    expect(fb).toBeDefined();
+    expect(fb!.loopback).toBe(false);
+    expect(fb!.velocity.x).toBeLessThan(0);
+  });
+
+  it('spends the return pass exactly once, then dies', () => {
+    const state = run([['fire.seeking_flame', 6]], 60 * 10, aim, from);
+    expect(state.projectiles.filter(p => p.type === 'fireball')).toHaveLength(0);
+  });
+
+  it('does not return below the keystone', () => {
+    const state = run([['fire.seeking_flame', 5]], 60, aim, from);
+    expect(state.projectiles.filter(p => p.type === 'fireball')).toHaveLength(0);
+  });
+
+  it('does not grant the Ricochet damage rider', () => {
+    const state = run([['fire.seeking_flame', 6]], 60, aim, from);
+    expect(state.projectiles.find(p => p.type === 'fireball')!.bounceCount).toBe(0);
+  });
+});
+
+describe('Rolling Doom', () => {
+  /** Hellfire past soft cap; fire through the enemy on a clear lane. */
+  function throughEnemy(hellfireRank: number, ticks: number) {
+    let state = clearLaneMages();
+    const sets = { a: mageSkills([['fire.hellfire', hellfireRank]]), b: new Map<NodeId, number>() };
+    const beyond = { x: 1500, y: 600 };
+    state = advanceState(state, { a: { ...idle, castSpell: 1, aimTarget: beyond }, b: idle }, sets);
+    let passedThrough = false;
+    for (let i = 0; i < ticks; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      const fb = state.projectiles.find(p => p.type === 'fireball');
+      if (fb && fb.position.x > state.players.b.position.x + 40) passedThrough = true;
+    }
+    return { passedThrough, hp: state.players.b.hp };
+  }
+
+  // Hellfire slows the fireball hard (~240 u/s at rank 4), so 700 units takes
+  // ~175 ticks — a shorter window would make the negative case pass vacuously.
+  it('plows through the target past the soft cap', () => {
+    const r = throughEnemy(4, 300);
+    expect(r.passedThrough).toBe(true);
+    expect(r.hp).toBeLessThan(750);
+  });
+
+  it('detonates on the target at the soft cap', () => {
+    const r = throughEnemy(3, 300);
+    expect(r.passedThrough).toBe(false);
+    expect(r.hp).toBeLessThan(750); // it did connect — it just did not continue
+  });
+});

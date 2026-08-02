@@ -561,6 +561,18 @@ export function advanceState(
         continue;
       }
 
+      // Hunter's Ember: one free return pass when the fireball would otherwise
+      // die against geometry. `reflect` increments bounceCount, which would
+      // hand a Ricochet-less build the +12% rider, so restore it.
+      if (normal && moved.loopback) {
+        survivingProjectiles.push({
+          ...reflect(moved, normal, tick),
+          loopback: false,
+          bounceCount: moved.bounceCount ?? 0,
+        });
+        continue;
+      }
+
       const inGrace = (moved.noHitUntil ?? 0) > tick;
       const expired = tooOld || isFireballExpired(moved, tick);
       let directHit = false;
@@ -573,6 +585,21 @@ export function advanceState(
             break;
           }
         }
+      }
+
+      // Rolling Doom: too massive to stop. Damage everyone struck and keep
+      // flying; the blast still happens at the end of the flight. The grace
+      // stops the same target being re-hit every tick while overlapping.
+      if (directHit && modifiers[moved.ownerId]?.fireball.rollingDoom) {
+        for (const [pid, player] of Object.entries(players)) {
+          if (pid === moved.ownerId || player.hp <= 0) continue;
+          if (!fireballHitsPlayer(moved, player.position, pid)) continue;
+          if ((player.invulnUntil ?? 0) > tick) continue;
+          const bonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
+          players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+        }
+        survivingProjectiles.push({ ...moved, noHitUntil: tick + 12 });
+        continue;
       }
 
       if (directHit || expired) {
