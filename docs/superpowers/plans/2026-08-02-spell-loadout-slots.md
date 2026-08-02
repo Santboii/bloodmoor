@@ -757,11 +757,13 @@ describe('default slots', () => {
     expect(slotOf(8)).toBe(4);  // Evade
   });
 
-  it('places a spell with no default slot in the lowest empty one', () => {
-    // Simulates a Phase B frost spell: owned, but with no legacy key.
-    const binding = SPELL_BINDINGS.find(b => b.defaultSlot === undefined);
-    if (!binding) return; // no such spell yet in Phase A
-    expect(resolveSlots(new Set([binding.spell]), [])[0]).toBe(binding.spell);
+  it('gives every current spell an explicit default slot', () => {
+    // `defaultSlot` is optional so Phase B's frost spells can omit it, but
+    // no spell that exists today may rely on that — omitting one here would
+    // silently move it to the lowest empty slot and change a live hotbar.
+    for (const b of SPELL_BINDINGS) {
+      expect(b.defaultSlot).toBeDefined();
+    }
   });
 });
 ```
