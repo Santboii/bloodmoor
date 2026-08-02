@@ -92,8 +92,9 @@ All logic lives in `advanceState`
   *after* the rest-regen pass, compared at the end of the tick; any decrease
   clears both fields. Snapshotting after regen means the comparison sees only
   losses, so healing cannot mask same-tick damage.
-- `deepCopyPlayers` (`StateAdvancer.ts:690-703`) must carry the three new
-  fields — it drops fields it does not copy explicitly.
+- `deepCopyPlayers` (`StateAdvancer.ts:690-703`) needs no change: it spreads
+  `...p`, so scalar fields survive copying automatically (only `teleported`
+  is deliberately stripped).
 
 Wire path: validate `rest` as a boolean in `server/src/index.ts` alongside the
 `castSpell` range check, and latch it across ticks in `Room.queueInput`
@@ -127,7 +128,7 @@ test (`:45-56`) and the duration-effect patterns in
   DoT), death
 - cooldown blocks a restart within 3s; an interrupted rest does not refund it
 - a guest player (no skill system) can rest
-- rest state survives `deepCopyPlayers`
+- rest state survives across ticks (implicit in any multi-tick regen test)
 
 ## Risks
 
