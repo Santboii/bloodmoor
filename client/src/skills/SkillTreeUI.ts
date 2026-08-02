@@ -164,9 +164,15 @@ const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7;
 const NODE_BLOCK = 66;
 const treeHeight = (rows: number) => (rows - 1) * ROW + NODE_BLOCK;
 
+/** Header band + body padding inside `.st-tree-panel`. Measured in-browser:
+ *  header 30px (7px+7px padding + a 16px VT323 line) + body padding 26px
+ *  (16px top, 10px bottom) = 56. The column height must include this, or the
+ *  deepest tree's last row is clipped by the panel's bottom edge. */
+const PANEL_CHROME_H = 56;
+
 /** Height both columns are pinned to — the deepest tree plus its label, so the
  *  page is exactly as tall for a ranger as for a mage. */
-const WORKSPACE_H = treeHeight(FIRE_ROWS) + 24;
+const WORKSPACE_H = treeHeight(FIRE_ROWS) + PANEL_CHROME_H;
 
 /** Per-tree accent colour — used for the tree panel's border/header band and
  *  threaded through to the tooltip border when a node from that tree is
@@ -201,7 +207,7 @@ const STYLES = `
    three panels line up in a clean row regardless of how many rows the tree
    inside actually uses. */
 .st-tree-panel{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:#15161b;box-shadow:inset 0 2px 0 0 var(--px-border-dark),inset 0 -2px 0 0 var(--px-border-light),0 0 0 2px var(--st-tree-accent,var(--px-accent));}
-.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:var(--st-tree-accent,var(--px-accent));box-shadow:0 2px 0 0 var(--px-border-dark);font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#0a0b0f;text-align:center;}
+.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));text-align:center;}
 .st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;}
 .st-tree-container{position:relative;width:100%;}
 .st-util-container{position:relative;width:100%;}
