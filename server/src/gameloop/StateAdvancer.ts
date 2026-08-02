@@ -11,6 +11,7 @@ import {
   ICEBOLT_CHILL_FACTOR, ICEBOLT_CHILL_TICKS,
   BLIZZARD_DAMAGE_PER_TICK,
   FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
+  IMPALER_PIERCE_DAMAGE_BONUS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -593,6 +594,10 @@ export function advanceState(
             // becomes a flat damage increase, which is not what it says it does.
             const slowBefore = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
             const frostbiteMult = 1 + (ownerIceBolt?.frostbite ?? 0) * (1 - slowBefore);
+            // Impaler: unlimited pierce (handled below via `survivesHit`), and
+            // each enemy already pierced (piercedIds, before this hit is
+            // recorded) adds +8% damage to this and every later hit.
+            const impalerMult = moved.impaler ? 1 + (moved.piercedIds?.length ?? 0) * IMPALER_PIERCE_DAMAGE_BONUS : 1;
             // Chill reuses the ranger's slow fields; the strongest slow wins
             // so a Blizzard tick cannot be downgraded by a passing bolt.
             //
@@ -608,8 +613,16 @@ export function advanceState(
               const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
               next.slowFactor = Math.min(existing, incoming);
               next.slowUntil = tick + (ownerIceBolt?.chillTicks ?? ICEBOLT_CHILL_TICKS);
+              // Flash Freeze: an Ice Bolt landing roots the target, gated by
+              // the same 6s per-target ICD (freezeRootReadyAt) the ranger's
+              // Deep Freeze shares — a target rooted by either source is
+              // protected from both for 6s.
+              if (ownerIceBolt?.flashFreeze && (next.freezeRootReadyAt ?? 0) <= tick) {
+                next.rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
+                next.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
+              }
             }
-            next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * frostbiteMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
+            next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * frostbiteMult * impalerMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
             players[pid] = next;
           }
           // Pierce budget is checked before decrementing: this hit consumes
