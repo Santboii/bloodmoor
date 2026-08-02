@@ -64,3 +64,41 @@ describe('resolveSlots', () => {
     expect(MOBILITY_SPELLS.ranger).toBe(8);
   });
 });
+
+import { readFileSync } from 'node:fs';
+
+describe('set_spell_slot migration guardrails', () => {
+  const sql = readFileSync(
+    new URL('../../supabase/migrations/20260802000000_spell_slots.sql', import.meta.url),
+    'utf8',
+  );
+
+  it('enables RLS and grants read only to the owning account', () => {
+    expect(sql).toMatch(/alter table character_spell_slots enable row level security/);
+    expect(sql).toMatch(/create policy character_spell_slots_owner_read[\s\S]*?for select/);
+  });
+
+  it('exposes no insert, update, or delete policy', () => {
+    expect(sql).not.toMatch(/for (insert|update|delete)/);
+  });
+
+  it('runs the RPC as SECURITY DEFINER with a pinned search_path', () => {
+    expect(sql).toMatch(/security definer set search_path = public/);
+  });
+
+  it('checks character ownership before mutating', () => {
+    const ownership = sql.indexOf('user_id = auth.uid()');
+    const firstMutation = Math.min(
+      ...['delete from character_spell_slots', 'insert into character_spell_slots']
+        .map(s => sql.indexOf(s, sql.indexOf('create or replace function set_spell_slot')))
+        .filter(i => i > 0),
+    );
+    expect(ownership).toBeGreaterThan(0);
+    expect(ownership).toBeLessThan(firstMutation);
+  });
+
+  it('bounds the slot range in both the table and the RPC', () => {
+    expect(sql).toMatch(/check \(slot between 1 and 6\)/);
+    expect(sql).toMatch(/p_slot < 1 or p_slot > 6/);
+  });
+});
