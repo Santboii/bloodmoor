@@ -386,7 +386,7 @@ export class SpellRenderer {
       const isBlizzard = fw.kind === 'blizzard';
 
       if (!this.fireWalls.has(fw.id)) {
-        if (!isRainZone) sfx.startFireWallLoop(fw.id);
+        if (!isRainZone && !isBlizzard) sfx.startFireWallLoop(fw.id);
         const group = new THREE.Group();
         if (fw.shape === 'circle' && fw.center && fw.radius) {
           const disc = new THREE.Mesh(
@@ -552,7 +552,11 @@ export class SpellRenderer {
   }
 
   private syncFrozenOrbs(state: GameState): void {
-    const activeIds = new Set(state.frozenOrbs.map(o => o.id));
+    // Deploy skew defense (rolling deploy): frozenOrbs is required in the
+    // type, but a mismatched server build could still omit it — same reason
+    // echoVolleys is optional and read with `?? []`.
+    const frozenOrbs = state.frozenOrbs ?? [];
+    const activeIds = new Set(frozenOrbs.map(o => o.id));
 
     for (const [id, entry] of this.frozenOrbs) {
       if (!activeIds.has(id)) {
@@ -562,7 +566,7 @@ export class SpellRenderer {
       }
     }
 
-    for (const orb of state.frozenOrbs) {
+    for (const orb of frozenOrbs) {
       if (!this.frozenOrbs.has(orb.id)) {
         // Same core+glow shape as a fireball, recolored icy blue and sized
         // for an orb rather than a bolt.

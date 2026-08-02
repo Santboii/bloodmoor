@@ -53,7 +53,7 @@ const NODE_ICONS: Record<NodeId, string> = {
   'frost.frozen_orb':       'fa-circle-nodes',
   'frost.shard_storm':      'fa-burst',
   'frost.glacial_drift':    'fa-gauge-simple-low',
-  'frost.cold_mastery':     'fa-snowflake',
+  'frost.cold_mastery':     'fa-award',
 };
 
 function esc(s: string): string {
