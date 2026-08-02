@@ -3,9 +3,12 @@ import {
   adminFetchUsernames, adminFindUserByUsername, adminFetchCharacterNames,
 } from '../supabase';
 import type { AdminItemRow, DropTableWeights } from '../supabase';
-import { ITEM_BASES, UNIQUE_ITEMS, rollItem, affixLabel } from '@arena/shared';
+import {
+  ITEM_BASES, UNIQUE_ITEMS, rollItem, rollUnique, affixLabel, affixValueText, affixRangeText, affixStatName,
+  SKILL_NODES,
+} from '@arena/shared';
 import type {
-  ItemBaseSlot, ItemRarity, RolledAffix, CharacterClass,
+  ItemBaseSlot, ItemRarity, RolledAffix, CharacterClass, UniqueAffixSpec,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -37,6 +40,16 @@ const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
  * affixLabel deliberately omits it, since players see the rank, not the id. */
 function adminAffixLabel(a: RolledAffix): string {
   return a.id === 'talent' && a.node ? `${affixLabel(a)} (${a.node})` : affixLabel(a);
+}
+
+/** Manifest tables show the authored window, not a roll. */
+function adminSpecLabel(spec: UniqueAffixSpec): string {
+  const value = affixRangeText(spec) ?? affixValueText(spec.id, spec.min);
+  if (spec.id === 'talent') {
+    const nodeName = SKILL_NODES.find(n => n.id === spec.node)?.name ?? spec.node ?? 'Talent';
+    return `${value} ${nodeName}`;
+  }
+  return `${value} ${affixStatName(spec.id)}`;
 }
 
 /** The specific unique variant of a row, or null for non-unique items. Two
@@ -475,7 +488,7 @@ export class AdminScreen {
         <td style="color:${RARITY_COLORS.unique}">${esc(u.name)}</td>
         <td>${esc(base?.name ?? u.baseId)}</td>
         <td>${u.levelReq}</td>
-        <td>${u.affixes.map(a => esc(adminAffixLabel(a))).join('<br>')}</td>
+        <td>${u.affixes.map(a => esc(adminSpecLabel(a))).join('<br>')}</td>
         <td class="ad-flavor">${esc(u.flavor)}</td>
         <td>${u.aura ? esc(u.aura.style) : '—'}</td>
         <td>${u.lpcTint ? esc(u.lpcTint.color) : '—'}</td>
@@ -534,8 +547,9 @@ export class AdminScreen {
             <div class="ad-preview-name" style="color:${RARITY_COLORS.unique}">${esc(unique.name)}</div>
             <div class="ad-preview-flavor">${esc(unique.flavor)}</div>
             <div class="ad-preview-row">${esc(adminAffixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
-            ${unique.affixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('')}
+            ${this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('')}
             <div class="ad-preview-row">Level Req: ${unique.levelReq}</div>
+            <button id="ad-reroll" class="px-btn ad-reroll-btn">🎲 Reroll</button>
           </div>` : `<div class="ad-preview-empty">Unknown base for this unique.</div>`;
       } else {
         previewHtml = `<div class="ad-preview-empty">Select a unique item.</div>`;
@@ -617,13 +631,14 @@ export class AdminScreen {
     this.el.querySelectorAll('[data-rarity]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.grantRarity = (btn as HTMLElement).dataset.rarity as ItemRarity;
-        if (this.grantRarity !== 'unique') this.regeneratePreview();
+        this.regeneratePreview();
         this.render();
       });
     });
 
     (this.el.querySelector('#ad-unique-select') as HTMLSelectElement | null)?.addEventListener('change', e => {
       this.grantUniqueId = (e.target as HTMLSelectElement).value || null;
+      this.regeneratePreview();
       this.render();
     });
 
@@ -666,9 +681,14 @@ export class AdminScreen {
     this.render();
   }
 
-  /** Re-rolls the non-unique preview via the shared `rollItem` engine —
+  /** Re-rolls the preview via the shared `rollItem`/`rollUnique` engines —
    * granted exactly as previewed, never re-rolled server-side. */
   private regeneratePreview(): void {
+    if (this.grantRarity === 'unique') {
+      const unique = UNIQUE_ITEMS.find(u => u.id === this.grantUniqueId);
+      this.grantPreviewAffixes = unique ? rollUnique(unique, Math.random) : [];
+      return;
+    }
     const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
     this.grantPreviewAffixes = base ? rollItem(base, this.grantRarity, Math.random) : [];
   }
@@ -692,7 +712,7 @@ export class AdminScreen {
       if (!base) return;
       baseId = unique.baseId;
       rarity = 'unique';
-      affixes = unique.affixes;
+      affixes = this.grantPreviewAffixes;
       levelReq = unique.levelReq;
       slot = base.slot;
       classRestriction = base.classRestriction;

@@ -171,9 +171,14 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     const expected = UNIQUE_ITEMS.find(u => u.id === 'the_quiet_hour')!;
     const result = rollMatchDropItem(weights, 10, () => 0.9999);
     expect(result.rarity).toBe('unique');
-    expect(result.affixes).toEqual(expected.affixes);
     expect(result.base.id).toBe(expected.baseId);
     expect(result.levelReq).toBe(expected.levelReq);
+    result.affixes.forEach((a, i) => {
+      const spec = expected.affixes[i];
+      expect(a.id).toBe(spec.id);
+      expect(a.value).toBeGreaterThanOrEqual(spec.min);
+      expect(a.value).toBeLessThanOrEqual(spec.max);
+    });
   });
 
   it('reports which unique a unique roll picked', () => {
@@ -184,8 +189,11 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     const manifest = UNIQUE_ITEMS.find(u => u.id === result.uniqueId)!;
     expect(manifest).toBeDefined();
     expect(result.base.id).toBe(manifest.baseId);
-    expect(result.affixes).toEqual(manifest.affixes);
     expect(result.levelReq).toBe(manifest.levelReq);
+    result.affixes.forEach((a, i) => {
+      expect(a.value).toBeGreaterThanOrEqual(manifest.affixes[i].min);
+      expect(a.value).toBeLessThanOrEqual(manifest.affixes[i].max);
+    });
   });
   it('weights unique drops toward the player band while keeping a lower-band tail', () => {
     const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };

@@ -16,21 +16,36 @@ export type AffixId =
 
 export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node only for 'talent'
 
+/** A unique's affix as authored: a range to roll within. Stored numerically,
+ * so `max` is ALWAYS the lucky end — for a grant (+4→+7) and equally for a
+ * drawback (-60→-35, where -35 is the smaller penalty). That invariant is what
+ * lets roll quality use one formula for both. A fixed affix has min === max. */
+export type UniqueAffixSpec = { id: AffixId; min: number; max: number; node?: NodeId };
+
+const PCT_AFFIX_IDS = new Set<AffixId>([
+  'damage_pct', 'cast_speed_pct', 'move_speed_pct', 'mana_regen_pct',
+]);
+
+const AFFIX_NAMES: Record<Exclude<AffixId, 'talent'>, string> = {
+  max_health: 'Max Health',
+  max_mana: 'Max Mana',
+  damage_pct: 'Damage',
+  cast_speed_pct: 'Cast Speed',
+  move_speed_pct: 'Move Speed',
+  mana_regen_pct: 'Mana Regen',
+};
+
+/** An affix's signed value with its unit and no stat name — '+8%', '-35'. */
+export function affixValueText(id: AffixId, value: number): string {
+  return `${value < 0 ? '-' : '+'}${Math.abs(value)}${PCT_AFFIX_IDS.has(id) ? '%' : ''}`;
+}
+
 /** Human-readable affix text, shared by the Gear, Shop, and Admin screens —
  * they each had a private copy that hardcoded '+', which renders a drawback
  * as '+-35 Max Health'. */
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (abs: number, sign: string) => string> = {
-  max_health:     (v, s) => `${s}${v} Max Health`,
-  max_mana:       (v, s) => `${s}${v} Max Mana`,
-  damage_pct:     (v, s) => `${s}${v}% Damage`,
-  cast_speed_pct: (v, s) => `${s}${v}% Cast Speed`,
-  move_speed_pct: (v, s) => `${s}${v}% Move Speed`,
-  mana_regen_pct: (v, s) => `${s}${v}% Mana Regen`,
-};
-
 export function affixLabel(a: RolledAffix): string {
   if (a.id === 'talent') return `+${a.value} Talent Rank`;
-  return AFFIX_LABELS[a.id](Math.abs(a.value), a.value < 0 ? '-' : '+');
+  return `${affixValueText(a.id, a.value)} ${AFFIX_NAMES[a.id]}`;
 }
 
 /** True for a negative (drawback) affix — the UI renders these in a muted
@@ -38,6 +53,21 @@ export function affixLabel(a: RolledAffix): string {
  * drawbacks. */
 export function isDrawback(a: RolledAffix): boolean {
   return a.id !== 'talent' && a.value < 0;
+}
+
+/** The roll window as display text, or null when the affix is fixed.
+ * Drawbacks read worst-to-best so the arrow points at the lucky end. */
+export function affixRangeText(spec: UniqueAffixSpec): string | null {
+  if (spec.min === spec.max) return null;
+  const lo = affixValueText(spec.id, spec.min);
+  const hi = affixValueText(spec.id, spec.max);
+  return spec.max < 0 ? `${lo} → ${hi}` : `${lo}–${hi}`;
+}
+
+/** An affix's stat name with no value — 'Max Health'. Talent affixes name
+ * their node instead, which only the caller knows how to resolve. */
+export function affixStatName(id: Exclude<AffixId, 'talent'>): string {
+  return AFFIX_NAMES[id];
 }
 
 /** One LPC sheet layer a visible base contributes. Paths may contain the
@@ -86,7 +116,8 @@ export type UniqueAura = {
 
 export type UniqueItem = {
   id: string; baseId: string; name: string; flavor: string;
-  affixes: RolledAffix[]; levelReq: number;
+  affixes: UniqueAffixSpec[];               // authored roll ranges, not fixed values
+  levelReq: number;
   /** Overrides the tint of every layer of the base's lpc manifest, so the
    * unique is visually distinct in-world and on its inventory icon. Only
    * meaningful on bases that have an lpc entry. */
@@ -264,9 +295,9 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'kindling', baseId: 'apprentice_staff', name: 'Kindling',
     flavor: 'Every apprentice is told not to feed it. Every apprentice does.',
     affixes: [
-      { id: 'damage_pct', value: 5 },
-      { id: 'talent', value: 1, node: 'fire.volatile_ember' },
-      { id: 'max_health', value: -35 },
+      { id: 'damage_pct', min: 5, max: 5 },
+      { id: 'talent', min: 1, max: 1, node: 'fire.volatile_ember' },
+      { id: 'max_health', min: -35, max: -35 },
     ],
     levelReq: 1,
     lpcTint: { color: '#ff8a3d' },
@@ -278,9 +309,9 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'threefold_draw', baseId: 'short_bow', name: 'Threefold Draw',
     flavor: 'One string. It has never agreed with itself.',
     affixes: [
-      { id: 'talent', value: 1, node: 'archer.multishot' },
-      { id: 'cast_speed_pct', value: 3 },
-      { id: 'max_mana', value: -25 },
+      { id: 'talent', min: 1, max: 1, node: 'archer.multishot' },
+      { id: 'cast_speed_pct', min: 3, max: 3 },
+      { id: 'max_mana', min: -25, max: -25 },
     ],
     levelReq: 1,
     lpcTint: { color: '#e8e2cf', mode: 'fabric' },
@@ -291,10 +322,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'hunters_eye', baseId: 'bone_ring', name: "Hunter's Eye",
     flavor: 'It always knows where you meant to look.',
     affixes: [
-      { id: 'talent', value: 1, node: 'fire.seeking_flame' },
-      { id: 'talent', value: 1, node: 'archer.guided' },
-      { id: 'max_mana', value: 20 },
-      { id: 'damage_pct', value: -5 },
+      { id: 'talent', min: 1, max: 1, node: 'fire.seeking_flame' },
+      { id: 'talent', min: 1, max: 1, node: 'archer.guided' },
+      { id: 'max_mana', min: 20, max: 20 },
+      { id: 'damage_pct', min: -5, max: -5 },
     ],
     levelReq: 1,
     aura: { style: 'orbit', color: [1.0, 0.72, 0.25], anchor: 'chest', intensity: 0.5, motes: 1 },
@@ -305,10 +336,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'widows_vow', baseId: 'carved_amulet', name: "Widow's Vow",
     flavor: "She traded her heart's warmth for one more word with him.",
     affixes: [
-      { id: 'max_mana', value: 75 },
-      { id: 'mana_regen_pct', value: 18 },
-      { id: 'cast_speed_pct', value: 4 },
-      { id: 'max_health', value: -95 },
+      { id: 'max_mana', min: 75, max: 75 },
+      { id: 'mana_regen_pct', min: 18, max: 18 },
+      { id: 'cast_speed_pct', min: 4, max: 4 },
+      { id: 'max_health', min: -95, max: -95 },
     ],
     levelReq: 4,
     aura: { style: 'drip', color: [0.7, 0.85, 1.0], anchor: 'chest', intensity: 0.7 },
@@ -317,9 +348,9 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'marshstrider_breeches', baseId: 'cloth_pants', name: 'Marshstrider Breeches',
     flavor: 'Peat-stained to the knee. They remember every path out of the moor.',
     affixes: [
-      { id: 'move_speed_pct', value: 6 },
-      { id: 'max_health', value: 45 },
-      { id: 'cast_speed_pct', value: -6 },
+      { id: 'move_speed_pct', min: 6, max: 6 },
+      { id: 'max_health', min: 45, max: 45 },
+      { id: 'cast_speed_pct', min: -6, max: -6 },
     ],
     levelReq: 4,
     lpcTint: { color: '#6f8f4a', mode: 'fabric' },
@@ -331,11 +362,11 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'hollowhide_jerkin', baseId: 'padded_tunic', name: 'Hollowhide Jerkin',
     flavor: 'Cut from something that had already learned to vanish.',
     affixes: [
-      { id: 'talent', value: 1, node: 'utility.ethereal_form' },
-      { id: 'talent', value: 1, node: 'archer_utility.shadowstep' },
-      { id: 'max_health', value: 50 },
-      { id: 'mana_regen_pct', value: -35 },
-      { id: 'damage_pct', value: -6 },
+      { id: 'talent', min: 1, max: 1, node: 'utility.ethereal_form' },
+      { id: 'talent', min: 1, max: 1, node: 'archer_utility.shadowstep' },
+      { id: 'max_health', min: 50, max: 50 },
+      { id: 'mana_regen_pct', min: -35, max: -35 },
+      { id: 'damage_pct', min: -6, max: -6 },
     ],
     levelReq: 4,
     lpcTint: { color: '#7d5f96', mode: 'fabric' },
@@ -349,10 +380,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'cinderfall', baseId: 'gnarled_staff', name: 'Cinderfall',
     flavor: 'The sky owes it a favour.',
     affixes: [
-      { id: 'talent', value: 1, node: 'fire.meteor' },
-      { id: 'damage_pct', value: 6 },
-      { id: 'max_mana', value: -110 },
-      { id: 'cast_speed_pct', value: -8 },
+      { id: 'talent', min: 1, max: 1, node: 'fire.meteor' },
+      { id: 'damage_pct', min: 6, max: 6 },
+      { id: 'max_mana', min: -110, max: -110 },
+      { id: 'cast_speed_pct', min: -8, max: -8 },
     ],
     levelReq: 7,
     lpcTint: { color: '#6b4a3a' },
@@ -364,10 +395,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'quiverfrost', baseId: 'war_bow', name: 'Quiverfrost',
     flavor: 'The string does not thaw.',
     affixes: [
-      { id: 'talent', value: 2, node: 'archer.freeze' },
-      { id: 'damage_pct', value: 8 },
-      { id: 'max_health', value: -75 },
-      { id: 'mana_regen_pct', value: -20 },
+      { id: 'talent', min: 2, max: 2, node: 'archer.freeze' },
+      { id: 'damage_pct', min: 8, max: 8 },
+      { id: 'max_health', min: -75, max: -75 },
+      { id: 'mana_regen_pct', min: -20, max: -20 },
     ],
     levelReq: 7,
     lpcTint: { color: '#9fd8f0', mode: 'fabric' },
@@ -381,10 +412,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'doomsayers_barbute', baseId: 'iron_helm', name: "Doomsayer's Barbute",
     flavor: 'The visor is welded shut. Whoever wore it last had stopped looking.',
     affixes: [
-      { id: 'talent', value: 2, node: 'fire.cataclysm' },
-      { id: 'talent', value: 2, node: 'archer.wide_rain' },
-      { id: 'max_health', value: 85 },
-      { id: 'move_speed_pct', value: -6 },
+      { id: 'talent', min: 2, max: 2, node: 'fire.cataclysm' },
+      { id: 'talent', min: 2, max: 2, node: 'archer.wide_rain' },
+      { id: 'max_health', min: 85, max: 85 },
+      { id: 'move_speed_pct', min: -6, max: -6 },
     ],
     levelReq: 7,
     lpcTint: { color: '#b06a4a' },
@@ -394,10 +425,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'emberheart', baseId: 'moon_amulet', name: 'Emberheart',
     flavor: 'A cinder that never cools, warm to the touch even in the dead of winter.',
     affixes: [
-      { id: 'max_mana', value: 60 },
-      { id: 'damage_pct', value: 8 },
-      { id: 'talent', value: 2, node: 'fire.volatile_ember' },
-      { id: 'talent', value: 1, node: 'fire.searing_heat' },
+      { id: 'max_mana', min: 60, max: 60 },
+      { id: 'damage_pct', min: 8, max: 8 },
+      { id: 'talent', min: 2, max: 2, node: 'fire.volatile_ember' },
+      { id: 'talent', min: 1, max: 1, node: 'fire.searing_heat' },
     ],
     levelReq: 7,
     aura: { style: 'orbit', color: [1.0, 0.55, 0.15], anchor: 'chest', intensity: 0.8, motes: 2 },
@@ -406,9 +437,9 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'windrunner_band', baseId: 'bone_ring', name: 'Windrunner Band',
     flavor: 'Fletched with feathers that never touched a bird.',
     affixes: [
-      { id: 'move_speed_pct', value: 6 },
-      { id: 'cast_speed_pct', value: 5 },
-      { id: 'talent', value: 2, node: 'archer.barrage' },
+      { id: 'move_speed_pct', min: 6, max: 6 },
+      { id: 'cast_speed_pct', min: 5, max: 5 },
+      { id: 'talent', min: 2, max: 2, node: 'archer.barrage' },
     ],
     levelReq: 7,
     aura: { style: 'wisp', color: [0.75, 0.95, 0.8], anchor: 'feet', intensity: 0.8 },
@@ -419,10 +450,10 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'ninefold_ember', baseId: 'archmage_staff', name: 'Ninefold Ember',
     flavor: 'Nine splinters of the same falling star, bound with wire.',
     affixes: [
-      { id: 'talent', value: 3, node: 'fire.pyroclasm' },
-      { id: 'damage_pct', value: 12 },
-      { id: 'max_health', value: -150 },
-      { id: 'cast_speed_pct', value: -8 },
+      { id: 'talent', min: 3, max: 3, node: 'fire.pyroclasm' },
+      { id: 'damage_pct', min: 12, max: 12 },
+      { id: 'max_health', min: -150, max: -150 },
+      { id: 'cast_speed_pct', min: -8, max: -8 },
     ],
     levelReq: 10,
     lpcTint: { color: '#ffd9a0', mode: 'fabric' },
@@ -434,11 +465,11 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'stormcallers_yew', baseId: 'great_bow', name: "Stormcaller's Yew",
     flavor: 'It bends toward weather that has not arrived yet.',
     affixes: [
-      { id: 'talent', value: 2, node: 'archer.sustained_rain' },
-      { id: 'talent', value: 2, node: 'archer.piercing_rain' },
-      { id: 'cast_speed_pct', value: 6 },
-      { id: 'max_mana', value: -120 },
-      { id: 'move_speed_pct', value: -5 },
+      { id: 'talent', min: 2, max: 2, node: 'archer.sustained_rain' },
+      { id: 'talent', min: 2, max: 2, node: 'archer.piercing_rain' },
+      { id: 'cast_speed_pct', min: 6, max: 6 },
+      { id: 'max_mana', min: -120, max: -120 },
+      { id: 'move_speed_pct', min: -5, max: -5 },
     ],
     levelReq: 10,
     lpcTint: { color: '#9a86d6', mode: 'fabric' },
@@ -450,11 +481,11 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     id: 'the_quiet_hour', baseId: 'moon_amulet', name: 'The Quiet Hour',
     flavor: 'Between the last bell and the first, nothing is owed to anyone.',
     affixes: [
-      { id: 'talent', value: 1, node: 'utility.phantom_step' },
-      { id: 'talent', value: 1, node: 'archer_utility.combat_roll' },
-      { id: 'cast_speed_pct', value: 9 },
-      { id: 'max_health', value: -110 },
-      { id: 'max_mana', value: -70 },
+      { id: 'talent', min: 1, max: 1, node: 'utility.phantom_step' },
+      { id: 'talent', min: 1, max: 1, node: 'archer_utility.combat_roll' },
+      { id: 'cast_speed_pct', min: 9, max: 9 },
+      { id: 'max_health', min: -110, max: -110 },
+      { id: 'max_mana', min: -70, max: -70 },
     ],
     levelReq: 10,
     aura: { style: 'orbit', color: [0.85, 0.87, 0.95], anchor: 'chest', intensity: 0.5, motes: 2 },
@@ -546,6 +577,19 @@ export function rollItem(base: ItemBase, rarity: ItemRarity, rng: () => number =
   }
 
   return affixes;
+}
+
+/** Roll a unique's affixes from its authored ranges. Pure and deterministic
+ * given an rng — drops call this off the same seeded stream that picked the
+ * item, so a seed still reproduces a whole drop. */
+export function rollUnique(unique: UniqueItem, rng: () => number = Math.random): RolledAffix[] {
+  return unique.affixes.map(spec => ({
+    id: spec.id,
+    value: rollInRange([spec.min, spec.max], rng),
+    // Spread rather than assign: a `node: undefined` key would survive into
+    // the stored JSON and break strict equality against manifest fixtures.
+    ...(spec.node === undefined ? {} : { node: spec.node }),
+  }));
 }
 
 const RARITY_ORDER: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];

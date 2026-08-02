@@ -3,6 +3,7 @@ import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
   classOwnsTree, validateItemRow, uniqueForRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
   SKILL_NODES, ITEM_LEVEL_BANDS, affixLabel, isDrawback,
+  rollUnique, affixValueText, affixRangeText,
 } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -81,8 +82,9 @@ describe('manifests', () => {
       for (const a of u.affixes) {
         if (a.id === 'talent') continue;
         const [, hi] = AFFIX_TIERS[a.id][bandIndex];
-        const ceiling = hi * (a.value < 0 ? 2.5 : 1.5);
-        expect(Math.abs(a.value), `${u.id} ${a.id}`).toBeLessThanOrEqual(ceiling);
+        const magnitude = Math.max(Math.abs(a.min), Math.abs(a.max));
+        const ceiling = hi * (a.max < 0 ? 2.5 : 1.5);
+        expect(magnitude, `${u.id} ${a.id}`).toBeLessThanOrEqual(ceiling);
       }
     }
   });
@@ -273,10 +275,81 @@ describe('affixLabel', () => {
     expect(isDrawback({ id: 'max_health', value: 35 })).toBe(false);
     expect(isDrawback({ id: 'talent', value: 2, node: 'fire.cataclysm' })).toBe(false);
   });
-  it('every shipped unique drawback renders without a doubled sign', () => {
+  it('every shipped unique range renders without a doubled sign at either end', () => {
     for (const u of UNIQUE_ITEMS) {
-      for (const a of u.affixes) expect(affixLabel(a), u.id).not.toContain('+-');
+      for (const a of u.affixes) {
+        expect(affixLabel({ id: a.id, value: a.min, node: a.node }), u.id).not.toContain('+-');
+        expect(affixLabel({ id: a.id, value: a.max, node: a.node }), u.id).not.toContain('+-');
+      }
     }
+  });
+});
+
+describe('rollUnique', () => {
+  const kindling = () => UNIQUE_ITEMS.find(u => u.id === 'kindling')!;
+
+  it('produces one RolledAffix per spec, in order, carrying node through', () => {
+    const u = kindling();
+    const rolled = rollUnique(u, mulberry32(1));
+    expect(rolled).toHaveLength(u.affixes.length);
+    rolled.forEach((a, i) => {
+      expect(a.id).toBe(u.affixes[i].id);
+      expect(a.node).toBe(u.affixes[i].node);
+    });
+  });
+
+  it('rolls every affix inside its own [min, max], across many seeds', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (let s = 0; s < 60; s++) {
+        const rolled = rollUnique(u, mulberry32(s));
+        rolled.forEach((a, i) => {
+          const spec = u.affixes[i];
+          expect(a.value, `${u.id} ${spec.id}`).toBeGreaterThanOrEqual(spec.min);
+          expect(a.value, `${u.id} ${spec.id}`).toBeLessThanOrEqual(spec.max);
+          expect(Number.isInteger(a.value), `${u.id} ${spec.id}`).toBe(true);
+        });
+      }
+    }
+  });
+
+  it('is deterministic under an injected rng', () => {
+    expect(rollUnique(kindling(), mulberry32(42))).toEqual(rollUnique(kindling(), mulberry32(42)));
+  });
+
+  it('always returns the single value for a fixed (min === max) affix', () => {
+    const fixed = { id: 'cinderfall', spec: 0 };
+    const u = UNIQUE_ITEMS.find(x => x.id === fixed.id)!;
+    const spec = u.affixes.find(a => a.id === 'talent')!;
+    expect(spec.min).toBe(spec.max);
+    for (let s = 0; s < 30; s++) {
+      const rolled = rollUnique(u, mulberry32(s));
+      const got = rolled.find(a => a.node === spec.node)!;
+      expect(got.value).toBe(spec.min);
+    }
+  });
+
+  it('never emits a node key on a non-talent affix', () => {
+    const rolled = rollUnique(kindling(), mulberry32(3));
+    const dmg = rolled.find(a => a.id === 'damage_pct')!;
+    expect(Object.prototype.hasOwnProperty.call(dmg, 'node')).toBe(false);
+  });
+});
+
+describe('affix range text', () => {
+  it('formats a signed value with its unit', () => {
+    expect(affixValueText('max_health', 40)).toBe('+40');
+    expect(affixValueText('max_health', -35)).toBe('-35');
+    expect(affixValueText('damage_pct', 8)).toBe('+8%');
+    expect(affixValueText('talent', 2)).toBe('+2');
+  });
+  it('returns null for a fixed spec', () => {
+    expect(affixRangeText({ id: 'talent', min: 1, max: 1, node: 'fire.meteor' })).toBeNull();
+  });
+  it('renders a grant range with an en dash', () => {
+    expect(affixRangeText({ id: 'damage_pct', min: 4, max: 8 })).toBe('+4%–+8%');
+  });
+  it('renders a drawback range worst-to-best with an arrow', () => {
+    expect(affixRangeText({ id: 'max_health', min: -95, max: -55 })).toBe('-95 → -55');
   });
 });
 

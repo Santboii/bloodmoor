@@ -2,7 +2,7 @@
 // lootbox/match-drop rolls. Composes with items.ts's roll engine (rollItem,
 // rollRarity, ITEM_BASES, UNIQUE_ITEMS) rather than duplicating any of it.
 import type { ItemBase, ItemRarity, RolledAffix } from './items.js';
-import { ITEM_BASES, ITEM_LEVEL_BANDS, UNIQUE_ITEMS, rollItem, rollRarity } from './items.js';
+import { ITEM_BASES, ITEM_LEVEL_BANDS, UNIQUE_ITEMS, rollItem, rollRarity, rollUnique } from './items.js';
 
 export const GOLD_PER_MATCH = 25;
 export const GOLD_WIN_BONUS = 35;
@@ -142,7 +142,7 @@ function rollDropItem(weights: Record<ItemRarity, number>, maxCharLevel: number,
         if (pick < 0) { unique = u; break; }
       }
       const base = ITEM_BASES.find(b => b.id === unique.baseId)!;
-      return { base, rarity: 'unique', affixes: unique.affixes, levelReq: unique.levelReq, uniqueId: unique.id };
+      return { base, rarity: 'unique', affixes: rollUnique(unique, rng), levelReq: unique.levelReq, uniqueId: unique.id };
     }
   }
   const rarity: ItemRarity = rolledRarity === 'unique' ? 'rare' : rolledRarity;
