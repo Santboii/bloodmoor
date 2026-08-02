@@ -87,13 +87,20 @@ describe('set_spell_slot migration guardrails', () => {
   });
 
   it('checks character ownership before mutating', () => {
-    const ownership = sql.indexOf('user_id = auth.uid()');
+    // Both offsets must be measured from inside the RPC. The RLS policy
+    // above it also contains `user_id = auth.uid()`, and an unscoped search
+    // finds that one — which would keep this test green even if the RPC's
+    // own ownership check were deleted outright.
+    const rpcStart = sql.indexOf('create or replace function set_spell_slot');
+    expect(rpcStart).toBeGreaterThan(0);
+
+    const ownership = sql.indexOf('user_id = auth.uid()', rpcStart);
     const firstMutation = Math.min(
       ...['delete from character_spell_slots', 'insert into character_spell_slots']
-        .map(s => sql.indexOf(s, sql.indexOf('create or replace function set_spell_slot')))
+        .map(s => sql.indexOf(s, rpcStart))
         .filter(i => i > 0),
     );
-    expect(ownership).toBeGreaterThan(0);
+    expect(ownership).toBeGreaterThan(rpcStart);
     expect(ownership).toBeLessThan(firstMutation);
   });
 
