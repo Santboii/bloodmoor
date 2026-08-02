@@ -5,7 +5,7 @@
 export const INTERNAL_HEIGHT = 360;
 
 /** Orthographic half-height of the camera frustum in world units. */
-export const FRUSTUM_HALF_HEIGHT = 380;
+export const FRUSTUM_HALF_HEIGHT = 330;
 
 /** Internal render-target size for a given CSS canvas size. */
 export function internalRenderSize(

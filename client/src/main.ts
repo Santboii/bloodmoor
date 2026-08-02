@@ -37,6 +37,9 @@ initSampleBank();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
+// Name labels live outside #ui-overlay: that element carries the global
+// --ui-zoom, which would scale their screen-space coordinates off the head.
+const worldLabels = document.getElementById('world-labels')!;
 
 // One delegated listener covers every button in the app: all clickable
 // chrome shares the px-btn / bm-nav-tab / bm-acct-item classes. Capture
@@ -708,7 +711,7 @@ function setupSocketHandlers(_myDisplayName: string): void {
 function startGame(): void {
   // Before InputHandler is built — it measures the canvas for mouse→world.
   setArenaVisible(true);
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   spellRenderer?.dispose();
   inputHandler?.dispose();
@@ -737,7 +740,7 @@ function stopGame(): void {
   inputHandler = null;
   spellRenderer?.dispose();
   spellRenderer = null;
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   hud.hide();
   setDueling(false);
@@ -826,7 +829,7 @@ scene.startRenderLoop(() => {
 
   for (const [id, mesh] of playerMeshes) {
     if (!(id in state.players)) {
-      mesh.dispose(uiOverlay);
+      mesh.dispose(worldLabels);
       playerMeshes.delete(id);
     }
   }
@@ -838,7 +841,7 @@ scene.startRenderLoop(() => {
     if (!playerMeshes.has(id)) {
       const playerIds = Object.keys(state.players);
       const colorIndex = playerIds.indexOf(id) % Object.keys(PLAYER_COLORS).length;
-      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, uiOverlay);
+      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, worldLabels);
       scene.scene.add(mesh.group);
       playerMeshes.set(id, mesh);
     }

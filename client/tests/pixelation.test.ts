@@ -23,7 +23,7 @@ describe('worldUnitsPerTexel', () => {
   it('divides the camera frustum world height by the internal pixel height', () => {
     // frustum world height = 2 * FRUSTUM_HALF_HEIGHT = 760 world units
     expect(worldUnitsPerTexel()).toBeCloseTo((2 * FRUSTUM_HALF_HEIGHT) / INTERNAL_HEIGHT, 10);
-    expect(worldUnitsPerTexel(380)).toBeCloseTo(2, 10);
+    expect(worldUnitsPerTexel(330)).toBeCloseTo(2, 10);
   });
 });
 

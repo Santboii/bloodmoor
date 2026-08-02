@@ -88,7 +88,7 @@ export class CharacterMesh {
     LABEL_POS.y += TARGET_HEIGHT + 10;
     LABEL_POS.project(camera);
     const sx = (LABEL_POS.x * 0.5 + 0.5) * canvasRect.width + canvasRect.left;
-    const sy = (-LABEL_POS.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top - 10;
+    const sy = (-LABEL_POS.y * 0.5 + 0.5) * canvasRect.height + canvasRect.top - 18;
     // translate() instead of left/top: avoids layout, stays on the compositor.
     this.nameLabel.style.transform = `translate(${sx}px, ${sy}px) translateX(-50%)`;
   }
