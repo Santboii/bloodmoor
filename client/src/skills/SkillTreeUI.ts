@@ -163,7 +163,7 @@ const STYLES = `
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 /* ── two-column workspace ───────────────────────────────────────────── */
-.st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+.st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
 /* Both columns are pinned to the same workspace height (set inline) so the
    page height never depends on which class is open or how much the details
