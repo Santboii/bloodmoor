@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 import { Segment } from '@arena/shared';
+import type { AuraStyle } from '@arena/shared';
 
 const POOL_SIZE = 4096;
 const SOFT_CAP = Math.floor(POOL_SIZE * 0.9);
+
+// Auras yield to spells: they stop emitting at half the pool, well below the
+// SOFT_CAP the spell emitters respect, so a Meteor and Rain exchange never
+// loses particles to jewelry.
+export const AURA_SOFT_CAP = Math.floor(POOL_SIZE * 0.5);
 
 const DEFAULT_COLOR_R = 1.0;
 const DEFAULT_COLOR_G = 0.4;
@@ -18,6 +24,7 @@ export class ParticleSystem {
   private life = new Float32Array(POOL_SIZE);
   private maxLife = new Float32Array(POOL_SIZE);
   private particleSize = new Float32Array(POOL_SIZE);
+  private gravityScale = new Float32Array(POOL_SIZE);
   private colorR = new Float32Array(POOL_SIZE);
   private colorG = new Float32Array(POOL_SIZE);
   private colorB = new Float32Array(POOL_SIZE);
@@ -281,12 +288,14 @@ export class ParticleSystem {
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
     life: number, size: number,
+    gravity = 1,
   ): void {
     const i = this.activeCount++;
     this.posX[i] = x; this.posY[i] = y; this.posZ[i] = z;
     this.velX[i] = vx; this.velY[i] = vy; this.velZ[i] = vz;
     this.life[i] = life; this.maxLife[i] = life;
     this.particleSize[i] = size;
+    this.gravityScale[i] = gravity;
     this.colorR[i] = DEFAULT_COLOR_R;
     this.colorG[i] = DEFAULT_COLOR_G;
     this.colorB[i] = DEFAULT_COLOR_B;
@@ -302,11 +311,12 @@ export class ParticleSystem {
         this.velX[i] = this.velX[last]; this.velY[i] = this.velY[last]; this.velZ[i] = this.velZ[last];
         this.life[i] = this.life[last]; this.maxLife[i] = this.maxLife[last];
         this.particleSize[i] = this.particleSize[last];
+        this.gravityScale[i] = this.gravityScale[last];
         this.colorR[i] = this.colorR[last]; this.colorG[i] = this.colorG[last]; this.colorB[i] = this.colorB[last];
         this.activeCount--;
         continue;
       }
-      this.velY[i] -= 80 * delta;
+      this.velY[i] -= 80 * this.gravityScale[i] * delta;
       this.posX[i] += this.velX[i] * delta;
       this.posY[i] += this.velY[i] * delta;
       this.posZ[i] += this.velZ[i] * delta;
@@ -333,6 +343,88 @@ export class ParticleSystem {
       this.posAttr.needsUpdate = true;
       this.sizeAttr.needsUpdate = true;
       this.colorAttr.needsUpdate = true;
+    }
+  }
+
+  /** Live particle count — a seam for tests, which cannot inspect the GPU
+   * buffers meaningfully. */
+  activeParticles(): number {
+    return this.activeCount;
+  }
+
+  /** Continuous ambient emission for a unique item's aura. Called at 30Hz by
+   * SpellRenderer, which supplies the world anchor point, an animation phase
+   * for the rotating styles, and whether the wearer is moving. */
+  emitAura(
+    style: AuraStyle,
+    color: readonly [number, number, number],
+    x: number, y: number, z: number,
+    opts: { intensity?: number; motes?: number; phase?: number; moving?: boolean } = {},
+  ): void {
+    if (this.activeCount >= AURA_SOFT_CAP) return;
+    const intensity = opts.intensity ?? 1;
+    const phase = opts.phase ?? 0;
+
+    const put = (
+      px: number, py: number, pz: number,
+      vx: number, vy: number, vz: number,
+      life: number, size: number, gravity: number,
+    ): void => {
+      if (this.activeCount >= POOL_SIZE) return;
+      const idx = this.activeCount;
+      this.spawn(px, py, pz, vx, vy, vz, life, size, gravity);
+      this.colorR[idx] = color[0];
+      this.colorG[idx] = color[1];
+      this.colorB[idx] = color[2];
+    };
+
+    switch (style) {
+      case 'embers': {
+        const count = intensity >= 1.3 ? 2 : 1;
+        for (let i = 0; i < count; i++) {
+          put(
+            x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 8, z + (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 6, 10 + Math.random() * 10, (Math.random() - 0.5) * 6,
+            0.8 + Math.random() * 0.4, (4 + Math.random() * 3) * intensity, -0.05,
+          );
+        }
+        break;
+      }
+      case 'frost':
+        put(
+          x + (Math.random() - 0.5) * 12, y + (Math.random() - 0.5) * 10, z + (Math.random() - 0.5) * 12,
+          (Math.random() - 0.5) * 10, -3, (Math.random() - 0.5) * 10,
+          0.9 + Math.random() * 0.3, (3 + Math.random() * 3) * intensity, 0.08,
+        );
+        break;
+      case 'orbit': {
+        const motes = opts.motes ?? 1;
+        const radius = 14;
+        for (let i = 0; i < motes; i++) {
+          const angle = phase * 1.6 + (i * Math.PI * 2) / motes;
+          put(
+            x + Math.cos(angle) * radius, y, z + Math.sin(angle) * radius,
+            0, 2, 0,
+            0.25, (4 + Math.random() * 2) * intensity, 0,
+          );
+        }
+        break;
+      }
+      case 'drip':
+        put(
+          x + (Math.random() - 0.5) * 8, y, z + (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4,
+          0.5 + Math.random() * 0.2, (3 + Math.random() * 3) * intensity, 1,
+        );
+        break;
+      case 'wisp':
+        if (!opts.moving) return;
+        put(
+          x + (Math.random() - 0.5) * 8, y + Math.random() * 4, z + (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 4, 4 + Math.random() * 4, (Math.random() - 0.5) * 4,
+          0.45 + Math.random() * 0.2, (4 + Math.random() * 3) * intensity, 0.1,
+        );
+        break;
     }
   }
 
