@@ -233,6 +233,12 @@ export const SEARING_CROSS_BLAST = 0.50;
 export const GUIDED_DESCENT_STEER_RADII = [80, 120, 160]; // by rank
 export const FALLING_STAR_TICKS = 30;                     // last 0.5s
 export const METEOR_CHUNK_DELAY_TICKS = 12;
+// Every meteor impact leaves a brief real burning zone. The impact VFX reads
+// as fire on the ground; fire on the ground must burn — cosmetic-only fire
+// broke that grammar the moment multi-meteor casts blanketed an area in it.
+// Brief and standard-rate (40/s), so the max tax for standing in a fresh
+// impact is ~30 damage; Ejecta's 3s craters stay the real ground-control tool.
+export const SMOLDER_DURATION_TICKS = 45;                 // 0.75s
 export const METEOR_CHUNK_DISTANCE = 100;
 export const METEOR_CHUNK_RADIUS_RATIO = 0.4;
 export const METEOR_CHUNK_DAMAGE_RATIO = 0.35;

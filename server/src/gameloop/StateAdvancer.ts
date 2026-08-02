@@ -12,7 +12,7 @@ import {
   MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS, EMBER_ARC, EMBER_SPREAD_STEP,
   ETERNAL_PYRE_MAX_TICKS, SEARING_CROSS_DAMAGE, SEARING_CROSS_BLAST,
   METEOR_DELAY_TICKS, SHOWER_SPREAD, SHOWER_RADIUS_RATIO, SHOWER_DAMAGE_RATIO,
-  METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS,
+  METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS, SMOLDER_DURATION_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -311,9 +311,11 @@ export function advanceState(
       };
       const cast: MeteorState[] = [];
       // Extinction: the extras converge inward on a spiral and land first, so
-      // the full-size primary is the closing hit.
+      // the full-size primary is the closing hit. The formation is rotated
+      // per cast so extra #0 is not always due east.
+      const formation = Math.random() * Math.PI * 2;
       for (let i = 0; i < mm.showerCount; i++) {
-        const angle = (i / mm.showerCount) * Math.PI * 2;
+        const angle = formation + (i / mm.showerCount) * Math.PI * 2;
         const reach = mm.extinction ? SHOWER_SPREAD * (1 - i / (mm.showerCount + 1)) : SHOWER_SPREAD;
         cast.push(spawnMeteor(id, {
           x: input.aimTarget.x + Math.cos(angle) * reach,
@@ -816,12 +818,17 @@ export function advanceState(
           }
         }
       }
-      // Molten Impact: the landing shatters into flaming chunks. Chunks carry
-      // `ejecta` but no `chunks`, so they never shatter further.
-      if ((m.chunks ?? 0) > 0) {
+      // Molten Impact: the landing shatters into flaming chunks. Only the
+      // full-size primary shatters — letting Cataclysm's 60% extras shatter
+      // too meant 20 chunk meteors from one cast. Chunks carry `ejecta` but
+      // no `chunks`, so they never shatter further either way.
+      if ((m.chunks ?? 0) > 0 && (m.damageRatio ?? 1) === 1) {
         const count = m.chunks!;
+        // Rotate the ring per cast — a fixed formation always put chunk #0
+        // due east, so the pattern (and its gaps) was memorizable.
+        const formation = Math.random() * Math.PI * 2;
         for (let i = 0; i < count; i++) {
-          const angle = (i / count) * Math.PI * 2;
+          const angle = formation + (i / count) * Math.PI * 2;
           newMeteors.push(spawnMeteor(m.ownerId, {
             x: m.target.x + Math.cos(angle) * METEOR_CHUNK_DISTANCE,
             y: m.target.y + Math.sin(angle) * METEOR_CHUNK_DISTANCE,
@@ -832,9 +839,14 @@ export function advanceState(
             ejecta: m.ejecta,
           }));
         }
-      } else if (m.ejecta) {
-        // Ejecta: a chunk that lands leaves a burning crater.
+      }
+      if (m.ejecta && (m.chunks ?? 0) === 0) {
+        // Ejecta: a chunk that lands leaves a full burning crater.
         fireWalls = [...fireWalls, spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 3 * TICK_RATE)];
+      } else {
+        // Every other impact smolders briefly, so the fire the client draws
+        // at the landing point is real. See SMOLDER_DURATION_TICKS.
+        fireWalls = [...fireWalls, spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, SMOLDER_DURATION_TICKS)];
       }
     } else {
       survivingMeteors.push(m);

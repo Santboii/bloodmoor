@@ -375,9 +375,10 @@ describe('Molten Impact', () => {
     expect(castMeteor([['fire.molten_impact', 1]], 140).meteors).toHaveLength(0);
   });
 
-  it('leaves craters only with Ejecta', () => {
-    expect(castMeteor([['fire.molten_impact', 1]], 140).fireWalls).toHaveLength(0);
-    expect(castMeteor([['fire.molten_impact', 4]], 140).fireWalls.length).toBeGreaterThan(0);
+  it('leaves lasting craters only with Ejecta; plain chunks merely smolder', () => {
+    // Chunk smolders (0.75s) are gone by t=160; Ejecta craters (3s) are not.
+    expect(castMeteor([['fire.molten_impact', 1]], 160).fireWalls).toHaveLength(0);
+    expect(castMeteor([['fire.molten_impact', 4]], 160).fireWalls.length).toBeGreaterThan(0);
   });
 });
 
@@ -483,5 +484,56 @@ describe('ember fan geometry', () => {
     // both parked on the arc edges with nothing aimed at the target.
     expect(spanFor(1)).toBeLessThan(EMBER_ARC / 2);
     expect(spanFor(5)).toBeGreaterThan(spanFor(1));
+  });
+});
+
+describe('meteor ground fire', () => {
+  function castAt(ranks: [NodeId, number][], ticks: number) {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.meteor', 1], ...ranks]),
+      b: new Map<NodeId, number>(),
+    };
+    // Cast directly on b, who never moves — "sitting in the fire".
+    state = advanceState(state, { a: { ...idle, castSpell: 3, aimTarget: { ...state.players.b.position } }, b: idle }, sets);
+    let hpAtStrike = -1;
+    for (let i = 0; i < ticks; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      if (state.tick === 92) hpAtStrike = state.players.b.hp;
+    }
+    return { state, hpAtStrike };
+  }
+
+  it('an impact leaves a brief smolder that burns whoever stands in it', () => {
+    const { state, hpAtStrike } = castAt([], 160);
+    // The fire VFX at the impact point must be backed by a real zone: the
+    // enemy sitting at the impact takes damage AFTER the strike itself.
+    expect(hpAtStrike - state.players.b.hp).toBeGreaterThan(10);
+    // ...and the smolder is brief — long gone well after expiry.
+    expect(state.fireWalls).toHaveLength(0);
+  });
+
+  it('smolders burn but Ejecta craters outlive them', () => {
+    const { state } = castAt([['fire.molten_impact', 4]], 130);
+    // At t~130 smolders (0.75s) are gone or going; craters (3s) remain.
+    const longLived = state.fireWalls.filter(f => f.expiresAt - f.spawnedAt > 100);
+    expect(longLived.length).toBeGreaterThan(0);
+  });
+
+  it('chunks spawn only from the full-size primary, not from shower extras', () => {
+    const { state } = castAt([['fire.cataclysm', 3], ['fire.molten_impact', 3]], 92);
+    // Primary shatters into 5; the three 60% extras must not shatter too
+    // (that would be 20 chunk meteors from one cast).
+    expect(state.meteors).toHaveLength(5);
+  });
+
+  it('rotates the chunk formation per cast instead of always landing due east', () => {
+    const angles: number[] = [];
+    for (let run = 0; run < 2; run++) {
+      const { state } = castAt([['fire.molten_impact', 1]], 91);
+      const chunk = state.meteors[0];
+      angles.push(Math.atan2(chunk.target.y - 600, chunk.target.x - 1800));
+    }
+    expect(angles[0]).not.toBeCloseTo(angles[1], 6);
   });
 });

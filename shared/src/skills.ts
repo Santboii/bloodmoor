@@ -96,7 +96,7 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Blastfurnace', description: 'A fireball crossing your wall also gains a free bounce and a free ember burst.' } },
   { id: 'fire.inferno_expanse', name: 'Inferno Expanse', tree: 'fire',    tier: 5, cost: 1, isSpell: false, description: '+25% Fire Wall length and width per rank. The wall grows outward over its lifetime.', stackable: { softCap: 5, baseEffect: 0.25 },
     keystone: { name: 'Firestorm', description: 'The wall rotates around its midpoint, sweeping the area.' } },
-  { id: 'fire.meteor',          name: 'Meteor',          tree: 'fire',    tier: 6, cost: 3, isSpell: true,  description: 'Delayed AoE strike. 200–280 damage.' },
+  { id: 'fire.meteor',          name: 'Meteor',          tree: 'fire',    tier: 6, cost: 3, isSpell: true,  description: 'Delayed AoE strike. 200–280 damage. The impact smolders briefly.' },
   { id: 'fire.molten_impact',   name: 'Molten Impact',   tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'The impact shatters into flaming chunks. +1 chunk per rank.', stackable: { softCap: 3, baseEffect: 1 },
     keystone: { name: 'Ejecta', description: 'Chunks leave burning craters.' } },
   { id: 'fire.blind_strike',    name: 'Guided Descent',  tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'Steer the Meteor mid-fall. Wider steering radius per rank.', stackable: { softCap: 3, baseEffect: 1 },
