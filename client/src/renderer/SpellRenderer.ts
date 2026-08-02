@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } from '@arena/shared';
+import type { FireWallState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
 import * as sfx from '../audio/sfx';
@@ -92,8 +93,15 @@ function disposeObject3D(root: THREE.Object3D): void {
   });
 }
 
+/** Cheap change-detector for a wall's geometry — rotating walls change every
+ *  tick, static ones never do. */
+function wallSignature(fw: FireWallState): string {
+  return fw.segments.map(s => `${s.x1.toFixed(1)},${s.y1.toFixed(1)},${s.x2.toFixed(1)},${s.y2.toFixed(1)}`).join('|');
+}
+
 export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
+  private wallSignatures = new Map<string, string>();
   private arrows = new Map<string, ArrowEntry>();
   private fireWalls = new Map<string, THREE.Group>();
   private meteors = new Map<string, MeteorEntry>();
@@ -289,6 +297,7 @@ export class SpellRenderer {
         this.scene.remove(group);
         disposeObject3D(group);
         this.fireWalls.delete(id);
+        this.wallSignatures.delete(id);
         sfx.stopFireWallLoop(id);
         const rainVisual = this.rainZoneArrows.get(id);
         if (rainVisual) {
@@ -322,20 +331,22 @@ export class SpellRenderer {
             this.rainZoneArrows.set(fw.id, this.createFallingArrows(fw.center.x, fw.center.y, fw.radius, 12));
           }
         } else {
-          for (const seg of fw.segments) {
-            const points = [
-              new THREE.Vector3(seg.x1, 1, seg.y1),
-              new THREE.Vector3(seg.x2, 1, seg.y2),
-            ];
-            const line = new THREE.Line(
-              new THREE.BufferGeometry().setFromPoints(points),
-              WALL_SEGMENT_MAT,
-            );
-            group.add(line);
-          }
+          this.rebuildWallSegments(group, fw);
+          this.wallSignatures.set(fw.id, wallSignature(fw));
         }
         this.scene.add(group);
         this.fireWalls.set(fw.id, group);
+      }
+
+      // Firestorm rotation and Inferno Expanse growth mutate segments every
+      // tick, so a straight wall rebuilds its meshes whenever the server's
+      // geometry actually changed.
+      if (fw.shape !== 'circle') {
+        const sig = wallSignature(fw);
+        if (sig !== this.wallSignatures.get(fw.id)) {
+          this.wallSignatures.set(fw.id, sig);
+          this.rebuildWallSegments(this.fireWalls.get(fw.id)!, fw);
+        }
       }
 
       if (fw.shape === 'circle' && fw.center && fw.radius) {
@@ -356,6 +367,27 @@ export class SpellRenderer {
       } else if (this.shouldEmitContinuous) {
         this.particles.emitWall(fw.segments);
       }
+    }
+  }
+
+  /**
+   * Rebuilds a wall's line meshes from its current segments. Called on
+   * creation and again whenever the server's geometry changes. Disposing
+   * matters: a rotating wall rebuilds every tick, so leaking one
+   * BufferGeometry per segment per tick is the failure mode. disposeObject3D
+   * skips WALL_SEGMENT_MAT because it is registered in sharedMaterials.
+   */
+  private rebuildWallSegments(group: THREE.Group, fw: FireWallState): void {
+    for (const child of [...group.children]) {
+      group.remove(child);
+      disposeObject3D(child);
+    }
+    for (const seg of fw.segments) {
+      const points = [
+        new THREE.Vector3(seg.x1, 1, seg.y1),
+        new THREE.Vector3(seg.x2, 1, seg.y2),
+      ];
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), WALL_SEGMENT_MAT));
     }
   }
 
@@ -395,6 +427,12 @@ export class SpellRenderer {
       }
 
       const entry = this.meteors.get(meteor.id)!;
+      // Guided Descent steers the meteor mid-fall, so the ring and the cached
+      // impact point must track the server's current target, not the one
+      // captured at spawn.
+      entry.target.x = meteor.target.x;
+      entry.target.y = meteor.target.y;
+      entry.ring.position.set(meteor.target.x, 2, meteor.target.y);
       entry.ring.visible = true;
       entry.rock.visible = true;
       const t = Math.max(0, Math.min(1, 1 - (meteor.strikeAt - state.tick) / METEOR_DELAY_TICKS));
