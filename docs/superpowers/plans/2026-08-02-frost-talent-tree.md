@@ -1630,7 +1630,16 @@ In `render()` (`:374-392`), the mage layout becomes fire | frost | utility+detai
 
 CSS: lower `.st-col-main{min-width}` (`:134`) to `380px`, add `.st-col-frost{flex:1 1 420px;min-width:380px}`, and add `flex-wrap:wrap` to `.st-columns` so narrow viewports degrade instead of clipping.
 
-**`.st-columns{max-width}` must be at least `1400px`.** Do the arithmetic before picking a number: the three columns are `.st-col-main` (min 380), `.st-col-frost` (min 380), and the fixed `.st-col-side` (340), plus two 24px gaps — so one row needs **1148px minimum** and **1368px** at preferred flex-basis. A cap below that makes the row wrap at *every* viewport width, because the cap, not the screen, becomes the binding constraint. 1400px fits the preferred basis and still wraps gracefully below 1148px.
+**Two values control whether three columns share a row, and `min-width` is not one of them.**
+
+Flexbox decides line breaks on each item's **unshrunk flex-basis**, not its `min-width` — shrinking only happens *within* a line that has already been formed. So the single-row threshold is the sum of the bases plus the gaps, and lowering `min-width` does nothing for it.
+
+The sum to control: `.st-col-main` basis + `.st-col-frost` basis + `.st-col-side` (fixed 340) + two 24px gaps.
+
+- `.st-columns{max-width:1400px}` — the outer cap. At the original `1060px` the cap itself was below any workable basis sum, so the row wrapped at *every* viewport width.
+- `.st-col-main{flex:1 1 400px;min-width:380px;max-width:640px}` and `.st-col-frost{flex:1 1 380px;min-width:380px}` — bases chosen so the sum is 400 + 380 + 340 + 48 = **1168px**, which fits a 1280px laptop. Both keep `flex-grow: 1`, so on wider screens they expand to fill up to the 1400px cap; the small bases cost nothing above the threshold.
+
+With those values: one row from about 1168px up, wrapping below it. Leaving the bases at 560/420 would sum to 1368 and push the threshold past 1416px, silently wrapping on the very common 1280px width.
 
 **This is the first time this screen has rendered three columns; check it at 1440px, 1280px, and 900px**, and state the flex math at each rather than asserting it looks fine.
 
