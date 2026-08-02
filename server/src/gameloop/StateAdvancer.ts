@@ -557,11 +557,23 @@ export function advanceState(
           hit = true;
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
+            const next = { ...player };
             // Chill reuses the ranger's slow fields; the strongest slow wins
             // so a Blizzard tick cannot be downgraded by a passing bolt.
-            const incoming = ICEBOLT_CHILL_FACTOR;
-            const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
-            const next = { ...player, slowFactor: Math.min(existing, incoming), slowUntil: tick + ICEBOLT_CHILL_TICKS };
+            //
+            // Teammates take the (already reduced) damage but never the
+            // chill — the same rule the arrow branch applies to elemental
+            // status, for the same reason: a full-strength slow would
+            // undercut deliberately-reduced friendly fire. See :523-525.
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[moved.ownerId]?.teamId !== undefined &&
+              players[moved.ownerId].teamId === player.teamId;
+            if (!sameTeam) {
+              const incoming = ICEBOLT_CHILL_FACTOR;
+              const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
+              next.slowFactor = Math.min(existing, incoming);
+              next.slowUntil = tick + ICEBOLT_CHILL_TICKS;
+            }
             next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
             players[pid] = next;
           }
