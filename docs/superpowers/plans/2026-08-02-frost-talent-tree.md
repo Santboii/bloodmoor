@@ -666,11 +666,24 @@ On a hit, before applying damage:
 ```ts
 // Chill reuses the ranger's slow fields; the strongest slow wins so a
 // Blizzard tick cannot be downgraded by a passing bolt.
-const incoming = m.chillFactor ?? ICEBOLT_CHILL_FACTOR;
-const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
-target.slowFactor = Math.min(existing, incoming);
-target.slowUntil = tick + (m.chillTicks ?? ICEBOLT_CHILL_TICKS);
+//
+// Teammates take the (already reduced) damage but never the chill — the
+// same rule the arrow branch applies to elemental status, for the same
+// reason: a full-strength slow would undercut deliberately-reduced
+// friendly fire. See StateAdvancer.ts:520-525 for the established form.
+const sameTeam = resolvedMode.teamsEnabled &&
+  players[moved.ownerId]?.teamId !== undefined &&
+  players[moved.ownerId].teamId === target.teamId;
+if (!sameTeam) {
+  const incoming = m.chillFactor ?? ICEBOLT_CHILL_FACTOR;
+  const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+  target.slowFactor = Math.min(existing, incoming);
+  target.slowUntil = tick + (m.chillTicks ?? ICEBOLT_CHILL_TICKS);
+}
 ```
+
+Every frost status in this plan follows that rule — the Blizzard chill in
+Task 5 and both roots in Task 8 gate on `!sameTeam` the same way.
 
 Then decrement pierce: push the victim's id onto `piercedIds`, and remove the projectile only when `pierce` is exhausted and `impaler` is not set.
 
@@ -1696,6 +1709,55 @@ describe('chill application', () => {
       state = advanceState(state, { p1: idle(), p2: idle() }, skills);
     }
     expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+
+  it('does not chill a teammate, though the bolt still damages them', () => {
+    // Friendly fire is deliberately reduced; a full-strength slow would
+    // undercut that. Build a 2v2 state so p1 and p2 share a team.
+    const skills = skillsOf(['frost.ice_bolt']);
+    let state = baseState();
+    state.players['p1'].teamId = 'a';
+    state.players['p2'].teamId = 'a';
+    const hpBefore = state.players['p2'].hp;
+    state.projectiles.push({
+      id: 'test_bolt', ownerId: 'p1', type: 'icebolt',
+      position: { x: 1570, y: 1000 }, velocity: { x: 480, y: 0 },
+      damageMin: 60, damageMax: 85, piercedIds: [],
+    });
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hpBefore);
+    expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+});
+
+describe('pierce through the real stepping path', () => {
+  // The module tests cover the predicates in isolation. Only this exercises
+  // the dispatch and per-tick stepping, where removal timing and piercedIds
+  // actually live — the failure modes a pure-function test cannot reach.
+  it('hits two enemies with pierce 1, then despawns, never hitting one twice', () => {
+    const skills = skillsOf(['frost.ice_bolt']);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Caster', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'First',  charClass: 'mage', spawnPos: { x: 1500, y: 1000 } },
+      { id: 'p3', displayName: 'Second', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
+    ]);
+    const hp2 = state.players['p2'].hp;
+    const hp3 = state.players['p3'].hp;
+    state.projectiles.push({
+      id: 'test_bolt', ownerId: 'p1', type: 'icebolt',
+      position: { x: 1400, y: 1000 }, velocity: { x: 480, y: 0 },
+      damageMin: 60, damageMax: 85, pierce: 1, piercedIds: [],
+    });
+
+    const inputs = { p1: idle(), p2: idle(), p3: idle() };
+    for (let i = 0; i < 40; i++) state = advanceState(state, inputs, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hp2);
+    expect(state.players['p3'].hp).toBeLessThan(hp3);
+    // One hit each, not two: a second hit would roughly double the loss.
+    expect(hp2 - state.players['p2'].hp).toBeLessThanOrEqual(85);
+    expect(state.projectiles.some(p => p.id === 'test_bolt')).toBe(false);
   });
 });
 ```
