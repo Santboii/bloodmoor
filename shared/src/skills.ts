@@ -1,5 +1,5 @@
 import type { SpellId, CharacterClass } from './types.js';
-import { TELEPORT_MAX_RANGE } from './types.js';
+import { TELEPORT_MAX_RANGE, MAX_SPELL_SLOTS } from './types.js';
 
 export type NodeId =
   | 'fire.fireball' | 'fire.volatile_ember' | 'fire.seeking_flame'
@@ -146,6 +146,50 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'ranger' },
   { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'ranger' },
 ];
+
+export type SpellSlotRow = { slot: number; spell: number };
+
+/** Each class's movement spell, cast by Space regardless of which slot holds it. */
+export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
+  mage: 4,    // Teleport
+  ranger: 8,  // Evade
+};
+
+const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
+
+/**
+ * Resolve persisted slot rows into the character's hotbar.
+ *
+ * Explicit rows win. Owned spells with no row fill the lowest empty slots in
+ * SPELL_BINDINGS declaration order, which reproduces the old fixed-key layout
+ * for any character that has never edited a slot. Spells that do not fit stay
+ * unslotted rather than displacing an explicit assignment.
+ */
+export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
+  const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+  const placed = new Set<SpellId>();
+
+  for (const row of rows) {
+    if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
+    if (!ALL_SPELL_IDS.has(row.spell)) continue;
+    const spell = row.spell as SpellId;
+    if (!owned.has(spell)) continue;
+    if (placed.has(spell)) continue;      // first row wins
+    if (slots[row.slot - 1] !== null) continue;
+    slots[row.slot - 1] = spell;
+    placed.add(spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    const free = slots.indexOf(null);
+    if (free === -1) break;
+    slots[free] = binding.spell;
+    placed.add(binding.spell);
+  }
+
+  return slots;
+}
 
 /** The free starter node every character of a class begins with. */
 export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {

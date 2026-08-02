@@ -154,6 +154,8 @@ export const TICK_RATE = 60;
 export const DELTA = 1 / TICK_RATE;
 export const MAX_HP = 750;
 export const MAX_MANA = 500;
+export const MAX_SPELL_SLOTS = 6;
+export type SlotIndex = 1 | 2 | 3 | 4 | 5 | 6;
 export const MANA_REGEN_PER_TICK = 18 / TICK_RATE;
 
 export const PILLARS: Pillar[] = [
