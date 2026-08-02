@@ -70,9 +70,11 @@ describe('resolveSlots', () => {
     expect(resolveSlots(owned(1, 5), [])).toEqual([1, 5, null, null, null, null]);
   });
 
-  it('honors explicit rows and auto-fills the rest into the lowest empty slots', () => {
+  it('honors an explicit row over the spell\'s default slot', () => {
+    // Fireball is pinned to slot 3; Fire Wall still takes its own default
+    // slot 2 rather than packing into slot 1.
     expect(resolveSlots(owned(1, 2), [{ slot: 3, spell: 1 }]))
-      .toEqual([2, null, 1, null, null, null]);
+      .toEqual([null, 2, 1, null, null, null]);
   });
 
   it('drops rows naming a spell the character does not own', () => {
