@@ -1,7 +1,7 @@
 import { Scene } from './renderer/Scene';
 import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
-import { SpellRenderer, ArrowElement } from './renderer/SpellRenderer';
+import { SpellRenderer, ArrowElement, isInvisibleToViewer } from './renderer/SpellRenderer';
 import { RestAuraRenderer } from './renderer/RestAuraRenderer';
 import { StateBuffer } from './network/StateBuffer';
 import { Predictor, PredictOpts } from './network/Predictor';
@@ -869,15 +869,19 @@ scene.startRenderLoop(() => {
     mesh.update(delta, pendingCastAnim.has(id));
     if (player.hp <= 0) mesh.die();
     // Shadowstep: invisible to enemies; you still see yourself.
-    const invisible = (player.invisibleUntil ?? 0) > state.tick && id !== myId;
+    const invisible = isInvisibleToViewer(player, myId, state.tick);
     mesh.setVisible(!invisible);
     mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }
   pendingCastAnim.clear();
 
-  if (predictor && state.players[myId]) {
-    const predicted = predictor.getRenderPosition(stepAlpha, now);
-    scene.updateCamera(predicted.x, predicted.y, delta);
+  // Same predicted position the local mesh above is drawn at — reused for the
+  // camera and handed to spellRenderer so the local player's own aura doesn't
+  // detach from their body while moving (the interpolated snapshot position
+  // lags the predicted render position by roughly one RTT).
+  const selfPosition = predictor && state.players[myId] ? predictor.getRenderPosition(stepAlpha, now) : undefined;
+  if (selfPosition) {
+    scene.updateCamera(selfPosition.x, selfPosition.y, delta);
   } else {
     const myPlayer = state.players[myId];
     if (myPlayer) {
@@ -887,7 +891,7 @@ scene.startRenderLoop(() => {
 
   inputHandler.refreshMouseWorld();
 
-  spellRenderer.update(state);
+  spellRenderer.update(state, selfPosition);
   restAura?.update(state, delta);
   hud.update(state, inputHandler.getActiveSpell());
 });
