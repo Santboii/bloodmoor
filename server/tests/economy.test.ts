@@ -187,6 +187,25 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(result.affixes).toEqual(manifest.affixes);
     expect(result.levelReq).toBe(manifest.levelReq);
   });
+  it('weights unique drops toward the player band while keeping a lower-band tail', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const counts = new Map<number, number>();
+    for (let s = 0; s < 400; s++) {
+      const r = rollLootboxItem('premium', weights, 10, mulberry32(s));
+      const u = UNIQUE_ITEMS.find(x => x.id === r.uniqueId)!;
+      counts.set(u.levelReq, (counts.get(u.levelReq) ?? 0) + 1);
+    }
+    const atBand = counts.get(10) ?? 0;
+    const below = 400 - atBand;
+    expect(atBand).toBeGreaterThan(below);   // the band dominates
+    expect(below).toBeGreaterThan(0);        // but lower bands still appear
+  });
+  it('still rolls a unique for a low-level account whose band has none above it', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const r = rollLootboxItem('premium', weights, 1, mulberry32(11));
+    expect(r.rarity).toBe('unique');
+    expect(UNIQUE_ITEMS.find(u => u.id === r.uniqueId)!.levelReq).toBe(1);
+  });
   it('leaves uniqueId unset on a non-unique roll', () => {
     const weights = { basic: 1, magic: 0, rare: 0, unique: 0 };
     expect(rollLootboxItem('basic', weights, 10, mulberry32(3)).uniqueId).toBeUndefined();
