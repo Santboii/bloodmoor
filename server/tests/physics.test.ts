@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { movePlayer, resolvePlayerPillarCollisions, clampToArena, circleHitsAABB, PILLARS, ARENA_SIZE, PLAYER_HALF_SIZE } from '@arena/shared';
 import { pillarContainsPoint } from '../src/physics/Collision.ts';
 import { hasLineOfSight } from '../src/physics/LineOfSight.ts';
+import { segmentsIntersect } from '../src/physics/LineOfSight.ts';
 
 describe('movePlayer', () => {
   it('moves in the given direction scaled by speed and delta', () => {
@@ -85,5 +86,18 @@ describe('hasLineOfSight', () => {
   it('returns true for a path that passes above a pillar', () => {
     // Pillar at 400,750 halfSize 28 — pass at y=700 which is 22 above top edge (750-28=722)
     expect(hasLineOfSight({ x: 200, y: 700 }, { x: 600, y: 700 })).toBe(true);
+  });
+});
+
+describe('segmentsIntersect', () => {
+  it('detects a clean crossing', () => {
+    expect(segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: -5 }, { x: 5, y: 5 })).toBe(true);
+  });
+  it('rejects parallel and non-touching segments', () => {
+    expect(segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 1 }, { x: 10, y: 1 })).toBe(false);
+    expect(segmentsIntersect({ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 5, y: -5 }, { x: 5, y: 5 })).toBe(false);
+  });
+  it('treats collinear overlap as no crossing', () => {
+    expect(segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }, { x: 15, y: 0 })).toBe(false);
   });
 });

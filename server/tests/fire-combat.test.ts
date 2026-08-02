@@ -293,3 +293,54 @@ describe('Enduring Flames ramp', () => {
     expect(late).toBeGreaterThan(early);
   });
 });
+
+describe('Searing Heat crossing', () => {
+  /** Wall at x=500 across a clear lane, then a fireball fired through it. */
+  function crossOwnWall(searingRank: number, wallOwner: 'a' | 'b' = 'a') {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.searing_heat', searingRank]]),
+      b: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.searing_heat', searingRank]]),
+    };
+    const wallAt = { x: 500, y: 600 };
+    const caster = wallOwner === 'a' ? { a: { ...idle, castSpell: 2 as const, aimTarget: wallAt }, b: idle }
+                                     : { a: idle, b: { ...idle, castSpell: 2 as const, aimTarget: wallAt } };
+    state = advanceState(state, caster, sets);
+    state = advanceState(state, { a: { ...idle, castSpell: 1, aimTarget: { x: 880, y: 600 } }, b: idle }, sets);
+    // The wall sits 300 units downrange at 400 u/s — ~45 ticks to reach it.
+    for (let i = 0; i < 120; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      const fb = state.projectiles.find(p => p.type === 'fireball' && (p.emberGen ?? 0) === 0);
+      if (fb?.wallEmpowered) return fb;
+    }
+    return state.projectiles.find(p => p.type === 'fireball' && (p.emberGen ?? 0) === 0);
+  }
+
+  it("empowers a fireball crossing the caster's own wall", () => {
+    const fb = crossOwnWall(1);
+    expect(fb?.wallEmpowered).toBe(true);
+    expect(fb!.damageMin!).toBeCloseTo(80 * 1.25, 5);
+    expect(fb!.damageMax!).toBeCloseTo(120 * 1.25, 5);
+  });
+
+  it('does not empower without Searing Heat', () => {
+    expect(crossOwnWall(0)?.wallEmpowered).toBeFalsy();
+  });
+
+  it("does not empower off an enemy's wall", () => {
+    expect(crossOwnWall(1, 'b')?.wallEmpowered).toBeFalsy();
+  });
+
+  it('empowers exactly once, not once per overlapping tick', () => {
+    const fb = crossOwnWall(1);
+    // A second application would compound to 80 * 1.25^2 = 125.
+    expect(fb!.damageMin!).toBeLessThan(80 * 1.25 * 1.1);
+  });
+
+  it('Blastfurnace grants a free bounce past the soft cap', () => {
+    const plain = crossOwnWall(1);
+    const keystone = crossOwnWall(6);
+    expect(plain!.bounces ?? 0).toBe(0);
+    expect(keystone!.bounces ?? 0).toBe(1);
+  });
+});

@@ -10,7 +10,7 @@ import {
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
   MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS,
-  ETERNAL_PYRE_MAX_TICKS,
+  ETERNAL_PYRE_MAX_TICKS, SEARING_CROSS_DAMAGE, SEARING_CROSS_BLAST,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -18,7 +18,7 @@ import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
-import { hasLineOfSight } from '../physics/LineOfSight.ts';
+import { hasLineOfSight, segmentsIntersect } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, surfaceNormal, reflect } from '../spells/Fireball.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, wallDamagePerTick, advanceWall } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
@@ -571,6 +571,28 @@ export function advanceState(
     } else {
       let moved = advanceFireball(proj, enemyEntry?.[1].position);
 
+      // Searing Heat: a fireball crossing its owner's own wall ignites. The
+      // one-shot flag means a fireball overlapping the wall for several ticks
+      // empowers once, not once per tick.
+      const ownerFireMods = modifiers[moved.ownerId];
+      if (ownerFireMods?.firewall.empowerFireball && !moved.wallEmpowered) {
+        const crossed = fireWalls.some(fw =>
+          fw.ownerId === moved.ownerId && fw.shape !== 'circle' &&
+          fw.segments.some(seg =>
+            segmentsIntersect(proj.position, moved.position, { x: seg.x1, y: seg.y1 }, { x: seg.x2, y: seg.y2 })));
+        if (crossed) {
+          moved = {
+            ...moved,
+            wallEmpowered: true,
+            damageMin: (moved.damageMin ?? 80) * (1 + SEARING_CROSS_DAMAGE),
+            damageMax: (moved.damageMax ?? 120) * (1 + SEARING_CROSS_DAMAGE),
+            blastRadius: (moved.blastRadius ?? moved.radius ?? FIREBALL_RADIUS) * (1 + SEARING_CROSS_BLAST),
+            // Blastfurnace: a free bounce regardless of Ricochet ranks.
+            bounces: (moved.bounces ?? 0) + (ownerFireMods.firewall.blastfurnace ? 1 : 0),
+          };
+        }
+      }
+
       // Ricochet: bounce off pillars and arena walls instead of detonating.
       // `normal` is null once the fireball is too old, so the hard lifetime
       // ceiling wins over an unlimited Perpetual Flame budget.
@@ -647,8 +669,9 @@ export function advanceState(
         // `emberGen === 1` is what bounds it to a single extra generation.
         const emberGen = moved.emberGen ?? 0;
         const ownerMods = modifiers[moved.ownerId];
+        const blastfurnaceBonus = moved.wallEmpowered && ownerMods?.firewall.blastfurnace ? 1 : 0;
         const emberCount = emberGen === 0
-          ? (ownerMods?.fireball.embers ?? 0)
+          ? (ownerMods?.fireball.embers ?? 0) + blastfurnaceBonus
           : (emberGen === 1 && ownerMods?.fireball.chainReaction && directHit ? 2 : 0);
         const liveEmbers = [...survivingProjectiles, ...newProjectiles]
           .filter(p => p.ownerId === moved.ownerId && (p.emberGen ?? 0) >= 1).length;
