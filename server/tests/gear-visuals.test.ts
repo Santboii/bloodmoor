@@ -4,7 +4,7 @@ import { HAND_ANCHORS, WEAPON_GRIPS } from '../../client/src/renderer/sprites/we
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
-  layersForLoadout, gearVisualsFor, layersFor,
+  layersForLoadout, gearVisualsFor, layersFor, aurasForGear,
   CLASS_DEFAULT_APPEARANCE, ITEM_BASES, APPEARANCE_OPTIONS, LPC_ANIMATIONS,
 } from '@arena/shared';
 import type { Appearance, GearVisuals, ItemRow, LpcAnimation } from '@arena/shared';
@@ -26,20 +26,70 @@ const MAGE: Appearance = CLASS_DEFAULT_APPEARANCE.mage;      // male, wizard hat
 const RANGER: Appearance = CLASS_DEFAULT_APPEARANCE.ranger;  // female, ponytail, no hat
 
 describe('gearVisualsFor', () => {
-  it('maps equipped visible slots to base ids', () => {
+  it('maps equipped visible slots to base entries', () => {
     const gear = gearVisualsFor([
       row('iron_helm', 'helmet'), row('padded_tunic', 'armor'),
       row('mail_leggings', 'leggings'), row('gnarled_staff', 'weapon'),
     ]);
     expect(gear).toEqual({
-      helmet: 'iron_helm', armor: 'padded_tunic',
-      leggings: 'mail_leggings', weapon: 'gnarled_staff',
+      helmet: { base: 'iron_helm' }, armor: { base: 'padded_tunic' },
+      leggings: { base: 'mail_leggings' }, weapon: { base: 'gnarled_staff' },
     });
   });
-  it('ignores rings, amulets, and unequipped rows', () => {
+  it('drops plain rings, amulets, and unequipped rows', () => {
     const stashRow = { ...row('iron_helm', 'helmet'), equipped_by: null, equipped_slot: null };
     expect(gearVisualsFor([row('bone_ring', 'ring1'), row('moon_amulet', 'amulet'), stashRow]))
       .toEqual({});
+  });
+  it('carries a unique id on visible slots', () => {
+    const gear = gearVisualsFor([
+      { ...row('gnarled_staff', 'weapon'), rarity: 'unique', unique_id: 'cinderfall' },
+    ]);
+    expect(gear.weapon).toEqual({ base: 'gnarled_staff', unique: 'cinderfall' });
+  });
+  it('keeps a non-visual slot when it holds a unique, because its aura needs it', () => {
+    const gear = gearVisualsFor([
+      { ...row('moon_amulet', 'amulet'), rarity: 'unique', unique_id: 'the_quiet_hour' },
+    ]);
+    expect(gear.amulet).toEqual({ base: 'moon_amulet', unique: 'the_quiet_hour' });
+  });
+});
+
+describe('unique lpcTint', () => {
+  it('overrides the base layer tint for a tinted unique', () => {
+    const plain = layersForLoadout(MAGE, { weapon: { base: 'gnarled_staff' } });
+    const tinted = layersForLoadout(MAGE, { weapon: { base: 'gnarled_staff', unique: 'cinderfall' } });
+    const plainWeapon = plain.filter(l => l.weapon === 'gnarled_staff');
+    const tintedWeapon = tinted.filter(l => l.weapon === 'gnarled_staff');
+    expect(tintedWeapon.length).toBe(plainWeapon.length);
+    expect(tintedWeapon.every(l => l.tint === '#6b4a3a')).toBe(true);
+    expect(plainWeapon.every(l => l.tint === undefined)).toBe(true);
+  });
+  it('leaves layers untinted for a unique with no lpcTint', () => {
+    const layers = layersForLoadout(MAGE, { amulet: { base: 'moon_amulet', unique: 'the_quiet_hour' } });
+    expect(layers).toEqual(layersFor(MAGE));
+  });
+});
+
+describe('aurasForGear', () => {
+  it('returns nothing for gear with no uniques', () => {
+    expect(aurasForGear({ helmet: { base: 'iron_helm' } })).toEqual([]);
+  });
+  it('caps at two auras, keeping the highest levelReq', () => {
+    const auras = aurasForGear({
+      weapon: { base: 'archmage_staff', unique: 'ninefold_ember' },   // 10
+      amulet: { base: 'moon_amulet', unique: 'the_quiet_hour' },      // 10
+      helmet: { base: 'iron_helm', unique: 'doomsayers_barbute' },    // 7
+      ring1:  { base: 'bone_ring', unique: 'hunters_eye' },           // 1
+    });
+    expect(auras.map(a => a.unique.levelReq)).toEqual([10, 10]);
+  });
+  it('deduplicates the same unique worn in both ring slots', () => {
+    const auras = aurasForGear({
+      ring1: { base: 'bone_ring', unique: 'hunters_eye' },
+      ring2: { base: 'bone_ring', unique: 'hunters_eye' },
+    });
+    expect(auras).toHaveLength(1);
   });
 });
 
@@ -48,26 +98,26 @@ describe('layersForLoadout', () => {
     expect(layersForLoadout(MAGE, {})).toEqual(layersFor(MAGE));
   });
   it('helmet replaces the hat layer', () => {
-    const layers = layersForLoadout(MAGE, { helmet: 'leather_cap' });
+    const layers = layersForLoadout(MAGE, { helmet: { base: 'leather_cap' } });
     expect(layers.some(l => l.path.startsWith('hat/magic/wizard'))).toBe(false);
     expect(layers.some(l => l.path === 'hat/cloth/leather_cap/adult/leather')).toBe(true);
   });
   it('hidesHair helmets also drop above-head hair; plain helmets keep it', () => {
-    const capped = layersForLoadout(RANGER, { helmet: 'leather_cap' });
+    const capped = layersForLoadout(RANGER, { helmet: { base: 'leather_cap' } });
     expect(capped.some(l => l.path === 'hair/ponytail/adult/fg')).toBe(true);
-    const helmed = layersForLoadout(RANGER, { helmet: 'iron_helm' });
+    const helmed = layersForLoadout(RANGER, { helmet: { base: 'iron_helm' } });
     expect(helmed.some(l => l.path === 'hair/ponytail/adult/fg')).toBe(false);
     // behind-body hair (bg, z0) survives — it reads as back hair below the helm
     expect(helmed.some(l => l.path === 'hair/ponytail/adult/bg')).toBe(true);
     expect(helmed.some(l => l.path === 'hat/helmet/barbuta/female')).toBe(true);
   });
   it('armor replaces torso and substitutes {body}', () => {
-    const layers = layersForLoadout(RANGER, { armor: 'scale_mail' });
+    const layers = layersForLoadout(RANGER, { armor: { base: 'scale_mail' } });
     expect(layers.some(l => l.path.startsWith('torso/clothes/'))).toBe(false);
     expect(layers.some(l => l.path === 'torso/chainmail/female')).toBe(true);
   });
   it('leggings replace legs and use the thin fit for female', () => {
-    const layers = layersForLoadout(RANGER, { leggings: 'mail_leggings' });
+    const layers = layersForLoadout(RANGER, { leggings: { base: 'mail_leggings' } });
     expect(layers.some(l => l.path === 'legs/pants/thin')).toBe(false);
     const legs = layers.find(l => l.path === 'legs/leggings/thin');
     expect(legs).toBeDefined();
@@ -75,7 +125,7 @@ describe('layersForLoadout', () => {
     expect(legs!.tintMode).toBe('fabric');
   });
   it('weapon appends background below the body and foreground on top', () => {
-    const layers = layersForLoadout(MAGE, { weapon: 'gnarled_staff' });
+    const layers = layersForLoadout(MAGE, { weapon: { base: 'gnarled_staff' } });
     const paths = layers.map(l => l.path);
     const bg = paths.indexOf('weapon/magic/gnarled/universal/background/gnarled');
     const body = paths.indexOf('body/bodies/male');
@@ -85,7 +135,7 @@ describe('layersForLoadout', () => {
     expect(fg).toBe(paths.length - 1);
   });
   it('ignores unknown and non-visual base ids', () => {
-    expect(layersForLoadout(MAGE, { helmet: 'nope', weapon: 'bone_ring' }))
+    expect(layersForLoadout(MAGE, { helmet: { base: 'nope' }, weapon: { base: 'bone_ring' } }))
       .toEqual(layersFor(MAGE));
   });
   it('never leaves an unsubstituted token for any body/base combination', () => {
@@ -95,7 +145,7 @@ describe('layersForLoadout', () => {
       const a: Appearance = { ...MAGE, body };
       for (const base of visible) {
         const slot = base.slot === 'weapon' ? 'weapon' : base.slot as 'helmet' | 'armor' | 'leggings';
-        for (const layer of layersForLoadout(a, { [slot]: base.id } as GearVisuals)) {
+        for (const layer of layersForLoadout(a, { [slot]: { base: base.id } } as GearVisuals)) {
           expect(layer.path).not.toContain('{');
         }
       }
