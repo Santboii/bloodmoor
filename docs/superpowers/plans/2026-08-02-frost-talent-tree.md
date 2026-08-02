@@ -1731,6 +1731,57 @@ describe('chill application', () => {
   });
 });
 
+describe('blizzard through the real stepping path', () => {
+  // Nothing in Task 5's module tests reaches StateAdvancer: deleting the
+  // isBlizzard rate branch or the whole chill block would leave them green.
+  it('damages and chills an enemy standing in the zone', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    const hpBefore = state.players['p2'].hp;
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 1600, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 240,
+    });
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hpBefore);
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect(state.players['p2'].slowFactor).toBeLessThan(1);
+  });
+
+  it('never damages or chills its own caster', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    const hpBefore = state.players['p1'].hp;
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 200, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 240,
+    });
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p1'].hp).toBe(hpBefore);
+    expect(state.players['p1'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+
+  it('refreshes chill rather than compounding it over many ticks', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 1600, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 600,
+    });
+    for (let i = 0; i < 5; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const early = state.players['p2'].slowFactor;
+    for (let i = 0; i < 100; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    // A per-frame zone re-applies chill every tick; the factor must pin, not ratchet.
+    expect(state.players['p2'].slowFactor).toBe(early);
+  });
+});
+
 describe('pierce through the real stepping path', () => {
   // The module tests cover the predicates in isolation. Only this exercises
   // the dispatch and per-tick stepping, where removal timing and piercedIds
