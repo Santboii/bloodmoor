@@ -1,7 +1,7 @@
 import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
   ITEM_BASES, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
-  uniqueForRow, affixLabel, isDrawback,
+  uniqueForRow, affixLabel, isDrawback, rollQuality, affixRangeText,
 } from '@arena/shared';
 import type {
   ItemRow, ItemBase, ItemBaseSlot, EquipSlot, CharacterClass, Appearance,
@@ -133,6 +133,9 @@ const STYLES = `
 .gr-dim{color:var(--px-border-light);opacity:0.7;}
 .gr-ok{color:var(--px-success);}
 .gr-bad{color:var(--px-danger);}
+.gr-range{color:var(--px-text-dim,#8a8f9c);font-size:14px;}
+.gr-quality{color:var(--px-text-dim,#8a8f9c);letter-spacing:1px;}
+.gr-perfect{color:var(--px-accent);letter-spacing:1px;}
 .gr-details-status{margin-top:10px;font-size:16px;}
 .gr-sell-price{color:var(--px-accent);margin-top:10px;}
 .gr-sell-btn{width:100%;font-size:6px;padding:8px 6px;margin-top:6px;}
@@ -453,15 +456,23 @@ export class GearScreen {
     const implicitHtml = `<div class="gr-details-row">${esc(affixLabel(base.implicit))} <span class="gr-dim">(implicit)</span></div>`;
 
     const affixHtml = item.affixes.map(a => {
+      const spec = unique?.affixes.find(s => s.id === a.id && s.node === a.node);
+      const range = spec ? affixRangeText(spec) : null;
+      const rangeHtml = range ? ` <span class="gr-range">(${esc(range)})</span>` : '';
       if (a.id === 'talent' && a.node) {
         const node = SKILL_NODES.find(n => n.id === a.node);
         const nodeName = node?.name ?? a.node;
         const owned = classOwnsTree(this.charClass, a.node);
         const label = `+${a.value} ${nodeName}${owned ? '' : ' (inert for this class)'}`;
-        return `<div class="gr-details-row${owned ? '' : ' gr-dim'}">${esc(label)}</div>`;
+        return `<div class="gr-details-row${owned ? '' : ' gr-dim'}">${esc(label)}${rangeHtml}</div>`;
       }
-      return `<div class="gr-details-row${isDrawback(a) ? ' gr-bad' : ''}">${esc(affixLabel(a))}</div>`;
+      return `<div class="gr-details-row${isDrawback(a) ? ' gr-bad' : ''}">${esc(affixLabel(a))}${rangeHtml}</div>`;
     }).join('');
+
+    const quality = unique ? rollQuality(unique, item.affixes) : null;
+    const qualityHtml = quality === null ? '' : (quality === 1
+      ? `<div class="gr-details-row gr-perfect">PERFECT ROLL</div>`
+      : `<div class="gr-details-row gr-quality">Roll quality ${Math.round(quality * 100)}%</div>`);
 
     const levelBad = this.charLevel < item.level_req;
     const levelReqHtml = `<div class="gr-details-row ${levelBad ? 'gr-bad' : 'gr-ok'}">Requires Level ${item.level_req}</div>`;
@@ -508,6 +519,7 @@ export class GearScreen {
         </div>
       </div>
       ${flavorHtml}
+      ${qualityHtml}
       ${implicitHtml}
       ${affixHtml}
       ${levelReqHtml}

@@ -3,9 +3,9 @@ import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
   classOwnsTree, validateItemRow, uniqueForRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
   SKILL_NODES, ITEM_LEVEL_BANDS, affixLabel, isDrawback,
-  rollUnique, affixValueText, affixRangeText,
+  rollUnique, affixValueText, affixRangeText, rollQuality,
 } from '@arena/shared';
-import type { ItemRow } from '@arena/shared';
+import type { ItemRow, UniqueItem, RolledAffix } from '@arena/shared';
 
 const seeded = (vals: number[]) => { let i = 0; return () => vals[i++ % vals.length]; };
 
@@ -416,5 +416,59 @@ describe('validateItemRow unique_id', () => {
   });
   it('rejects a unique_id whose manifest base disagrees with the row base', () => {
     expect(validateItemRow(raw({ base_id: 'bone_ring', slot: 'ring', unique_id: 'emberheart' }))).toBeNull();
+  });
+});
+
+describe('rollQuality', () => {
+  const byId = (id: string): UniqueItem => UNIQUE_ITEMS.find(u => u.id === id)!;
+
+  const atEnd = (u: UniqueItem, end: 'min' | 'max'): RolledAffix[] =>
+    u.affixes.map(s => ({ id: s.id, value: s[end], ...(s.node === undefined ? {} : { node: s.node }) }));
+
+  it('is 1 for an all-max roll and 0 for an all-min roll', () => {
+    const u = byId('quiverfrost');
+    expect(rollQuality(u, atEnd(u, 'max'))).toBe(1);
+    expect(rollQuality(u, atEnd(u, 'min'))).toBe(0);
+  });
+
+  // max is the lucky end for a drawback too (-55 beats -95), so the drawback
+  // affixes must not drag an all-max roll below 1.
+  it('treats a drawback max as the lucky end, not the unlucky one', () => {
+    const u = byId('quiverfrost');
+    expect(u.affixes.some(a => a.max < 0)).toBe(true);
+    expect(rollQuality(u, atEnd(u, 'max'))).toBe(1);
+  });
+
+  it('averages partial rolls', () => {
+    // move 5-7, health 35-55, cast -8..-4 — all three at their midpoint.
+    const u = byId('marshstrider_breeches');
+    const mid: RolledAffix[] = u.affixes.map(s => ({ id: s.id, value: (s.min + s.max) / 2 }));
+    expect(rollQuality(u, mid)).toBeCloseTo(0.5, 5);
+  });
+
+  it('ignores fixed affixes rather than counting them as perfect', () => {
+    // Meteor is fixed; the three numeric affixes roll. An all-min roll must be
+    // 0, not pulled up by the fixed talent.
+    const u = byId('cinderfall');
+    expect(rollQuality(u, atEnd(u, 'min'))).toBe(0);
+  });
+
+  it('returns null when nothing about the item rolls', () => {
+    const frozen: UniqueItem = {
+      ...byId('kindling'),
+      affixes: [{ id: 'damage_pct', min: 5, max: 5 }],
+    };
+    expect(rollQuality(frozen, [{ id: 'damage_pct', value: 5 }])).toBeNull();
+  });
+
+  it('every shipped unique yields a quality between 0 and 1 for real rolls', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (let s = 0; s < 20; s++) {
+        const q = rollQuality(u, rollUnique(u, mulberry32(s)));
+        expect(q, u.id).not.toBeNull();
+        expect(q!, u.id).toBeGreaterThanOrEqual(0);
+        expect(q!, u.id).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });

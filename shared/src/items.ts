@@ -592,6 +592,25 @@ export function rollUnique(unique: UniqueItem, rng: () => number = Math.random):
   }));
 }
 
+/** How lucky a rolled copy is: the unweighted mean of each rolling affix's
+ * position in its window, 0 (all minimum) to 1 (all maximum). Because `max` is
+ * the lucky end for grants AND drawbacks alike, one formula covers both with
+ * no sign special-casing. Fixed affixes are skipped rather than counted as
+ * perfect, so a mostly-binary item is judged only on what actually varied.
+ * Returns null when nothing on the item rolls. */
+export function rollQuality(unique: UniqueItem, affixes: RolledAffix[]): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const spec of unique.affixes) {
+    if (spec.max === spec.min) continue;
+    const rolled = affixes.find(a => a.id === spec.id && a.node === spec.node);
+    if (!rolled) continue;
+    sum += (rolled.value - spec.min) / (spec.max - spec.min);
+    count++;
+  }
+  return count === 0 ? null : sum / count;
+}
+
 const RARITY_ORDER: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];
 
 /** Weighted rarity roll — weights need not be pre-normalized. */
