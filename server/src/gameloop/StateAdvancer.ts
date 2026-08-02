@@ -12,6 +12,7 @@ import {
   BLIZZARD_DAMAGE_PER_TICK,
   FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
   IMPALER_PIERCE_DAMAGE_BONUS,
+  PERMAFROST_LINGER_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -474,10 +475,34 @@ export function advanceState(
   }
   echoVolleys = pendingEchoes;
 
+  // Permafrost keystone: capture blizzards expiring this tick BEFORE the
+  // filter below drops them, so their lingering replacement can be spawned.
+  // `!fw.noDamage` excludes a lingering zone from spawning another one when
+  // its own linger duration runs out — otherwise the chain never ends.
+  const expiringPermafrostZones = fireWalls.filter(fw =>
+    tick >= fw.expiresAt && fw.kind === 'blizzard' && !fw.noDamage &&
+    modifiers[fw.ownerId]?.blizzard.permafrost);
+
   // Expire fire walls / rain zones and apply Stormcall drift before the
   // arrow-hit section below, so exposedMultiplier and in-zone checks this
   // tick see the zone's current (not stale, not-yet-expired) position.
   fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  if (expiringPermafrostZones.length > 0) {
+    fireWalls = [
+      ...fireWalls,
+      ...expiringPermafrostZones.map(fw => ({
+        id: `permafrost_${fw.id}`,
+        kind: 'blizzard' as const,
+        ownerId: fw.ownerId,
+        segments: [],
+        shape: 'circle' as const,
+        center: { ...fw.center! },
+        radius: fw.radius,
+        expiresAt: tick + PERMAFROST_LINGER_TICKS,
+        noDamage: true,
+      })),
+    ];
+  }
   // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
   fireWalls = fireWalls.map(fw => {
     if (fw.shape !== 'circle' || fw.kind !== 'rain') return fw;
@@ -746,7 +771,7 @@ export function advanceState(
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : isBlizzard
-            ? BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1) * rimeheartMult
+            ? (fw.noDamage ? 0 : BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1) * rimeheartMult)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {

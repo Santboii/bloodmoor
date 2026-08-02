@@ -101,6 +101,10 @@ export type FireWallState = {
   shape?: 'circle';
   center?: Vec2;
   radius?: number;
+  // Permafrost keystone: the lingering zone an expiring Blizzard leaves
+  // behind — same `kind: 'blizzard'` shape so it chills like one, but this
+  // flag zeroes its damage in the fire-wall damage loop.
+  noDamage?: boolean;
 };
 
 export type MeteorState = {
