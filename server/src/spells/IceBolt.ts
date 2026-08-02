@@ -15,6 +15,7 @@ type IceBoltConfig = {
   pierce?: number;
   splinters?: number;
   impaler?: boolean;
+  flechette?: boolean;
 };
 
 export function spawnIceBolt(
@@ -39,6 +40,7 @@ export function spawnIceBolt(
     pierce: cfg.pierce,
     split: cfg.splinters,
     impaler: cfg.impaler,
+    flechette: cfg.flechette,
     piercedIds: [],
   };
 }
@@ -55,7 +57,7 @@ export function advanceIceBolt(p: Projectile): Projectile {
   };
 }
 
-export function isIceBoltExpired(p: Projectile): boolean {
+export function isIceBoltExpired(p: { position: Vec2; radius?: number }): boolean {
   const r = p.radius ?? ICEBOLT_RADIUS;
   const { x, y } = p.position;
   if (x - r < 0 || x + r > ARENA_SIZE || y - r < 0 || y + r > ARENA_SIZE) return true;

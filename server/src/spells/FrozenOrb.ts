@@ -1,7 +1,7 @@
 import {
   FrozenOrbState, Projectile, Vec2, DELTA,
   FROZEN_ORB_SPEED, FROZEN_ORB_LIFETIME_TICKS, FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
-  FROZEN_ORB_SHARDS_PER_VOLLEY, FROZEN_ORB_SHARD_SPEED,
+  FROZEN_ORB_SHARDS_PER_VOLLEY, FROZEN_ORB_SHARD_SPEED, FROZEN_ORB_SHARD_LIFETIME_TICKS,
   FROZEN_ORB_SHARD_DAMAGE_MIN, FROZEN_ORB_SHARD_DAMAGE_MAX,
 } from '@arena/shared';
 
@@ -81,6 +81,7 @@ export function spawnOrbVolley(orb: FrozenOrbState, tick: number): Projectile[] 
       },
       damageMin: orb.damageMin,
       damageMax: orb.damageMax,
+      expiresAt: tick + FROZEN_ORB_SHARD_LIFETIME_TICKS,
     });
   }
   return shards;

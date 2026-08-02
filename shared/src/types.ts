@@ -84,6 +84,8 @@ export type Projectile = {
   pierce?: number;        // remaining enemies this bolt can pass through
   piercedIds?: string[];  // already hit, so one bolt cannot hit a target twice
   impaler?: boolean;      // Impaler keystone: unlimited pierce + damage rider
+  flechette?: boolean;    // Flechette keystone: splinter shards home on the nearest enemy
+  expiresAt?: number;     // server tick — bounds an ice shard's lifetime (arena-spanning otherwise)
 };
 
 /** Which spell produced a persistent ground zone. Zones share one state type
@@ -110,6 +112,11 @@ export type FireWallState = {
   // behind — same `kind: 'blizzard'` shape so it chills like one, but this
   // flag zeroes its damage in the fire-wall damage loop.
   noDamage?: boolean;
+  // Blinding Squall keystone: stamped at spawn from the caster's modifiers so
+  // the per-recipient snapshot filter (server/index.ts) can hide this
+  // caster's spell impact indicators from anyone standing inside, without
+  // needing the caster's skill set at broadcast time.
+  blindingSquall?: boolean;
 };
 
 export type MeteorState = {
