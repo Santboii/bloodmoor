@@ -60,6 +60,22 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * `#ui-overlay` (this screen's mount point) applies `zoom: var(--ui-zoom)`
+ * to scale the whole UI (see pixelTheme.ts). That scaling reaches
+ * position:fixed descendants too — the same reason `.bm-ui`/`.cs-ui` divide
+ * `100vh` by this value to get their true on-screen height. The cursor
+ * tooltip positions itself with raw `left`/`top` px, so it needs the same
+ * compensation: divide real viewport coordinates by this factor right
+ * before writing them into style, or the tooltip drifts from the cursor by
+ * the zoom factor the farther it sits from the viewport's top-left corner.
+ */
+function uiZoom(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom');
+  const z = parseFloat(raw);
+  return Number.isFinite(z) && z > 0 ? z : 1;
+}
+
 function nodeForSpell(spell: SpellId): NodeId {
   return SPELL_BINDINGS.find(b => b.spell === spell)!.node;
 }
@@ -152,6 +168,19 @@ const treeHeight = (rows: number) => (rows - 1) * ROW + NODE_BLOCK;
  *  page is exactly as tall for a ranger as for a mage. */
 const WORKSPACE_H = treeHeight(FIRE_ROWS) + 24;
 
+/** Per-tree accent colour — used for the tree panel's border/header band and
+ *  threaded through to the tooltip border when a node from that tree is
+ *  hovered. Mirrors the accents already used for spell-slot colouring in
+ *  HUD.ts (fire/archer orange, frost cyan, utility/archer_utility violet). */
+const TREE_ACCENT: Record<SkillNode['tree'], string> = {
+  fire: '#e86020',
+  lightning: '#e86020',
+  archer: '#e86020',
+  frost: '#6fd3f2',
+  utility: '#b48cff',
+  archer_utility: '#b48cff',
+};
+
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
@@ -162,19 +191,19 @@ const STYLES = `
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
-/* ── two-column workspace ───────────────────────────────────────────── */
+/* ── three-column workspace ─────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
-.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
-.st-columns.has-frost .st-col-main{flex-basis:400px;}
-/* Both columns are pinned to the same workspace height (set inline) so the
-   page height never depends on which class is open or how much the details
-   panel has to say — the panel absorbs the difference by scrolling itself. */
-.st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:16px;}
-.st-col-frost{flex:1 1 380px;min-width:380px;}
-.st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
-.st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:8px;}
+.st-col-main{flex:1 1 480px;min-width:380px;max-width:560px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;max-width:480px;}
+.st-col-side{flex:1 1 340px;min-width:340px;max-width:400px;}
+.st-col-frost{flex:1 1 380px;min-width:380px;max-width:480px;}
+/* Every column is pinned to the same workspace height (set inline) so the
+   three panels line up in a clean row regardless of how many rows the tree
+   inside actually uses. */
+.st-tree-panel{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:#15161b;box-shadow:inset 0 2px 0 0 var(--px-border-dark),inset 0 -2px 0 0 var(--px-border-light),0 0 0 2px var(--st-tree-accent,var(--px-accent));}
+.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:var(--st-tree-accent,var(--px-accent));box-shadow:0 2px 0 0 var(--px-border-dark);font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#0a0b0f;text-align:center;}
+.st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;}
 .st-tree-container{position:relative;width:100%;}
-.st-util-block{flex:0 0 auto;}
 .st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
 /* ── nodes ──────────────────────────────────────────────────────────── */
@@ -215,9 +244,9 @@ const STYLES = `
 .st-badge-lock{color:#666;}
 .st-flash .st-node-circle{animation:st-buy-flash 0.45s ease-out;}
 @keyframes st-buy-flash{0%{filter:brightness(3) saturate(2);}100%{filter:none;}}
-/* ── details panel ──────────────────────────────────────────────────── */
-.st-details{padding:12px 16px;flex:1 1 auto;min-height:0;overflow-y:auto;box-sizing:border-box;}
-.st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:12px;}
+/* ── hover tooltip (WoW-style: cursor-anchored, instant, never intercepts
+   clicks) — content markup mirrors the old pinned details panel exactly. ── */
+.st-tooltip{position:fixed;display:none;z-index:200;max-width:320px;padding:10px 14px;box-sizing:border-box;background:var(--px-panel);box-shadow:inset 0 0 0 2px var(--px-border-dark),0 0 0 2px var(--st-tt-accent,var(--px-accent)),0 6px 16px rgba(0,0,0,0.55);pointer-events:none;font-family:'VT323',monospace;color:var(--px-text);}
 .st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
 .st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .st-details-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);line-height:1.5;}
@@ -240,9 +269,11 @@ const STYLES = `
 .st-super-note b{color:#f0d060;}
 .st-refund-hint{margin-top:6px;font-size:14px;color:var(--px-border-light);}
 .st-refund-hint.st-refund-blocked{color:var(--px-danger);opacity:0.85;}
-.st-legend{margin-top:12px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-direction:column;gap:5px;font-size:14px;color:var(--px-border-light);}
-.st-legend-row{display:flex;align-items:center;gap:8px;}
-.st-legend-swatch{width:12px;height:12px;flex:0 0 12px;}
+/* Slim horizontal strip beneath the tree row — quiet, not a second focal
+   point, so it wraps on narrow widths rather than forcing a scrollbar. */
+.st-legend{margin-top:14px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-wrap:wrap;justify-content:center;gap:8px 20px;font-size:13px;color:var(--px-border-light);width:100%;max-width:1400px;box-sizing:border-box;}
+.st-legend-row{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.st-legend-swatch{width:11px;height:11px;flex:0 0 11px;}
 /* ── confirm modal (kept for reset + past-cap ranks) ─────────────────── */
 .st-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
 .st-confirm-panel{padding:28px 32px;max-width:340px;text-align:center;}
@@ -272,6 +303,14 @@ export class SkillTreeUI {
   private selectedId: NodeId | null = null;
   private flashId: NodeId | null = null;
   private pickingSlot: SlotIndex | null = null;
+  // Cursor tooltip. Lives outside `this.el`'s innerHTML churn (render()
+  // rewrites that wholesale on every purchase/refund/slot change) so it isn't
+  // torn down and rebuilt every time; `hoveredId`/`lastPointer` let render()
+  // refresh its content in place when the point count or ranks change under
+  // an already-hovered node.
+  private tooltipEl: HTMLElement;
+  private hoveredId: NodeId | null = null;
+  private lastPointer: { x: number; y: number } = { x: 0, y: 0 };
 
   constructor(
     container: HTMLElement,
@@ -287,6 +326,10 @@ export class SkillTreeUI {
     this.el = document.createElement('div');
     this.el.className = 'st-overlay';
     container.appendChild(this.el);
+
+    this.tooltipEl = document.createElement('div');
+    this.tooltipEl.className = 'st-tooltip';
+    container.appendChild(this.tooltipEl);
   }
 
   private closeResolver: ((next: NavKey) => void) | null = null;
@@ -307,6 +350,7 @@ export class SkillTreeUI {
   /** `next` is where the user asked to go — 'arena' for the lobby. */
   hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
+    this.hideTooltip();
     this.navTeardown?.();
     this.navTeardown = null;
     const resolve = this.closeResolver;
@@ -415,6 +459,8 @@ export class SkillTreeUI {
     const mainPositions = isRanger ? ARCHER_POSITIONS : FIRE_POSITIONS;
     const utilPositions = isRanger ? ARCHER_UTIL_POSITIONS : UTIL_POSITIONS;
     const mainLabel = isRanger ? 'Archer' : 'Fire';
+    const mainTree = isRanger ? 'archer' : 'fire';
+    const utilTree = isRanger ? 'archer_utility' : 'utility';
     const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS)}px`;
     const utilContainerHeight = `${treeHeight(UTIL_ROWS)}px`;
     const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
@@ -438,30 +484,47 @@ export class SkillTreeUI {
 
         <div class="st-columns${!isRanger ? ' has-frost' : ''}">
           <div class="st-col-main" style="height:${WORKSPACE_H}px">
-            <div class="st-tree-label">${mainLabel}</div>
-            <div class="st-tree-container" style="height:${mainContainerHeight}">
-              <svg id="st-main-svg" class="st-tree-svg"></svg>
-              ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[mainTree]}">
+              <div class="st-tree-panel-header">${mainLabel}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${mainContainerHeight}">
+                  <svg id="st-main-svg" class="st-tree-svg"></svg>
+                  ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+                </div>
+              </div>
             </div>
           </div>
           ${!isRanger ? `
           <div class="st-col-frost" style="height:${WORKSPACE_H}px">
-            <div class="st-tree-label">Frost</div>
-            <div class="st-tree-container" style="height:${frostContainerHeight}">
-              <svg id="st-frost-svg" class="st-tree-svg"></svg>
-              ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT.frost}">
+              <div class="st-tree-panel-header">Frost</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${frostContainerHeight}">
+                  <svg id="st-frost-svg" class="st-tree-svg"></svg>
+                  ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+                </div>
+              </div>
             </div>
           </div>` : ''}
           <div class="st-col-side" style="height:${WORKSPACE_H}px">
-            <div id="st-details" class="st-details px-panel"></div>
-            <div class="st-util-block">
-              <div class="st-util-label">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
-              <div class="st-util-container" style="height:${utilContainerHeight}">
-                <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
-                ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[utilTree]}">
+              <div class="st-tree-panel-header">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-util-container" style="height:${utilContainerHeight}">
+                  <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
+                  ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+                </div>
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="st-legend">
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #444;background:#151515;"></span>Locked</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
         </div>
 
         <div class="st-slots" id="st-slots">${this.renderSlotBar()}</div>
@@ -496,7 +559,10 @@ export class SkillTreeUI {
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
     this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
     this.attachNodeListeners(pts);
-    this.renderDetails(this.selectedId, pts);
+    // A purchase/refund/slot-change re-renders the whole tree (new node
+    // elements), which would otherwise leave the tooltip showing stale ranks
+    // and costs while the mouse hasn't moved off the node it was over.
+    if (this.hoveredId) this.showTooltipFor(this.hoveredId, pts);
 
     if (this.flashId) {
       this.el.querySelector(`.st-node[data-id="${this.flashId}"]`)?.classList.add('st-flash');
@@ -591,28 +657,10 @@ export class SkillTreeUI {
     svg.innerHTML = lines;
   }
 
-  /** The pinned side panel: full description, rank track, requirements, and
-   *  what happens on click — replaces the old cursor-chasing tooltip. */
-  private renderDetails(id: NodeId | null, pts: number): void {
-    const panel = this.el.querySelector('#st-details') as HTMLElement | null;
-    if (!panel) return;
-
-    if (!id) {
-      panel.innerHTML = `
-        <div class="st-details-empty">
-          Hover a skill to inspect it.<br>Click to learn or rank up.
-        </div>
-        <div class="st-legend">
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #444;background:#151515;"></span>Locked</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
-        </div>
-      `;
-      return;
-    }
-
+  /** Builds the tooltip's inner HTML for a hovered node: full description,
+   *  rank track, requirements, and what happens on click — same markup and
+   *  order the old pinned details panel used. */
+  private buildTooltipContent(id: NodeId, pts: number): string {
     const node = SKILL_NODES.find(n => n.id === id)!;
     const gate = GATES[id];
     const currentRank = this.ranks.get(id) ?? 0;
@@ -722,7 +770,7 @@ export class SkillTreeUI {
       status = `<span class="st-status-bad">Locked — requirements not met</span>`;
     }
 
-    panel.innerHTML = `
+    return `
       <div class="st-details-head">
         <div class="st-details-icon"><i class="fa ${icon}" style="color:var(--px-accent)"></i></div>
         <div>
@@ -740,15 +788,62 @@ export class SkillTreeUI {
     `;
   }
 
+  /** Shows (or refreshes) the tooltip for `id`, colouring its border with
+   *  that node's tree accent, then repositions it at the last known cursor
+   *  spot. Content and position are separate steps because a re-render can
+   *  refresh content without any new mouse movement to reposition from. */
+  private showTooltipFor(id: NodeId, pts: number): void {
+    const node = SKILL_NODES.find(n => n.id === id);
+    if (!node) return;
+    this.hoveredId = id;
+    this.tooltipEl.style.setProperty('--st-tt-accent', TREE_ACCENT[node.tree]);
+    this.tooltipEl.innerHTML = this.buildTooltipContent(id, pts);
+    this.tooltipEl.style.display = 'block';
+    this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+  }
+
+  /** Cursor + 18px right/down; flips to the left/above the cursor rather
+   *  than letting either edge clip off-screen. Must run after the tooltip's
+   *  content and display are set — its measured size depends on both.
+   *  `clientX`/`clientY`, `window.innerWidth/Height` and the measured rect
+   *  are all real viewport pixels (getBoundingClientRect always reports the
+   *  rendered box, zoom included); only the final left/top written to style
+   *  need the /uiZoom() compensation described on that function. */
+  private positionTooltip(clientX: number, clientY: number): void {
+    const OFFSET = 18;
+    const rect = this.tooltipEl.getBoundingClientRect();
+    let x = clientX + OFFSET;
+    let y = clientY + OFFSET;
+    if (x + rect.width > window.innerWidth) x = clientX - OFFSET - rect.width;
+    if (y + rect.height > window.innerHeight) y = clientY - OFFSET - rect.height;
+    x = Math.max(4, x);
+    y = Math.max(4, y);
+    const zoom = uiZoom();
+    this.tooltipEl.style.left = `${x / zoom}px`;
+    this.tooltipEl.style.top = `${y / zoom}px`;
+  }
+
+  private hideTooltip(): void {
+    this.hoveredId = null;
+    this.tooltipEl.style.display = 'none';
+  }
+
   private attachNodeListeners(pts: number): void {
     this.el.querySelectorAll('.st-node').forEach(el => {
       const id = el.getAttribute('data-id') as NodeId;
       const node = SKILL_NODES.find(n => n.id === id)!;
 
-      // Sticky inspect: the panel keeps showing the last-hovered node (no
-      // mouseleave revert). Nothing in the panel is clickable, so what the
-      // pointer crosses on the way out of the tree doesn't matter.
-      el.addEventListener('mouseenter', () => this.renderDetails(id, pts));
+      // WoW-style cursor tooltip: appears instantly on enter (no fade delay),
+      // tracks the cursor while over the node, and disappears on leave.
+      el.addEventListener('mouseenter', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.showTooltipFor(id, pts);
+      });
+      el.addEventListener('mousemove', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+      });
+      el.addEventListener('mouseleave', () => this.hideTooltip());
 
       el.addEventListener('click', () => {
         this.selectedId = id;
@@ -770,10 +865,11 @@ export class SkillTreeUI {
           }
           sfx.playDenied();
         }
-        // Not buyable from the node: select it so the panel pins its details.
+        // Not buyable from the node: select it, which just outlines it —
+        // the tooltip already shows its details from the hover that
+        // preceded this click.
         this.el.querySelectorAll('.st-node-selected').forEach(n => n.classList.remove('st-node-selected'));
         el.classList.add('st-node-selected');
-        this.renderDetails(id, pts);
       });
 
       // Right-click: refund one rank.
@@ -814,7 +910,7 @@ export class SkillTreeUI {
     this.ranks.set(id, nextRank);
     this.skillPoints -= cost;
     this.flashId = id;
-    this.selectedId = id; // keep the panel on the node just bought
+    this.selectedId = id; // keep the outline on the node just bought
     this.render();
 
     supabase.rpc('unlock_skill_node', {
