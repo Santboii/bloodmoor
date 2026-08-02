@@ -4,7 +4,7 @@ import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
 import type { VendorView, VendorSlotView } from '../supabase';
-import { LOOTBOX_PRICES, affixLabel } from '@arena/shared';
+import { LOOTBOX_PRICES, affixLabel, uniqueForRow } from '@arena/shared';
 import type { LootboxTier, ItemRow } from '@arena/shared';
 import { RARITY_COLORS, itemBase, itemDisplayName } from './GearScreen';
 import * as sfx from '../audio/sfx';
@@ -292,9 +292,10 @@ export class ShopScreen {
     if (!base) return '';
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
+    const unique = item.rarity === 'unique' ? uniqueForRow(item) : undefined;
     return `
       <div class="sh-reveal" style="box-shadow:inset 0 0 0 2px ${color}">
-        <div class="sh-reveal-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="sh-reveal-icon"${iconCellAttrs(base, unique)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div class="sh-reveal-name" style="color:${color}">${esc(name)}</div>
         <div class="sh-reveal-note">Sent to stash</div>
       </div>`;

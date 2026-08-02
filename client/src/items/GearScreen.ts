@@ -312,7 +312,7 @@ export class GearScreen {
     const uniqueClass = isUnique ? ' gr-card-unique' : '';
     const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
     return `<div class="gr-slot${selected}${uniqueClass}" style="grid-area:${slot};${borderStyle}" data-item="${item.id}" data-equipped="1">
-      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -329,7 +329,7 @@ export class GearScreen {
     const uniqueClass = isUnique ? ' gr-card-unique' : '';
     const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
     return `<div class="gr-card${selected}${uniqueClass}" style="${borderStyle}" data-item="${item.id}">
-      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+      <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -486,7 +486,7 @@ export class GearScreen {
 
     panel.innerHTML = `
       <div class="gr-details-head">
-        <div class="gr-details-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="gr-details-icon"${iconCellAttrs(base, unique)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div>
           <div class="gr-details-name" style="color:${color}">${esc(name)}</div>
           <div class="gr-details-kind">${esc(base.name)} · ${esc(BASE_SLOT_LABELS[base.slot])}</div>
