@@ -16,6 +16,30 @@ export type AffixId =
 
 export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node only for 'talent'
 
+/** Human-readable affix text, shared by the Gear, Shop, and Admin screens —
+ * they each had a private copy that hardcoded '+', which renders a drawback
+ * as '+-35 Max Health'. */
+const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (abs: number, sign: string) => string> = {
+  max_health:     (v, s) => `${s}${v} Max Health`,
+  max_mana:       (v, s) => `${s}${v} Max Mana`,
+  damage_pct:     (v, s) => `${s}${v}% Damage`,
+  cast_speed_pct: (v, s) => `${s}${v}% Cast Speed`,
+  move_speed_pct: (v, s) => `${s}${v}% Move Speed`,
+  mana_regen_pct: (v, s) => `${s}${v}% Mana Regen`,
+};
+
+export function affixLabel(a: RolledAffix): string {
+  if (a.id === 'talent') return `+${a.value} Talent Rank`;
+  return AFFIX_LABELS[a.id](Math.abs(a.value), a.value < 0 ? '-' : '+');
+}
+
+/** True for a negative (drawback) affix — the UI renders these in a muted
+ * red so the tradeoff is legible at a glance. Talent ranks are never
+ * drawbacks. */
+export function isDrawback(a: RolledAffix): boolean {
+  return a.id !== 'talent' && a.value < 0;
+}
+
 /** One LPC sheet layer a visible base contributes. Paths may contain the
  * tokens '{body}' (male|female) and '{legs}' (male|thin pants fit) which
  * layersForLoadout substitutes from the wearer's appearance. */

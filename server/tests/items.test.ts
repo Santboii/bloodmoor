@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
   classOwnsTree, validateItemRow, uniqueForRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
-  SKILL_NODES, ITEM_LEVEL_BANDS,
+  SKILL_NODES, ITEM_LEVEL_BANDS, affixLabel, isDrawback,
 } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -252,6 +252,31 @@ describe('uniqueForRow', () => {
   });
   it('falls back to a base_id match for legacy rows granted before the column existed', () => {
     expect(uniqueForRow(uniqueRow())?.id).toBe('emberheart');
+  });
+});
+
+describe('affixLabel', () => {
+  it('prefixes positive values with +', () => {
+    expect(affixLabel({ id: 'max_health', value: 40 })).toBe('+40 Max Health');
+    expect(affixLabel({ id: 'damage_pct', value: 8 })).toBe('+8% Damage');
+  });
+  it('renders negative values with a single minus sign, never +-', () => {
+    expect(affixLabel({ id: 'max_health', value: -35 })).toBe('-35 Max Health');
+    expect(affixLabel({ id: 'damage_pct', value: -6 })).toBe('-6% Damage');
+    expect(affixLabel({ id: 'max_health', value: -35 })).not.toContain('+-');
+  });
+  it('labels talent affixes by rank', () => {
+    expect(affixLabel({ id: 'talent', value: 2, node: 'fire.cataclysm' })).toBe('+2 Talent Rank');
+  });
+  it('isDrawback marks only negative values', () => {
+    expect(isDrawback({ id: 'max_health', value: -35 })).toBe(true);
+    expect(isDrawback({ id: 'max_health', value: 35 })).toBe(false);
+    expect(isDrawback({ id: 'talent', value: 2, node: 'fire.cataclysm' })).toBe(false);
+  });
+  it('every shipped unique drawback renders without a doubled sign', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) expect(affixLabel(a), u.id).not.toContain('+-');
+    }
   });
 });
 

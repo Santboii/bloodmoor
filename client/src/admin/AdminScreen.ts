@@ -3,9 +3,9 @@ import {
   adminFetchUsernames, adminFindUserByUsername, adminFetchCharacterNames,
 } from '../supabase';
 import type { AdminItemRow, DropTableWeights } from '../supabase';
-import { ITEM_BASES, UNIQUE_ITEMS, rollItem } from '@arena/shared';
+import { ITEM_BASES, UNIQUE_ITEMS, rollItem, affixLabel } from '@arena/shared';
 import type {
-  ItemBaseSlot, ItemRarity, RolledAffix, AffixId, CharacterClass,
+  ItemBaseSlot, ItemRarity, RolledAffix, CharacterClass,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -32,20 +32,6 @@ const RARITY_COLORS: Record<ItemRarity, string> = {
 const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
   weapon: 'Weapon', helmet: 'Helmet', armor: 'Armor', leggings: 'Leggings', ring: 'Ring', amulet: 'Amulet',
 };
-
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (v: number) => string> = {
-  max_health: v => `+${v} Max Health`,
-  max_mana: v => `+${v} Max Mana`,
-  damage_pct: v => `+${v}% Damage`,
-  cast_speed_pct: v => `+${v}% Cast Speed`,
-  move_speed_pct: v => `+${v}% Move Speed`,
-  mana_regen_pct: v => `+${v}% Mana Regen`,
-};
-
-function affixLabel(a: RolledAffix): string {
-  if (a.id === 'talent') return `+${a.value} Talent Rank${a.node ? ` (${a.node})` : ''}`;
-  return AFFIX_LABELS[a.id](a.value);
-}
 
 /** This tool's server-side counterpart (`admin_update_drop_table`) enforces
  * `is_admin`; these client-side seed values only drive the Reset button and

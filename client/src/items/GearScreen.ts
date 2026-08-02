@@ -1,10 +1,10 @@
 import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
   ITEM_BASES, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
-  uniqueForRow,
+  uniqueForRow, affixLabel, isDrawback,
 } from '@arena/shared';
 import type {
-  ItemRow, ItemBase, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass, Appearance,
+  ItemRow, ItemBase, ItemBaseSlot, EquipSlot, CharacterClass, Appearance,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -42,20 +42,6 @@ const SLOT_ICONS: Record<EquipSlot, string> = {
 const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
   weapon: 'Weapon', helmet: 'Helmet', armor: 'Armor', leggings: 'Leggings', ring: 'Ring', amulet: 'Amulet',
 };
-
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (v: number) => string> = {
-  max_health: v => `+${v} Max Health`,
-  max_mana: v => `+${v} Max Mana`,
-  damage_pct: v => `+${v}% Damage`,
-  cast_speed_pct: v => `+${v}% Cast Speed`,
-  move_speed_pct: v => `+${v}% Move Speed`,
-  mana_regen_pct: v => `+${v}% Mana Regen`,
-};
-
-function affixLabel(a: RolledAffix): string {
-  if (a.id === 'talent') return `+${a.value} Talent Rank`;
-  return AFFIX_LABELS[a.id](a.value);
-}
 
 export function itemBase(item: ItemRow): ItemBase | undefined {
   return ITEM_BASES.find(b => b.id === item.base_id);
@@ -120,6 +106,7 @@ const STYLES = `
 .gr-stash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;padding:4px;}
 .gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
 .gr-card:hover{transform:scale(1.04);}
+.gr-card-unique{box-shadow:inset 0 0 0 2px #ffb347,0 0 12px rgba(255,179,71,0.35);}
 .gr-empty{grid-column:1 / -1;color:var(--px-border-light);font-size:15px;text-align:center;padding:20px 0;}
 .gr-details{padding:16px 18px;min-height:220px;box-sizing:border-box;}
 .gr-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}
@@ -317,7 +304,14 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    return `<div class="gr-slot${selected}" style="grid-area:${slot};box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}" data-equipped="1">
+    // Uniques get gr-card-unique's own inset border + glow instead of the
+    // per-rarity inline box-shadow — an inline style attribute always beats
+    // a stylesheet class for the same property, so setting both would
+    // silently discard the glow.
+    const isUnique = item.rarity === 'unique';
+    const uniqueClass = isUnique ? ' gr-card-unique' : '';
+    const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
+    return `<div class="gr-slot${selected}${uniqueClass}" style="grid-area:${slot};${borderStyle}" data-item="${item.id}" data-equipped="1">
       <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
@@ -329,7 +323,12 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    return `<div class="gr-card${selected}" style="box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}">
+    // See renderDollSlot for why uniques swap the inline box-shadow for the
+    // gr-card-unique class rather than carrying both.
+    const isUnique = item.rarity === 'unique';
+    const uniqueClass = isUnique ? ' gr-card-unique' : '';
+    const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
+    return `<div class="gr-card${selected}${uniqueClass}" style="${borderStyle}" data-item="${item.id}">
       <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
@@ -446,7 +445,7 @@ export class GearScreen {
         const label = `+${a.value} ${nodeName}${owned ? '' : ' (inert for this class)'}`;
         return `<div class="gr-details-row${owned ? '' : ' gr-dim'}">${esc(label)}</div>`;
       }
-      return `<div class="gr-details-row">${esc(affixLabel(a))}</div>`;
+      return `<div class="gr-details-row${isDrawback(a) ? ' gr-bad' : ''}">${esc(affixLabel(a))}</div>`;
     }).join('');
 
     const levelBad = this.charLevel < item.level_req;
