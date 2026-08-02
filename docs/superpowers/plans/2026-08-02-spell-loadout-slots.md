@@ -835,7 +835,7 @@ git commit -m "refactor(spells): rename the spell keybind to defaultSlot"
 
 **Interfaces:**
 - Consumes: `set_spell_slot` RPC (Task 2), `resolveSlots` (Task 1).
-- Produces: a slot bar at the bottom of the skill tree screen. Click a slot to open a picker of unlocked spells; click a spell to assign; click the assigned spell again to clear.
+- Produces: a slot bar at the bottom of the skill tree screen. Click a slot — it highlights — to open a picker of unlocked spells below it; click a spell to assign it, or the dedicated "— Clear —" item to empty the slot.
 
 - [ ] **Step 1: Load the character's slots in `reload()`**
 
@@ -936,6 +936,12 @@ private pickingSlot: SlotIndex | null = null;
 
 private openPicker(slot: SlotIndex): void {
   this.pickingSlot = slot;
+  // Mark which slot is being edited. The picker renders in its own row
+  // below the bar, so without this the player has no way to tell which of
+  // the six slots their choice will land in.
+  this.el.querySelectorAll('.st-slot').forEach(el => {
+    el.classList.toggle('picking', Number((el as HTMLElement).dataset.slot) === slot);
+  });
   const picker = this.el.querySelector('#st-picker') as HTMLElement;
   const items = [...this.ownedSpells()].map(spell => {
     const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
