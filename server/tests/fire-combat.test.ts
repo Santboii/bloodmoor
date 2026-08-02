@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { advanceState, makeInitialState } from '../src/gameloop/StateAdvancer.ts';
-import { PILLARS, FIREBALL_MAX_LIFETIME_TICKS, MAX_LIVE_EMBERS } from '@arena/shared';
+import { PILLARS, FIREBALL_MAX_LIFETIME_TICKS, MAX_LIVE_EMBERS, ETERNAL_PYRE_MAX_TICKS } from '@arena/shared';
 import type { NodeId, InputFrame } from '@arena/shared';
 
 const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
@@ -230,5 +230,66 @@ describe('Rolling Doom', () => {
     const r = throughEnemy(3, 300);
     expect(r.passedThrough).toBe(false);
     expect(r.hp).toBeLessThan(750); // it did connect — it just did not continue
+  });
+});
+
+describe('Eternal Pyre', () => {
+  /** Drop a wall directly on player b, who never moves — so it stays contested. */
+  function wallOnPlayerB(enduringRank: number) {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.enduring_flames', enduringRank]]),
+      b: new Map<NodeId, number>(),
+    };
+    const onB = { ...state.players.b.position };
+    state = advanceState(state, { a: { ...idle, castSpell: 2, aimTarget: onB }, b: idle }, sets);
+    return { state, sets, spawned: state.fireWalls[0] };
+  }
+
+  it('holds a contested wall past its natural expiry', () => {
+    let { state, sets, spawned } = wallOnPlayerB(6);
+    expect(spawned.eternalPyre).toBe(true);
+    const natural = spawned.expiresAt;
+    for (let i = 0; i < natural + 30; i++) state = advanceState(state, { a: idle, b: idle }, sets);
+    expect(state.tick).toBeGreaterThan(natural);
+    expect(state.fireWalls[0]?.expiresAt ?? 0).toBeGreaterThan(natural);
+  });
+
+  it('never extends past the absolute ceiling', () => {
+    let { state, sets, spawned } = wallOnPlayerB(6);
+    for (let i = 0; i < ETERNAL_PYRE_MAX_TICKS + 180; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      if (state.fireWalls.length === 0) break;
+    }
+    expect(state.fireWalls).toHaveLength(0);
+    expect(state.tick).toBeLessThanOrEqual(spawned.spawnedAt + ETERNAL_PYRE_MAX_TICKS + 2);
+  });
+
+  it('expires normally below the keystone', () => {
+    let { state, sets, spawned } = wallOnPlayerB(5);
+    expect(spawned.eternalPyre).toBeFalsy();
+    for (let i = 0; i < spawned.expiresAt + 5; i++) state = advanceState(state, { a: idle, b: idle }, sets);
+    expect(state.fireWalls).toHaveLength(0);
+  });
+});
+
+describe('Enduring Flames ramp', () => {
+  it('a fresh wall burns cooler than an old one', () => {
+    let state = clearLaneMages();
+    const sets = {
+      a: new Map<NodeId, number>([['fire.fireball', 1], ['fire.fire_wall', 1], ['fire.enduring_flames', 1]]),
+      b: new Map<NodeId, number>(),
+    };
+    state = advanceState(state, { a: { ...idle, castSpell: 2, aimTarget: { ...state.players.b.position } }, b: idle }, sets);
+    const hp: number[] = [];
+    let prev = state.players.b.hp;
+    for (let i = 0; i < 200; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      hp.push(prev - state.players.b.hp);
+      prev = state.players.b.hp;
+    }
+    const early = hp.slice(0, 40).reduce((a, c) => a + c, 0);
+    const late = hp.slice(-40).reduce((a, c) => a + c, 0);
+    expect(late).toBeGreaterThan(early);
   });
 });

@@ -10,6 +10,7 @@ import {
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
   MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS,
+  ETERNAL_PYRE_MAX_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -19,7 +20,7 @@ import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARA
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, surfaceNormal, reflect } from '../spells/Fireball.ts';
-import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
+import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, wallDamagePerTick, advanceWall } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
 import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage } from '../spells/Arrow.ts';
@@ -292,7 +293,14 @@ export function advanceState(
       const half = FIREWALL_MAX_LENGTH * mods.firewall.lengthMultiplier / 2;
       const from = { x: input.aimTarget.x - perpX * half, y: input.aimTarget.y - perpY * half };
       const to = { x: input.aimTarget.x + perpX * half, y: input.aimTarget.y + perpY * half };
-      fireWalls = [...fireWalls, spawnFireWall(id, from, to, tick, mods.firewall.durationMultiplier, mods.firewall.lengthMultiplier)];
+      fireWalls = [...fireWalls, spawnFireWall(id, from, to, tick, {
+        durationMultiplier: mods.firewall.durationMultiplier,
+        lengthMultiplier:   mods.firewall.lengthMultiplier,
+        ramp:               mods.firewall.ramp,
+        growth:             mods.firewall.growth,
+        eternalPyre:        mods.firewall.eternalPyre,
+        firestorm:          mods.firewall.firestorm,
+      })];
     } else if (spell === 3) {
       meteors = [...meteors, spawnMeteor(id, input.aimTarget, tick, {})];
     } else if (spell === 4) {
@@ -448,7 +456,21 @@ export function advanceState(
   // Expire fire walls / rain zones and apply Stormcall drift before the
   // arrow-hit section below, so exposedMultiplier and in-zone checks this
   // tick see the zone's current (not stale, not-yet-expired) position.
+  // Eternal Pyre: a contested wall's duration stops ticking down, bounded by
+  // an absolute ceiling so a camped wall cannot live forever. Runs before the
+  // expiry filter so a wall never dies on a tick it was extended.
+  fireWalls = fireWalls.map(fw => {
+    if (!fw.eternalPyre) return fw;
+    const ceiling = fw.spawnedAt + ETERNAL_PYRE_MAX_TICKS;
+    if (fw.expiresAt >= ceiling) return fw;
+    const contested = Object.values(players).some(pl =>
+      pl.hp > 0 && fireWallDamagesPlayer(fw, pl.position, pl.id, modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1));
+    return contested ? { ...fw, expiresAt: Math.min(ceiling, fw.expiresAt + 1) } : fw;
+  });
   fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
+  // Firestorm rotation / Inferno Expanse growth — after expiry so a dead wall
+  // is never rotated.
+  fireWalls = fireWalls.map(fw => advanceWall(fw, tick));
   // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
   fireWalls = fireWalls.map(fw => {
     if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
@@ -677,7 +699,7 @@ export function advanceState(
           const dmg = isRainZone
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
-            : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
+            : wallDamagePerTick(fw, tick) * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {
             const ownerAM = rangerMods[fw.ownerId];

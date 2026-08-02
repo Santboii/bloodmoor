@@ -1,27 +1,85 @@
 import {
   Vec2, FireWallState, Segment, Pillar, PILLARS,
   FIREWALL_MAX_LENGTH, FIREWALL_DURATION_TICKS, PLAYER_HALF_SIZE,
+  FIREWALL_DAMAGE_PER_TICK, FIREWALL_DAMAGE_START, FIREWALL_DAMAGE_END,
+  WALL_GROWTH_RATIO, FIRESTORM_ANGULAR_VEL, DELTA,
 } from '@arena/shared';
 import { segmentIntersectsAABB } from '../physics/LineOfSight.ts';
 
 let _id = 0;
 const nextId = () => `fw_${++_id}`;
 
+export type FireWallConfig = {
+  durationMultiplier?: number;
+  lengthMultiplier?: number;
+  ramp?: boolean;
+  growth?: boolean;
+  eternalPyre?: boolean;
+  firestorm?: boolean;
+};
+
 export function spawnFireWall(
   ownerId: string,
   from: Vec2,
   to: Vec2,
   currentTick: number,
-  durationMultiplier = 1,
-  lengthMultiplier = 1,
+  cfg: FireWallConfig = {},
 ): FireWallState {
+  const lengthMultiplier = cfg.lengthMultiplier ?? 1;
+  const maxLength = FIREWALL_MAX_LENGTH * lengthMultiplier;
   return {
     id: nextId(),
     ownerId,
-    segments: buildWallSegments(from, to, FIREWALL_MAX_LENGTH * lengthMultiplier),
+    segments: buildWallSegments(from, to, maxLength),
     spawnedAt: currentTick,
-    expiresAt: currentTick + Math.round(FIREWALL_DURATION_TICKS * durationMultiplier),
+    expiresAt: currentTick + Math.round(FIREWALL_DURATION_TICKS * (cfg.durationMultiplier ?? 1)),
+    ramp: cfg.ramp,
+    growth: cfg.growth,
+    eternalPyre: cfg.eternalPyre,
+    origin: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
+    angle: Math.atan2(to.y - from.y, to.x - from.x),
+    angularVel: cfg.firestorm ? FIRESTORM_ANGULAR_VEL : 0,
+    halfLength: maxLength / 2,
   };
+}
+
+/** Fraction of the wall's life elapsed, clamped to [0, 1]. */
+function wallAge(fw: FireWallState, tick: number): number {
+  const life = fw.expiresAt - fw.spawnedAt;
+  if (life <= 0) return 1;
+  return Math.max(0, Math.min(1, (tick - fw.spawnedAt) / life));
+}
+
+/** Enduring Flames: the wall burns hotter as it ages. The 25→55 range means
+ *  the mean over a full-length wall is exactly today's flat 40/s, so total
+ *  damage is unchanged and only the shape differs. */
+export function wallDamagePerTick(fw: FireWallState, tick: number): number {
+  if (!fw.ramp) return FIREWALL_DAMAGE_PER_TICK;
+  return FIREWALL_DAMAGE_START + (FIREWALL_DAMAGE_END - FIREWALL_DAMAGE_START) * wallAge(fw, tick);
+}
+
+/** Inferno Expanse: the wall extends outward over its lifetime. */
+export function wallLengthScale(fw: FireWallState, tick: number): number {
+  if (!fw.growth) return 1;
+  return 1 + WALL_GROWTH_RATIO * wallAge(fw, tick);
+}
+
+/**
+ * Per-tick wall evolution: Firestorm rotation and Inferno Expanse growth.
+ * Segments are rebuilt rather than transformed so pillar occlusion stays
+ * correct as the wall moves — a coordinate transform would carry the old gaps
+ * along with it.
+ */
+export function advanceWall(fw: FireWallState, tick: number): FireWallState {
+  const spinning = (fw.angularVel ?? 0) !== 0;
+  if (!spinning && !fw.growth) return fw;
+  if (fw.shape === 'circle' || !fw.origin || fw.halfLength == null) return fw;
+
+  const angle = (fw.angle ?? 0) + (fw.angularVel ?? 0) * DELTA;
+  const half = fw.halfLength * wallLengthScale(fw, tick);
+  const from = { x: fw.origin.x - Math.cos(angle) * half, y: fw.origin.y - Math.sin(angle) * half };
+  const to   = { x: fw.origin.x + Math.cos(angle) * half, y: fw.origin.y + Math.sin(angle) * half };
+  return { ...fw, angle, segments: buildWallSegments(from, to, half * 2) };
 }
 
 export function buildWallSegments(from: Vec2, to: Vec2, maxLength = FIREWALL_MAX_LENGTH): Segment[] {
