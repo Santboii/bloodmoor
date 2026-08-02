@@ -130,6 +130,15 @@ export type EchoVolleyState = {
   damageMax: number;
 };
 
+export type FrozenOrbState = {
+  id: string; ownerId: string;
+  position: Vec2; velocity: Vec2;
+  expiresAt: number; nextVolleyAt: number;
+  shardsPerVolley: number;
+  damageMin: number; damageMax: number;
+  detonateOnExpiry?: boolean;
+};
+
 export type GameState = {
   tick: number;
   players: Record<string, PlayerState>;
@@ -138,6 +147,7 @@ export type GameState = {
   meteors: MeteorState[];
   rainOfArrows: RainOfArrowsState[];
   echoVolleys?: EchoVolleyState[];
+  frozenOrbs: FrozenOrbState[];
   phase: 'waiting' | 'countdown' | 'dueling' | 'ended';
   winner: string | null;
   gameMode: GameModeType;

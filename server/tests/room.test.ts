@@ -207,6 +207,29 @@ describe('Room.remapPlayer', () => {
     // this asserts the full 1.1x gear damageMult still lands post-reconnect.
     expect(state.players['s2'].hp).toBeCloseTo(before - 100 * 1.1, 5);
   });
+
+  it('remaps frozen orb ownership when a player reconnects', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.startMatch();
+
+    room.state!.frozenOrbs.push({
+      id: 'fo_test',
+      ownerId: 's1',
+      position: { x: 500, y: 500 },
+      velocity: { x: 140, y: 0 },
+      expiresAt: 150,
+      nextVolleyAt: 0,
+      shardsPerVolley: 4,
+      damageMin: 25,
+      damageMax: 40,
+    });
+
+    room.remapPlayer('s1', 's1-new');
+
+    expect(room.state!.frozenOrbs[0].ownerId).toBe('s1-new');
+  });
 });
 
 describe('Room with game modes', () => {

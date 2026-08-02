@@ -305,6 +305,9 @@ export class Room {
       for (const echo of this.state.echoVolleys ?? []) {
         if (echo.ownerId === oldSocketId) echo.ownerId = newSocketId;
       }
+      for (const orb of this.state.frozenOrbs) {
+        if (orb.ownerId === oldSocketId) orb.ownerId = newSocketId;
+      }
     }
   }
 }

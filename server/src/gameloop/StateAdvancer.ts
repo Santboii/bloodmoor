@@ -10,17 +10,19 @@ import {
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   ICEBOLT_CHILL_FACTOR, ICEBOLT_CHILL_TICKS,
   BLIZZARD_DAMAGE_PER_TICK,
+  FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, FrozenOrbState } from '@arena/shared';
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
 import { spawnIceBolt, advanceIceBolt, isIceBoltExpired, iceBoltHitsPlayer, iceBoltDamage } from '../spells/IceBolt.ts';
 import { spawnBlizzard } from '../spells/Blizzard.ts';
+import { spawnFrozenOrb, advanceFrozenOrb, isFrozenOrbExpired, orbVolleyDue, spawnOrbVolley } from '../spells/FrozenOrb.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
@@ -116,7 +118,7 @@ export function makeInitialState(
       gear: gearVisualsFor(p.items ?? []),
     };
   }
-  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
+  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], frozenOrbs: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
 }
 
 export function advanceState(
@@ -224,6 +226,7 @@ export function advanceState(
   let meteors = [...state.meteors];
   let rainOfArrows: RainOfArrowsState[] = [...state.rainOfArrows];
   let echoVolleys: EchoVolleyState[] = [...(state.echoVolleys ?? [])];
+  let frozenOrbs: FrozenOrbState[] = [...state.frozenOrbs];
 
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
@@ -313,6 +316,10 @@ export function advanceState(
       // mods.blizzard arrives in Task 7 — no config yet so this task stays
       // independently testable.
       fireWalls = [...fireWalls, spawnBlizzard(id, input.aimTarget, tick)];
+    } else if (spell === 11) {
+      // mods.frozenOrb arrives in Task 7 — no config yet so this task stays
+      // independently testable.
+      frozenOrbs = [...frozenOrbs, spawnFrozenOrb(id, p.position, input.aimTarget, tick)];
     } else if (spell === 5) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -553,7 +560,7 @@ export function advanceState(
         }
       }
       if (!hit) survivingProjectiles.push(moved);
-    } else if (proj.type === 'icebolt') {
+    } else if (proj.type === 'icebolt' || proj.type === 'iceshard') {
       const moved = advanceIceBolt(proj);
       if (isIceBoltExpired(moved)) continue;
       let hit = false;
@@ -585,7 +592,8 @@ export function advanceState(
           }
           // Pierce budget is checked before decrementing: this hit consumes
           // one unit of the remaining budget, so the bolt survives only if
-          // budget was still available going into it.
+          // budget was still available going into it. Shards never carry
+          // pierce/impaler, so this naturally resolves to a single hit.
           const survivesHit = moved.impaler || (moved.pierce ?? 0) > 0;
           moved.piercedIds = [...(moved.piercedIds ?? []), pid];
           moved.pierce = (moved.pierce ?? 0) - 1;
@@ -651,6 +659,19 @@ export function advanceState(
     }
   }
   projectiles = [...survivingProjectiles, ...newProjectiles];
+
+  // 3b. Advance frozen orbs — drift forward, spray a radial volley of ice
+  // shards on the interval, then expire and vanish.
+  const survivingOrbs: FrozenOrbState[] = [];
+  for (const orb of frozenOrbs) {
+    let advancedOrb = advanceFrozenOrb(orb);
+    if (orbVolleyDue(advancedOrb, tick)) {
+      projectiles = [...projectiles, ...spawnOrbVolley(advancedOrb, tick)];
+      advancedOrb = { ...advancedOrb, nextVolleyAt: tick + FROZEN_ORB_VOLLEY_INTERVAL_TICKS };
+    }
+    if (!isFrozenOrbExpired(advancedOrb, tick)) survivingOrbs.push(advancedOrb);
+  }
+  frozenOrbs = survivingOrbs;
 
   // 4. Fire wall / rain zone damage (fireWalls already expiry-filtered and
   // Stormcall-drifted above, before the arrow-hit section)
@@ -757,7 +778,7 @@ export function advanceState(
     winner = result.winner;
   }
 
-  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, echoVolleys, phase, winner, gameMode: state.gameMode, teams: state.teams };
+  return { tick: tick + 1, players, projectiles, fireWalls, meteors: survivingMeteors, rainOfArrows, echoVolleys, frozenOrbs, phase, winner, gameMode: state.gameMode, teams: state.teams };
 }
 
 function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, PlayerState> {
