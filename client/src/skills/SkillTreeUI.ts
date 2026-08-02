@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
-import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass } from '@arena/shared';
-import type { CharacterClass } from '@arena/shared';
+import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
+import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
@@ -45,6 +45,10 @@ const NODE_ICONS: Record<NodeId, string> = {
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function nodeForSpell(spell: SpellId): NodeId {
+  return SPELL_BINDINGS.find(b => b.spell === spell)!.node;
 }
 
 /** Stackable effects are stored either as a fraction (0.4 → "40%") or as a
@@ -215,17 +219,27 @@ const STYLES = `
 .st-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;white-space:pre-line;}
 .st-confirm-buttons{display:flex;gap:12px;justify-content:center;}
 .st-confirm-yes,.st-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+/* ── hotbar slot assignment ─────────────────────────────────────────── */
+.st-slots{display:flex;gap:8px;justify-content:center;margin-top:14px}
+.st-slot{width:46px;height:46px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.st-slot.picking{box-shadow:0 0 0 2px var(--px-accent)}
+.st-slot .st-slot-key{position:absolute;right:2px;bottom:2px;font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-text)}
+.st-picker{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.st-picker-item{padding:6px 10px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);cursor:pointer;font-family:'VT323',monospace;font-size:15px;color:var(--px-text)}
+.st-picker-item:hover{box-shadow:0 0 0 2px var(--px-accent)}
 `;
 
 export class SkillTreeUI {
   private el: HTMLElement;
   private ranks = new Map<NodeId, number>();
+  private slotRows: SpellSlotRow[] = [];
   private characterId: string | null = null;
   private skillPoints = 0;
   private charName = '';
   private charClass = '';
   private selectedId: NodeId | null = null;
   private flashId: NodeId | null = null;
+  private pickingSlot: SlotIndex | null = null;
 
   constructor(
     container: HTMLElement,
@@ -299,9 +313,9 @@ export class SkillTreeUI {
   private async reload(): Promise<void> {
     if (!this.characterId) return;
 
-    // Both fetches are independent — run them in parallel, the tree opens in
-    // one round trip instead of two.
-    const [{ data: charData }, { data }] = await Promise.all([
+    // All three fetches are independent — run them in parallel, the tree
+    // opens in one round trip instead of two or three.
+    const [{ data: charData }, { data }, { data: slotData }] = await Promise.all([
       supabase
         .from('characters')
         .select('skill_points_available, name, class')
@@ -310,6 +324,10 @@ export class SkillTreeUI {
       supabase
         .from('skill_unlocks')
         .select('node_id, rank')
+        .eq('character_id', this.characterId),
+      supabase
+        .from('character_spell_slots')
+        .select('slot, spell')
         .eq('character_id', this.characterId),
     ]);
 
@@ -340,7 +358,13 @@ export class SkillTreeUI {
       }
     }
 
+    this.slotRows = (slotData ?? []) as SpellSlotRow[];
+
     this.render();
+  }
+
+  private ownedSpells(): Set<SpellId> {
+    return new Set(SPELL_BINDINGS.filter(b => this.ranks.has(b.node)).map(b => b.spell));
   }
 
   private render(): void {
@@ -390,6 +414,9 @@ export class SkillTreeUI {
             </div>
           </div>
         </div>
+
+        <div class="st-slots" id="st-slots">${this.renderSlotBar()}</div>
+        <div class="st-picker" id="st-picker"></div>
       </div>
     `;
 
@@ -401,6 +428,18 @@ export class SkillTreeUI {
       onSettings: () => this.navHandlers.onSettings(),
     });
     this.el.querySelector('#st-respec')!.addEventListener('click', () => this.handleRespec());
+    this.el.querySelectorAll('.st-slot').forEach(el => {
+      el.addEventListener('click', () => {
+        this.openPicker(Number((el as HTMLElement).dataset.slot) as SlotIndex);
+      });
+    });
+    this.el.querySelectorAll('.st-picker-item').forEach(el => {
+      el.addEventListener('click', () => {
+        if (this.pickingSlot === null) return;
+        const raw = (el as HTMLElement).dataset.spell;
+        this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
+      });
+    });
 
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
@@ -449,6 +488,17 @@ export class SkillTreeUI {
       </div>
       <div class="st-node-name">${esc(node.name)}</div>
     </div>`;
+  }
+
+  private renderSlotBar(): string {
+    const slots = resolveSlots(this.ownedSpells(), this.slotRows);
+    return slots.map((spell, i) => {
+      const icon = spell === null ? 'fa-minus' : (NODE_ICONS[nodeForSpell(spell)] ?? 'fa-star');
+      return `<div class="st-slot" data-slot="${i + 1}">
+        <i class="fa ${icon} fa-fw"${spell === null ? ' style="opacity:0.3"' : ''}></i>
+        <span class="st-slot-key">${i + 1}</span>
+      </div>`;
+    }).join('');
   }
 
   private drawConnections(svgId: string, positions: Partial<Record<NodeId, NodePos>>, nodes: SkillNode[], pts: number): void {
@@ -729,6 +779,44 @@ export class SkillTreeUI {
 
   private handleUnlock(id: NodeId, cost: number): void {
     this.buyNode(id, cost, 1);
+  }
+
+  private openPicker(slot: SlotIndex): void {
+    this.pickingSlot = slot;
+    const picker = this.el.querySelector('#st-picker') as HTMLElement;
+    const items = [...this.ownedSpells()].map(spell => {
+      const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
+      return `<div class="st-picker-item" data-spell="${spell}">${esc(node?.name ?? String(spell))}</div>`;
+    });
+    items.push('<div class="st-picker-item" data-spell="clear">— Clear —</div>');
+    picker.innerHTML = items.join('');
+  }
+
+  private async assignSlot(slot: SlotIndex, spell: SpellId | null): Promise<void> {
+    if (!this.characterId) return;
+
+    // Optimistic: mirror the RPC's swap semantics locally so the bar updates
+    // before the round trip, then reload to reconcile.
+    const current = resolveSlots(this.ownedSpells(), this.slotRows);
+    const oldIndex = spell === null ? -1 : current.indexOf(spell);
+    const displaced = current[slot - 1];
+    const next = [...current];
+    next[slot - 1] = spell;
+    if (oldIndex !== -1 && displaced !== null) next[oldIndex] = displaced;
+    else if (oldIndex !== -1) next[oldIndex] = null;
+    this.slotRows = next
+      .map((s, i) => ({ slot: i + 1, spell: s }))
+      .filter((r): r is { slot: number; spell: SpellId } => r.spell !== null);
+
+    this.pickingSlot = null;
+    this.render();
+
+    await supabase.rpc('set_spell_slot', {
+      p_character_id: this.characterId,
+      p_slot: slot,
+      p_spell: spell,
+    });
+    await this.reload();
   }
 
   /**
