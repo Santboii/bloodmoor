@@ -662,14 +662,22 @@ export function advanceState(
 
   // 3b. Advance frozen orbs — drift forward, spray a radial volley of ice
   // shards on the interval, then expire and vanish.
+  //
+  // Expiry is checked before the volley-due check, not after: the lifetime
+  // (150 ticks) is an exact multiple of the volley interval (15 ticks), so
+  // the 10th volley's reschedule lands nextVolleyAt on exactly the expiry
+  // tick. Checking due first would fire an unintended 11th volley on the
+  // same tick the orb is removed.
   const survivingOrbs: FrozenOrbState[] = [];
   for (const orb of frozenOrbs) {
-    let advancedOrb = advanceFrozenOrb(orb);
+    const advancedOrb = advanceFrozenOrb(orb);
+    if (isFrozenOrbExpired(advancedOrb, tick)) continue;
     if (orbVolleyDue(advancedOrb, tick)) {
       projectiles = [...projectiles, ...spawnOrbVolley(advancedOrb, tick)];
-      advancedOrb = { ...advancedOrb, nextVolleyAt: tick + FROZEN_ORB_VOLLEY_INTERVAL_TICKS };
+      survivingOrbs.push({ ...advancedOrb, nextVolleyAt: tick + FROZEN_ORB_VOLLEY_INTERVAL_TICKS });
+    } else {
+      survivingOrbs.push(advancedOrb);
     }
-    if (!isFrozenOrbExpired(advancedOrb, tick)) survivingOrbs.push(advancedOrb);
   }
   frozenOrbs = survivingOrbs;
 

@@ -59,7 +59,7 @@ export function isFrozenOrbExpired(orb: FrozenOrbState, tick: number): boolean {
 }
 
 export function orbVolleyDue(orb: FrozenOrbState, tick: number): boolean {
-  return tick === orb.nextVolleyAt;
+  return tick >= orb.nextVolleyAt;
 }
 
 /** One radial volley. The spray is rotated by volley index so successive
