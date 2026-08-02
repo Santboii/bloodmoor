@@ -39,6 +39,14 @@ function adminAffixLabel(a: RolledAffix): string {
   return a.id === 'talent' && a.node ? `${affixLabel(a)} (${a.node})` : affixLabel(a);
 }
 
+/** The specific unique variant of a row, or null for non-unique items. Two
+ * uniques (e.g. the amulets) can share a base_id, so the base name alone
+ * can't tell them apart in this audit table. */
+export function adminUniqueName(item: Pick<AdminItemRow, 'unique_id'>): string | null {
+  if (!item.unique_id) return null;
+  return UNIQUE_ITEMS.find(u => u.id === item.unique_id)?.name ?? item.unique_id;
+}
+
 /** This tool's server-side counterpart (`admin_update_drop_table`) enforces
  * `is_admin`; these client-side seed values only drive the Reset button and
  * must match the spec/migration seed exactly (match_drop 70/24/5.5/0.5,
@@ -320,8 +328,9 @@ export class AdminScreen {
       if (q) {
         const base = ITEM_BASES.find(b => b.id === item.base_id);
         const baseName = (base?.name ?? item.base_id).toLowerCase();
+        const uniqueName = (adminUniqueName(item) ?? '').toLowerCase();
         const owner = (this.usernames.get(item.user_id) ?? item.user_id).toLowerCase();
-        if (!baseName.includes(q) && !owner.includes(q)) return false;
+        if (!baseName.includes(q) && !uniqueName.includes(q) && !owner.includes(q)) return false;
       }
       return true;
     });
@@ -333,7 +342,7 @@ export class AdminScreen {
     const capNote = filtered.length > ITEM_ROW_CAP ? `Showing ${ITEM_ROW_CAP} of ${filtered.length}` : '';
     const rows = shown.length
       ? shown.map(i => this.renderItemRow(i)).join('')
-      : `<tr><td colspan="7" class="ad-empty">No items match.</td></tr>`;
+      : `<tr><td colspan="8" class="ad-empty">No items match.</td></tr>`;
 
     const rarityOptions = (['basic', 'magic', 'rare', 'unique'] as ItemRarity[])
       .map(r => `<option value="${r}" ${this.filterRarity === r ? 'selected' : ''}>${r}</option>`).join('');
@@ -352,7 +361,7 @@ export class AdminScreen {
       <div id="ad-cap-note" class="ad-cap-note">${capNote}</div>
       <div class="ad-table-wrap">
         <table class="ad-table">
-          <thead><tr><th>Owner</th><th>Item</th><th>Rarity</th><th>Slot</th><th>Source</th><th>Equipped By</th><th></th></tr></thead>
+          <thead><tr><th>Owner</th><th>Item</th><th>Unique</th><th>Rarity</th><th>Slot</th><th>Source</th><th>Equipped By</th><th></th></tr></thead>
           <tbody id="ad-table-body">${rows}</tbody>
         </table>
       </div>
@@ -362,6 +371,7 @@ export class AdminScreen {
   private renderItemRow(item: AdminItemRow): string {
     const base = ITEM_BASES.find(b => b.id === item.base_id);
     const baseName = base?.name ?? item.base_id;
+    const uniqueName = adminUniqueName(item);
     const color = RARITY_COLORS[item.rarity as ItemRarity] ?? '#e2e2e6';
     const owner = this.usernames.get(item.user_id) ?? item.user_id;
     const equippedLabel = item.equipped_by
@@ -370,6 +380,7 @@ export class AdminScreen {
     return `<tr>
       <td>${esc(owner)}</td>
       <td style="color:${color}">${esc(baseName)}</td>
+      <td style="color:${color}">${uniqueName ? esc(uniqueName) : '—'}</td>
       <td style="color:${color}">${esc(item.rarity)}</td>
       <td>${esc(item.slot)}</td>
       <td>${esc(item.source)}</td>
@@ -409,7 +420,7 @@ export class AdminScreen {
     if (tbody) {
       tbody.innerHTML = shown.length
         ? shown.map(i => this.renderItemRow(i)).join('')
-        : `<tr><td colspan="7" class="ad-empty">No items match.</td></tr>`;
+        : `<tr><td colspan="8" class="ad-empty">No items match.</td></tr>`;
     }
     if (capNote) {
       capNote.textContent = filtered.length > ITEM_ROW_CAP ? `Showing ${ITEM_ROW_CAP} of ${filtered.length}` : '';

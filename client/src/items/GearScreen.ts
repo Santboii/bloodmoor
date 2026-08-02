@@ -73,6 +73,20 @@ export function canEquip(item: ItemRow, charLevel: number, charClass: CharacterC
   return { ok: true };
 }
 
+/** Inline box-shadow for a unique card's glow, colored from the item's own
+ * aura rather than the fixed rarity orange — the design spec's compensation
+ * for not running a particle emitter on the 2D paperdoll. Falls back to the
+ * rarity color for the (currently nonexistent) unique with no aura defined.
+ * Returned as a full inline style string since inline styles are what beat
+ * gr-card-unique's stylesheet box-shadow — see the callers below. */
+export function uniqueAuraGlowStyle(item: ItemRow): string {
+  const aura = uniqueForRow(item)?.aura;
+  if (!aura) return `box-shadow:inset 0 0 0 2px ${RARITY_COLORS.unique};`;
+  const [r, g, b] = aura.color;
+  const rgb = `${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}`;
+  return `box-shadow:inset 0 0 0 2px rgba(${rgb}, 1), 0 0 12px rgba(${rgb}, 0.35);`;
+}
+
 export type SellState = { sellable: true; price: number } | { sellable: false; reason: string };
 
 /** Pure sell-affordance derivation for the stash details panel — mirrors
@@ -304,13 +318,13 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    // Uniques get gr-card-unique's own inset border + glow instead of the
-    // per-rarity inline box-shadow — an inline style attribute always beats
-    // a stylesheet class for the same property, so setting both would
-    // silently discard the glow.
+    // Uniques get gr-card-unique's class (for non-color hooks) plus an inline
+    // box-shadow in the item's own aura color instead of the per-rarity one —
+    // an inline style attribute always beats a stylesheet class for the same
+    // property, so setting both would silently discard the glow.
     const isUnique = item.rarity === 'unique';
     const uniqueClass = isUnique ? ' gr-card-unique' : '';
-    const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
+    const borderStyle = isUnique ? uniqueAuraGlowStyle(item) : `box-shadow:inset 0 0 0 2px ${color};`;
     return `<div class="gr-slot${selected}${uniqueClass}" style="grid-area:${slot};${borderStyle}" data-item="${item.id}" data-equipped="1">
       <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
@@ -323,11 +337,12 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    // See renderDollSlot for why uniques swap the inline box-shadow for the
-    // gr-card-unique class rather than carrying both.
+    // See renderDollSlot for why uniques get an inline aura-colored
+    // box-shadow alongside the gr-card-unique class rather than the
+    // per-rarity one.
     const isUnique = item.rarity === 'unique';
     const uniqueClass = isUnique ? ' gr-card-unique' : '';
-    const borderStyle = isUnique ? '' : `box-shadow:inset 0 0 0 2px ${color};`;
+    const borderStyle = isUnique ? uniqueAuraGlowStyle(item) : `box-shadow:inset 0 0 0 2px ${color};`;
     return `<div class="gr-card${selected}${uniqueClass}" style="${borderStyle}" data-item="${item.id}">
       <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>

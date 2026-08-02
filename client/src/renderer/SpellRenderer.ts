@@ -109,6 +109,18 @@ export function isMoving(prev: Vec2 | undefined, next: Vec2): boolean {
   return Math.hypot(next.x - prev.x, next.y - prev.y) > AURA_MOVE_EPSILON;
 }
 
+/** Mirrors main.ts's own visibility rule for Shadowstep (archer_utility.shadowstep):
+ * every viewer sees themselves; everyone else sees nobody once their
+ * invisibleUntil tick is still ahead of the current tick. Shared so a
+ * unique's aura can't out itself as an invisible player's glow. */
+export function isInvisibleToViewer(
+  player: { id: string; invisibleUntil?: number },
+  viewerId: string,
+  tick: number,
+): boolean {
+  return player.id !== viewerId && (player.invisibleUntil ?? 0) > tick;
+}
+
 export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
   private arrows = new Map<string, ArrowEntry>();
@@ -187,7 +199,11 @@ export class SpellRenderer {
     }
   }
 
-  update(state: GameState): void {
+  /** selfPosition, when given, overrides the local player's position for aura
+   * emission — the interpolated state buffer lags behind the predicted render
+   * position main.ts actually draws the local mesh at, so without this the
+   * aura visibly detaches from the body while moving (see syncUniqueAuras). */
+  update(state: GameState, selfPosition?: Vec2): void {
     const delta = this.clock.getDelta();
     this.elapsedTime += delta;
     this.emitAccumulator += delta;
@@ -202,7 +218,7 @@ export class SpellRenderer {
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
-    this.syncUniqueAuras(state);
+    this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -495,21 +511,28 @@ export class SpellRenderer {
   /** Ambient emission for the uniques each player is wearing. aurasForGear
    * caps this at MAX_AURAS_PER_PLAYER and picks the highest-levelReq items,
    * and emitAura bails at AURA_SOFT_CAP, so a crowded fight silently drops
-   * auras rather than starving spell VFX. */
-  private syncUniqueAuras(state: GameState): void {
+   * auras rather than starving spell VFX.
+   *
+   * Skips corpses (hp <= 0 lingers in state.players for the rest of the
+   * match) and Shadowstepped enemies (isInvisibleToViewer) — an aura would
+   * otherwise keep glowing on a dead body or broadcast an invisible
+   * player's exact position, defeating the invisibility it grants. */
+  private syncUniqueAuras(state: GameState, selfPosition?: Vec2): void {
     if (!this.shouldEmitAura) return;
     const height = spriteWorldHeight();
     const live = new Set<string>();
     for (const player of Object.values(state.players)) {
       live.add(player.id);
+      if (player.hp <= 0 || isInvisibleToViewer(player, this.myId, state.tick)) continue;
+      const position = player.id === this.myId && selfPosition ? selfPosition : player.position;
       const auras = aurasForGear(player.gear ?? {});
       const prev = this.prevAuraPositions.get(player.id);
-      const moving = isMoving(prev, player.position);
-      this.prevAuraPositions.set(player.id, { ...player.position });
+      const moving = isMoving(prev, position);
+      this.prevAuraPositions.set(player.id, { ...position });
       for (const { aura } of auras) {
         this.particles.emitAura(
           aura.style, aura.color,
-          player.position.x, auraAnchorY(aura.anchor, height), player.position.y,
+          position.x, auraAnchorY(aura.anchor, height), position.y,
           { intensity: aura.intensity, motes: aura.motes, phase: this.elapsedTime, moving },
         );
       }

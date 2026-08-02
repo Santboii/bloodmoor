@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS, sellStateFor } from '../src/items/GearScreen';
+import {
+  ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS, sellStateFor, uniqueAuraGlowStyle,
+} from '../src/items/GearScreen';
 import { sellPriceFor } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -16,6 +18,29 @@ function makeItem(overrides: Partial<ItemRow> = {}): ItemRow {
     ...overrides,
   };
 }
+
+describe('uniqueAuraGlowStyle', () => {
+  it('colors the glow from the specific unique\'s own aura, not a fixed rarity color', () => {
+    const cinderfall = makeItem({ base_id: 'gnarled_staff', rarity: 'unique', unique_id: 'cinderfall' });
+    const quietHour = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'the_quiet_hour' });
+    const cinderfallStyle = uniqueAuraGlowStyle(cinderfall);
+    const quietHourStyle = uniqueAuraGlowStyle(quietHour);
+    expect(cinderfallStyle).toContain('rgba(255, 89, 13');
+    expect(quietHourStyle).toContain('rgba(217, 222, 242');
+    expect(cinderfallStyle).not.toEqual(quietHourStyle);
+  });
+
+  it('distinguishes the two moon_amulet uniques by unique_id, not base_id', () => {
+    const emberheart = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'emberheart' });
+    const quietHour = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'the_quiet_hour' });
+    expect(uniqueAuraGlowStyle(emberheart)).not.toEqual(uniqueAuraGlowStyle(quietHour));
+  });
+
+  it('keeps the 2px inset border behavior', () => {
+    const item = makeItem({ base_id: 'gnarled_staff', rarity: 'unique', unique_id: 'cinderfall' });
+    expect(uniqueAuraGlowStyle(item)).toContain('inset 0 0 0 2px');
+  });
+});
 
 describe('ringTargetSlot', () => {
   it('fills ring1 first when both rings are empty', () => {

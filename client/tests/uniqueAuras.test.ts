@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { auraAnchorY, isMoving } from '../src/renderer/SpellRenderer';
+import { auraAnchorY, isMoving, isInvisibleToViewer } from '../src/renderer/SpellRenderer';
 import { aurasForGear } from '@arena/shared';
 
 describe('auraAnchorY', () => {
@@ -26,6 +26,21 @@ describe('isMoving', () => {
   });
   it('is true for a real step', () => {
     expect(isMoving({ x: 10, y: 10 }, { x: 14, y: 10 })).toBe(true);
+  });
+});
+
+describe('isInvisibleToViewer', () => {
+  it('is never true for your own player', () => {
+    expect(isInvisibleToViewer({ id: 'me', invisibleUntil: 1000 }, 'me', 5)).toBe(false);
+  });
+  it('is true for another player mid-Shadowstep', () => {
+    expect(isInvisibleToViewer({ id: 'enemy', invisibleUntil: 100 }, 'me', 50)).toBe(true);
+  });
+  it('is false once invisibleUntil has passed', () => {
+    expect(isInvisibleToViewer({ id: 'enemy', invisibleUntil: 100 }, 'me', 150)).toBe(false);
+  });
+  it('is false when invisibleUntil was never set', () => {
+    expect(isInvisibleToViewer({ id: 'enemy' }, 'me', 50)).toBe(false);
   });
 });
 
