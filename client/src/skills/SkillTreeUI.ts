@@ -164,12 +164,12 @@ const STYLES = `
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
-.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
+.st-col-main{flex:1 1 400px;min-width:380px;max-width:640px;}
 /* Both columns are pinned to the same workspace height (set inline) so the
    page height never depends on which class is open or how much the details
    panel has to say — the panel absorbs the difference by scrolling itself. */
 .st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:16px;}
-.st-col-frost{flex:1 1 420px;min-width:380px;}
+.st-col-frost{flex:1 1 380px;min-width:380px;}
 .st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
 .st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:8px;}
 .st-tree-container{position:relative;width:100%;}
