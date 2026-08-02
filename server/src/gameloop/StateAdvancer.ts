@@ -309,17 +309,31 @@ export function advanceState(
         phantomStepUntil: (hasSkillSystem && tMods.phantomStep) ? tick + 2 * TICK_RATE : players[id].phantomStepUntil,
       };
     } else if (spell === 9) {
-      // mods.iceBolt arrives in Task 7 — no config yet so this task stays
-      // independently testable.
-      projectiles = [...projectiles, spawnIceBolt(id, p.position, input.aimTarget)];
+      const m = mods.iceBolt;
+      projectiles = [...projectiles, spawnIceBolt(id, p.position, input.aimTarget, {
+        speed:      m.speed,
+        damageMin:  m.damageMin,
+        damageMax:  m.damageMax,
+        pierce:     m.pierce,
+        splinters:  m.splinters,
+        impaler:    m.impaler,
+      })];
     } else if (spell === 10) {
-      // mods.blizzard arrives in Task 7 — no config yet so this task stays
-      // independently testable.
-      fireWalls = [...fireWalls, spawnBlizzard(id, input.aimTarget, tick)];
+      const m = mods.blizzard;
+      fireWalls = [...fireWalls, spawnBlizzard(id, input.aimTarget, tick, {
+        durationMultiplier: m.durationMultiplier,
+        radiusMultiplier:   m.radiusMultiplier,
+      })];
     } else if (spell === 11) {
-      // mods.frozenOrb arrives in Task 7 — no config yet so this task stays
-      // independently testable.
-      frozenOrbs = [...frozenOrbs, spawnFrozenOrb(id, p.position, input.aimTarget, tick)];
+      const m = mods.frozenOrb;
+      frozenOrbs = [...frozenOrbs, spawnFrozenOrb(id, p.position, input.aimTarget, tick, {
+        speedMultiplier:    m.speedMultiplier,
+        lifetimeMultiplier: m.lifetimeMultiplier,
+        shardsPerVolley:    m.shardsPerVolley,
+        damageMin:          m.damageMin,
+        damageMax:          m.damageMax,
+        detonateOnExpiry:   m.detonateOnExpiry,
+      })];
     } else if (spell === 5) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -582,10 +596,11 @@ export function advanceState(
               players[moved.ownerId]?.teamId !== undefined &&
               players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam) {
-              const incoming = ICEBOLT_CHILL_FACTOR;
+              const ownerIceBolt = modifiers[moved.ownerId]?.iceBolt;
+              const incoming = ownerIceBolt?.chillFactor ?? ICEBOLT_CHILL_FACTOR;
               const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
               next.slowFactor = Math.min(existing, incoming);
-              next.slowUntil = tick + ICEBOLT_CHILL_TICKS;
+              next.slowUntil = tick + (ownerIceBolt?.chillTicks ?? ICEBOLT_CHILL_TICKS);
             }
             next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
             players[pid] = next;
@@ -701,7 +716,7 @@ export function advanceState(
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : isBlizzard
-            ? BLIZZARD_DAMAGE_PER_TICK
+            ? BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1)
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {
