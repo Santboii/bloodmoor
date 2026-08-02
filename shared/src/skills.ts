@@ -130,7 +130,7 @@ export const SKILL_NODES: SkillNode[] = [
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
 
 // ── Spell bindings ──────────────────────────────────────────────────────────
-// Single source of truth for spell id ↔ unlock node ↔ keybind ↔ class.
+// Single source of truth for spell id ↔ unlock node ↔ default slot ↔ class.
 // Consumed by the server cast gate, the client HUD, input handling, and the
 // skill-unlock → owned-spells derivation. Add new classes/spells here only.
 
@@ -169,16 +169,29 @@ const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spe
 /**
  * Resolve persisted slot rows into the character's hotbar.
  *
- * Three passes, in priority order:
- *   1. Explicit rows win — the character put that spell there deliberately.
- *   2. Every other owned spell seeds at its legacy default slot if that slot
- *      is free. This is what keeps an existing character's bar identical to
- *      what it is today: a mage owning Fireball and Meteor keeps them on
- *      keys 1 and 3, with the gap where Fire Wall would go.
- *   3. Anything still unplaced (its default slot was taken, or it has no
- *      default at all) falls to the lowest empty slot.
+ * The model is **snapshot-authoritative**: a character who has edited their
+ * bar has every slot persisted, and those rows are the complete truth.
+ * Defaults apply only to a character who has never edited.
  *
- * Spells that do not fit stay unslotted rather than displacing an assignment.
+ *   1. Explicit rows win. If any survived validation, return immediately —
+ *      an absent slot in a stored snapshot means *deliberately empty*, and
+ *      nothing may fall into it. This is what makes benching a spell
+ *      possible, and it is why "Clear" works.
+ *   2. Otherwise (a never-edited character) every owned spell seeds at its
+ *      legacy default slot. This keeps an existing character's bar identical
+ *      to what it was before slots existed: a mage owning Fireball and
+ *      Meteor keeps them on keys 1 and 3, with the gap where Fire Wall goes.
+ *   3. Anything still unplaced — its default slot was taken, or it has no
+ *      default (Phase B frost spells) — falls to the lowest empty slot.
+ *
+ * The early return keys off whether any row *survived validation*, not
+ * whether any row was supplied. A snapshot whose spells were all respecced
+ * away resolves to defaults rather than stranding the player on an empty
+ * bar.
+ *
+ * Consequence to know: once a character has edited, a newly unlocked spell
+ * does NOT auto-appear on the bar. They assign it from the slot bar on the
+ * skill tree screen, which is where they just spent the point.
  */
 export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
   const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
@@ -198,6 +211,10 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
     if (slots[row.slot - 1] !== null) continue;
     claim(row.slot - 1, spell);
   }
+
+  // Snapshot-authoritative: a stored assignment is the whole bar. Empty
+  // slots in it are deliberate benches, so the default passes must not run.
+  if (placed.size > 0) return slots;
 
   for (const binding of SPELL_BINDINGS) {
     if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;

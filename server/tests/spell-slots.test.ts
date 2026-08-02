@@ -26,14 +26,22 @@ describe('resolveSlots', () => {
     expect(resolveSlots(owned(1, 5), [])).toEqual([1, 5, null, null, null, null]);
   });
 
-  it('honors an explicit row over the spell\'s default slot', () => {
-    // Fireball is pinned to slot 3; Fire Wall still takes its own default
-    // slot 2 rather than packing into slot 1.
+  it('treats a stored snapshot as the complete bar', () => {
+    // Fireball is pinned to slot 3. Fire Wall is owned but absent from the
+    // snapshot, which means the player benched it — it must NOT reappear.
     expect(resolveSlots(owned(1, 2), [{ slot: 3, spell: 1 }]))
-      .toEqual([null, 2, 1, null, null, null]);
+      .toEqual([null, null, 1, null, null, null]);
   });
 
-  it('drops rows naming a spell the character does not own', () => {
+  it('lets a slot stay deliberately empty', () => {
+    // The bench that makes "Clear" work: slot 1 has no row, and Fireball
+    // does not fall back into it because a snapshot exists.
+    expect(resolveSlots(owned(1, 2), [{ slot: 2, spell: 2 }])[0]).toBeNull();
+  });
+
+  it('falls back to defaults when no row survives validation', () => {
+    // A snapshot whose spells were all respecced away must not strand the
+    // player on an empty bar.
     expect(resolveSlots(owned(1), [{ slot: 2, spell: 7 }]))
       .toEqual([1, null, null, null, null, null]);
   });
@@ -91,7 +99,7 @@ describe('set_spell_slot migration guardrails', () => {
     // above it also contains `user_id = auth.uid()`, and an unscoped search
     // finds that one — which would keep this test green even if the RPC's
     // own ownership check were deleted outright.
-    const rpcStart = sql.indexOf('create or replace function set_spell_slot');
+    const rpcStart = sql.indexOf('create or replace function set_spell_slots');
     expect(rpcStart).toBeGreaterThan(0);
 
     const ownership = sql.indexOf('user_id = auth.uid()', rpcStart);
@@ -104,9 +112,13 @@ describe('set_spell_slot migration guardrails', () => {
     expect(ownership).toBeLessThan(firstMutation);
   });
 
-  it('bounds the slot range in both the table and the RPC', () => {
+  it('bounds the slot range in the table and the array length in the RPC', () => {
     expect(sql).toMatch(/check \(slot between 1 and 6\)/);
-    expect(sql).toMatch(/p_slot < 1 or p_slot > 6/);
+    expect(sql).toMatch(/array_length\(p_slots, 1\) is distinct from 6/);
+  });
+
+  it('grants execute to authenticated', () => {
+    expect(sql).toMatch(/grant execute on function set_spell_slots\(uuid, smallint\[\]\) to authenticated/);
   });
 });
 
