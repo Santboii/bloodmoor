@@ -6,6 +6,8 @@ import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
+type IceBoltEntry = { mesh: THREE.Group };
+type FrozenOrbEntry = { mesh: THREE.Mesh };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
   arrowMaterial: THREE.MeshBasicMaterial;
@@ -42,17 +44,30 @@ const ARROW_TRAIL_GEO = new THREE.BufferGeometry().setFromPoints([
 const FALLING_ARROW_GEO = new THREE.BoxGeometry(2, 14, 2);
 const METEOR_RING_GEO = new THREE.RingGeometry(50, 58, 32);
 const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
+// Icicle shard, apex along +X so the same rotation math as the arrow shaft
+// (rotation.set(-PI/2, 0, -angle)) points it down the velocity vector.
+const ICE_BOLT_GEO = new THREE.ConeGeometry(5, 22, 6).rotateZ(-Math.PI / 2);
+const FALLING_SHARD_GEO = new THREE.ConeGeometry(1.5, 10, 4);
 
 const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xff6600 });
 const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 });
 const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
+const ICE_BOLT_MAT = new THREE.MeshBasicMaterial({ color: 0xbfe9ff });
+const FROZEN_ORB_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xaee9ff });
+const FROZEN_ORB_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.3 });
+
+// Frozen orbs carry no server-side radius (they deal no direct damage — only
+// their sprayed shards do), so the visual size is a client-only constant.
+const FROZEN_ORB_VISUAL_RADIUS = 16;
 
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
+  ICE_BOLT_GEO, FALLING_SHARD_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
+  ICE_BOLT_MAT, FROZEN_ORB_CORE_MAT, FROZEN_ORB_GLOW_MAT,
 ]);
 
 const arrowShaftMats = new Map<number, THREE.MeshBasicMaterial>();
@@ -99,6 +114,8 @@ export class SpellRenderer {
   private meteors = new Map<string, MeteorEntry>();
   private rainOfArrows = new Map<string, RainEntry>();
   private rainZoneArrows = new Map<string, RainArrowVisual>();
+  private iceBolts = new Map<string, IceBoltEntry>();
+  private frozenOrbs = new Map<string, FrozenOrbEntry>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
   private clock = new THREE.Clock();
@@ -144,6 +161,27 @@ export class SpellRenderer {
     return { arrowGroup, arrowMaterial, arrowPhases, spawnTime: this.elapsedTime };
   }
 
+  /** Same falling-particle shape as createFallingArrows, swapped to icy
+   * shard meshes for blizzard zones. */
+  private createFallingShards(cx: number, cz: number, radius: number, count = 16): RainArrowVisual {
+    const arrowGroup = new THREE.Group();
+    const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xaee9ff, transparent: true, opacity: 0.7 });
+    const arrowPhases: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * radius;
+      const shard = new THREE.Mesh(FALLING_SHARD_GEO, arrowMaterial);
+      shard.position.set(Math.cos(theta) * r, 0, Math.sin(theta) * r);
+      shard.rotation.x = (Math.random() - 0.5) * 0.3;
+      shard.rotation.z = (Math.random() - 0.5) * 0.3;
+      arrowGroup.add(shard);
+      arrowPhases.push(Math.random());
+    }
+    arrowGroup.position.set(cx, 0, cz);
+    this.scene.add(arrowGroup);
+    return { arrowGroup, arrowMaterial, arrowPhases, spawnTime: this.elapsedTime };
+  }
+
   private updateFallingArrows(visual: RainArrowVisual): void {
     const localTime = this.elapsedTime - visual.spawnTime;
     const maxHeight = 250;
@@ -174,9 +212,11 @@ export class SpellRenderer {
     this.detectTeleports(state);
     this.syncFireballs(state);
     this.syncArrows(state);
+    this.syncIceBolts(state);
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
+    this.syncFrozenOrbs(state);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -281,6 +321,48 @@ export class SpellRenderer {
     }
   }
 
+  private syncIceBolts(state: GameState): void {
+    const activeIceBoltIds = new Set(
+      state.projectiles.filter(p => p.type === 'icebolt' || p.type === 'iceshard').map(p => p.id),
+    );
+
+    for (const [id, entry] of this.iceBolts) {
+      if (!activeIceBoltIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.iceBolts.delete(id);
+      }
+    }
+
+    for (const bolt of state.projectiles) {
+      if (bolt.type !== 'icebolt' && bolt.type !== 'iceshard') continue;
+
+      if (!this.iceBolts.has(bolt.id)) {
+        const group = new THREE.Group();
+        const shaft = new THREE.Mesh(ICE_BOLT_GEO, ICE_BOLT_MAT);
+        // Shards are the same icicle mesh, just smaller — spray fragments
+        // rather than the bolt itself.
+        if (bolt.type === 'iceshard') shaft.scale.setScalar(0.45);
+        group.add(shaft);
+
+        this.scene.add(group);
+        this.iceBolts.set(bolt.id, { mesh: group });
+      }
+
+      const entry = this.iceBolts.get(bolt.id)!;
+      const wx = bolt.position.x;
+      const wy = 30;
+      const wz = bolt.position.y;
+      entry.mesh.position.set(wx, wy, wz);
+
+      // Orient along velocity vector (X-Z plane in world space)
+      const vx = bolt.velocity.x;
+      const vz = bolt.velocity.y;
+      const angle = Math.atan2(vz, vx);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+    }
+  }
+
   private syncFireWalls(state: GameState): void {
     const activeIds = new Set(state.fireWalls.map(f => f.id));
 
@@ -301,6 +383,7 @@ export class SpellRenderer {
 
     for (const fw of state.fireWalls) {
       const isRainZone = fw.kind === 'rain';
+      const isBlizzard = fw.kind === 'blizzard';
 
       if (!this.fireWalls.has(fw.id)) {
         if (!isRainZone) sfx.startFireWallLoop(fw.id);
@@ -309,9 +392,9 @@ export class SpellRenderer {
           const disc = new THREE.Mesh(
             new THREE.CircleGeometry(fw.radius, 32),
             new THREE.MeshBasicMaterial({
-              color: isRainZone ? ELEMENT_COLORS[this.arrowElement] : 0xff2200,
+              color: isBlizzard ? ELEMENT_COLORS.freeze : isRainZone ? ELEMENT_COLORS[this.arrowElement] : 0xff2200,
               transparent: true,
-              opacity: isRainZone ? 0.15 : 0.2,
+              opacity: isBlizzard ? 0.18 : isRainZone ? 0.15 : 0.2,
               side: THREE.DoubleSide,
             }),
           );
@@ -320,6 +403,8 @@ export class SpellRenderer {
           group.add(disc);
           if (isRainZone) {
             this.rainZoneArrows.set(fw.id, this.createFallingArrows(fw.center.x, fw.center.y, fw.radius, 12));
+          } else if (isBlizzard) {
+            this.rainZoneArrows.set(fw.id, this.createFallingShards(fw.center.x, fw.center.y, fw.radius, 20));
           }
         } else {
           for (const seg of fw.segments) {
@@ -344,7 +429,7 @@ export class SpellRenderer {
         const group = this.fireWalls.get(fw.id);
         const disc = group?.children[0];
         if (disc) disc.position.set(fw.center.x, 1, fw.center.y);
-        if (isRainZone) {
+        if (isRainZone || isBlizzard) {
           const visual = this.rainZoneArrows.get(fw.id);
           if (visual) {
             visual.arrowGroup.position.set(fw.center.x, 0, fw.center.y);
@@ -466,10 +551,40 @@ export class SpellRenderer {
     }
   }
 
+  private syncFrozenOrbs(state: GameState): void {
+    const activeIds = new Set(state.frozenOrbs.map(o => o.id));
+
+    for (const [id, entry] of this.frozenOrbs) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.frozenOrbs.delete(id);
+      }
+    }
+
+    for (const orb of state.frozenOrbs) {
+      if (!this.frozenOrbs.has(orb.id)) {
+        // Same core+glow shape as a fireball, recolored icy blue and sized
+        // for an orb rather than a bolt.
+        const mesh = new THREE.Mesh(FIREBALL_GEO, FROZEN_ORB_CORE_MAT);
+        mesh.scale.setScalar(FROZEN_ORB_VISUAL_RADIUS * 0.8);
+        const glow = new THREE.Mesh(FIREBALL_GEO, FROZEN_ORB_GLOW_MAT);
+        glow.scale.setScalar(1.4 / 0.8); // relative to the core's scale
+        mesh.add(glow);
+        this.scene.add(mesh);
+        this.frozenOrbs.set(orb.id, { mesh });
+      }
+
+      const entry = this.frozenOrbs.get(orb.id)!;
+      entry.mesh.position.set(orb.position.x, 30, orb.position.y);
+    }
+  }
+
   dispose(): void {
     sfx.stopAllSpellLoops();
     for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     for (const entry of this.arrows.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.iceBolts.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const group of this.fireWalls.values()) { this.scene.remove(group); disposeObject3D(group); }
     for (const visual of this.rainZoneArrows.values()) { this.scene.remove(visual.arrowGroup); disposeObject3D(visual.arrowGroup); }
     this.rainZoneArrows.clear();
@@ -485,12 +600,15 @@ export class SpellRenderer {
       disposeObject3D(entry.circle);
       disposeObject3D(entry.arrowGroup);
     }
+    for (const entry of this.frozenOrbs.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();
+    this.iceBolts.clear();
     this.fireWalls.clear();
     this.meteors.clear();
     this.rainOfArrows.clear();
+    this.frozenOrbs.clear();
     this.teleportEffects.length = 0;
     this.particles.dispose();
   }
