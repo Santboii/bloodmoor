@@ -396,6 +396,31 @@ In `shared/src/skills.ts`, append to `SPELL_BINDINGS` after the mage entries. De
   { spell: 11, node: 'frost.frozen_orb', charClass: 'mage' },
 ```
 
+- [ ] **Step 5a: Scope Phase A's default-slot test to the pre-frost spells**
+
+Adding frost bindings without a `defaultSlot` breaks an existing test. `server/tests/spell-slots.test.ts` asserts every binding defines one; its comment already says it means "no spell that exists today," which was written before frost existed. Scope it explicitly:
+
+```ts
+  it('gives every pre-frost spell an explicit default slot', () => {
+    // Frost spells (9-11) deliberately have none — with only six slots the
+    // mage's seven spells cannot all hold a distinct default, so frost falls
+    // to the lowest empty slot. Spells 1-8 predate slots and must keep the
+    // exact key they had, or a live hotbar silently moves.
+    for (const b of SPELL_BINDINGS) {
+      if (b.spell >= 9) continue;
+      expect(b.defaultSlot).toBeDefined();
+    }
+  });
+
+  it('gives frost spells no default slot', () => {
+    for (const b of SPELL_BINDINGS.filter(x => x.spell >= 9)) {
+      expect(b.defaultSlot).toBeUndefined();
+    }
+  });
+```
+
+The second test is what stops someone "helpfully" assigning frost a default later and displacing a fire spell.
+
 - [ ] **Step 5: Raise the wire validation bound**
 
 `server/src/index.ts:48` reads `r.castSpell >= 1 && r.castSpell <= 8`. Change `8` to `11`. This is a plain number with no type behind it — nothing else will flag it.
