@@ -20,6 +20,12 @@ const SPLIT_Y = 42;
 const SHADOW_GEO = new THREE.CircleGeometry(11, 16);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
 
+/** World-space height of a character sprite — the anchor space unique auras
+ * position themselves in. */
+export function spriteWorldHeight(): number {
+  return FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
+}
+
 type MoveAnim = 'idle' | 'walk' | 'run';
 
 export class SpriteCharacter {
@@ -47,7 +53,7 @@ export class SpriteCharacter {
     // as a missing section of staff; a swing keeps the hand on it throughout.
     this.castAnim = charClass === 'ranger' ? 'shoot' : 'slash';
 
-    const size = FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
+    const size = spriteWorldHeight();
     this.material = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.01 });
     this.material.visible = false; // until textures arrive
     this.plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.material);

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } from '@arena/shared';
+import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS, aurasForGear, type AuraAnchor, type Vec2 } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
+import { spriteWorldHeight } from './sprites/SpriteCharacter';
 import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
@@ -92,6 +93,22 @@ function disposeObject3D(root: THREE.Object3D): void {
   });
 }
 
+/** Where on the body an aura emits. Fractions of the sprite's world height:
+ * feet just clear of the ground, chest at the midpoint, head near the top. */
+export function auraAnchorY(anchor: AuraAnchor, spriteHeight: number): number {
+  const fraction = anchor === 'feet' ? 0.08 : anchor === 'chest' ? 0.5 : 0.82;
+  return spriteHeight * fraction;
+}
+
+// Below this per-sample step the player is standing still — position noise
+// from interpolation should not make a wisp trail flicker on.
+const AURA_MOVE_EPSILON = 0.5;
+
+export function isMoving(prev: Vec2 | undefined, next: Vec2): boolean {
+  if (!prev) return false;
+  return Math.hypot(next.x - prev.x, next.y - prev.y) > AURA_MOVE_EPSILON;
+}
+
 export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
   private arrows = new Map<string, ArrowEntry>();
@@ -110,6 +127,11 @@ export class SpellRenderer {
   // emitting per render frame spawns 2.4x the particles on a 144Hz display
   // and exhausts the pool during heavy fights.
   private shouldEmitContinuous = true;
+  // Auras run at half the continuous cadence — they are ambient, and the
+  // pool is shared with every spell effect.
+  private auraAccumulator = 0;
+  private shouldEmitAura = false;
+  private prevAuraPositions = new Map<string, Vec2>();
 
   constructor(private scene: THREE.Scene, private myId: string) {
     this.particles = new ParticleSystem(scene);
@@ -171,12 +193,16 @@ export class SpellRenderer {
     this.emitAccumulator += delta;
     this.shouldEmitContinuous = this.emitAccumulator >= 1 / 60;
     if (this.shouldEmitContinuous) this.emitAccumulator %= 1 / 60;
+    this.auraAccumulator += delta;
+    this.shouldEmitAura = this.auraAccumulator >= 1 / 30;
+    if (this.shouldEmitAura) this.auraAccumulator %= 1 / 30;
     this.detectTeleports(state);
     this.syncFireballs(state);
     this.syncArrows(state);
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
+    this.syncUniqueAuras(state);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -463,6 +489,33 @@ export class SpellRenderer {
       (entry.circle.material as THREE.MeshBasicMaterial).opacity = 0.12 + t * 0.23;
       entry.arrowMaterial.opacity = Math.min(1, t * 2);
       this.updateFallingArrows(entry);
+    }
+  }
+
+  /** Ambient emission for the uniques each player is wearing. aurasForGear
+   * caps this at MAX_AURAS_PER_PLAYER and picks the highest-levelReq items,
+   * and emitAura bails at AURA_SOFT_CAP, so a crowded fight silently drops
+   * auras rather than starving spell VFX. */
+  private syncUniqueAuras(state: GameState): void {
+    if (!this.shouldEmitAura) return;
+    const height = spriteWorldHeight();
+    const live = new Set<string>();
+    for (const player of Object.values(state.players)) {
+      live.add(player.id);
+      const auras = aurasForGear(player.gear ?? {});
+      const prev = this.prevAuraPositions.get(player.id);
+      const moving = isMoving(prev, player.position);
+      this.prevAuraPositions.set(player.id, { ...player.position });
+      for (const { aura } of auras) {
+        this.particles.emitAura(
+          aura.style, aura.color,
+          player.position.x, auraAnchorY(aura.anchor, height), player.position.y,
+          { intensity: aura.intensity, motes: aura.motes, phase: this.elapsedTime, moving },
+        );
+      }
+    }
+    for (const id of this.prevAuraPositions.keys()) {
+      if (!live.has(id)) this.prevAuraPositions.delete(id);
     }
   }
 
