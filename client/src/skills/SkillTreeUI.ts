@@ -783,6 +783,12 @@ export class SkillTreeUI {
 
   private openPicker(slot: SlotIndex): void {
     this.pickingSlot = slot;
+    // Mark which slot is being edited. The picker renders in its own row
+    // below the bar, so without this the player has no way to tell which of
+    // the six slots their choice will land in.
+    this.el.querySelectorAll('.st-slot').forEach(el => {
+      el.classList.toggle('picking', Number((el as HTMLElement).dataset.slot) === slot);
+    });
     const picker = this.el.querySelector('#st-picker') as HTMLElement;
     const items = [...this.ownedSpells()].map(spell => {
       const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
