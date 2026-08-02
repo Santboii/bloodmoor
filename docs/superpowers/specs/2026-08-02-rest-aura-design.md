@@ -50,11 +50,11 @@ keyed by player id and dropped for absent ids.
 Color `0x7ad97a` — the HUD's `.resting` glow green, deliberately minty and
 distinct from poison's harsh `0x44dd44`.
 
-**Resting** (~8 motes/s per player): spawn at foot level within a 16-unit
+**Resting** (~20 motes/s per player): spawn at foot level within a 16-unit
 radius of the player, rise at 20–35 u/s with ±6 u/s lateral wander, live
 1.0–1.4s, chunky sizes matching the existing particle look.
 
-**Wind-up** (~5 motes/s per player): spawn on a ring of radius 28 at
+**Wind-up** (~12 motes/s per player): spawn on a ring of radius 28 at
 mid-body height, velocity aimed inward at the character, live ~0.8s — the
 inverse read: gathering, not yet flowing.
 

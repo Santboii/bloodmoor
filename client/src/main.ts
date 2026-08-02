@@ -718,6 +718,7 @@ function startGame(): void {
 
   spellRenderer = new SpellRenderer(scene.scene, myId);
   restAura = new RestAuraRenderer(scene.scene);
+  if (import.meta.env.DEV) (window as unknown as { __restAura?: RestAuraRenderer }).__restAura = restAura; // DEBUG: remove after aura diagnosis
   spellRenderer.setArrowElement(playerElement);
   inputHandler = new InputHandler(scene, scene.renderer.domElement);
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
