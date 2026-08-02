@@ -308,6 +308,14 @@ export class Room {
       for (const orb of this.state.frozenOrbs) {
         if (orb.ownerId === oldSocketId) orb.ownerId = newSocketId;
       }
+      // Absolute Zero's dwell map is keyed by target socket id — remap it too,
+      // or a reconnecting player's dwell progress is silently dropped.
+      for (const fw of this.state.fireWalls) {
+        if (fw.dwell && oldSocketId in fw.dwell) {
+          fw.dwell[newSocketId] = fw.dwell[oldSocketId];
+          delete fw.dwell[oldSocketId];
+        }
+      }
     }
   }
 }
