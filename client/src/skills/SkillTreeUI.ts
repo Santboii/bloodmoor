@@ -227,6 +227,7 @@ const STYLES = `
 .st-picker{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
 .st-picker-item{padding:6px 10px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);cursor:pointer;font-family:'VT323',monospace;font-size:15px;color:var(--px-text)}
 .st-picker-item:hover{box-shadow:0 0 0 2px var(--px-accent)}
+.st-picker-item.st-picker-item-current{box-shadow:0 0 0 2px var(--px-success)}
 `;
 
 export class SkillTreeUI {
@@ -367,6 +368,13 @@ export class SkillTreeUI {
     return new Set(SPELL_BINDINGS.filter(b => this.ranks.has(b.node)).map(b => b.spell));
   }
 
+  /** The resolved six-slot bar for the character right now. `renderSlotBar`
+   *  and `assignSlot` both derive it through this one path so they always
+   *  agree about what the stored slot rows mean. */
+  private currentSlots(): (SpellId | null)[] {
+    return resolveSlots(this.ownedSpells(), this.slotRows);
+  }
+
   private render(): void {
     const pts = this.skillPoints;
 
@@ -433,12 +441,14 @@ export class SkillTreeUI {
         this.openPicker(Number((el as HTMLElement).dataset.slot) as SlotIndex);
       });
     });
-    this.el.querySelectorAll('.st-picker-item').forEach(el => {
-      el.addEventListener('click', () => {
-        if (this.pickingSlot === null) return;
-        const raw = (el as HTMLElement).dataset.spell;
-        this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
-      });
+    // Delegate on the container, not the items. `render()` emits #st-picker
+    // EMPTY and openPicker fills it later via innerHTML — binding the items
+    // here would attach zero listeners and the picker would never respond.
+    this.el.querySelector('#st-picker')!.addEventListener('click', e => {
+      const item = (e.target as HTMLElement).closest('.st-picker-item') as HTMLElement | null;
+      if (!item || this.pickingSlot === null) return;
+      const raw = item.dataset.spell;
+      void this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
     });
 
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
@@ -491,7 +501,7 @@ export class SkillTreeUI {
   }
 
   private renderSlotBar(): string {
-    const slots = resolveSlots(this.ownedSpells(), this.slotRows);
+    const slots = this.currentSlots();
     return slots.map((spell, i) => {
       const icon = spell === null ? 'fa-minus' : (NODE_ICONS[nodeForSpell(spell)] ?? 'fa-star');
       return `<div class="st-slot" data-slot="${i + 1}">
@@ -790,26 +800,32 @@ export class SkillTreeUI {
       el.classList.toggle('picking', Number((el as HTMLElement).dataset.slot) === slot);
     });
     const picker = this.el.querySelector('#st-picker') as HTMLElement;
+    // Now that the picker works, show what already occupies this slot so the
+    // player isn't choosing blind.
+    const currentSpell = this.currentSlots()[slot - 1];
     const items = [...this.ownedSpells()].map(spell => {
       const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
-      return `<div class="st-picker-item" data-spell="${spell}">${esc(node?.name ?? String(spell))}</div>`;
+      const current = spell === currentSpell ? ' st-picker-item-current' : '';
+      return `<div class="st-picker-item${current}" data-spell="${spell}">${esc(node?.name ?? String(spell))}</div>`;
     });
-    items.push('<div class="st-picker-item" data-spell="clear">— Clear —</div>');
+    const clearCurrent = currentSpell === null ? ' st-picker-item-current' : '';
+    items.push(`<div class="st-picker-item${clearCurrent}" data-spell="clear">— Clear —</div>`);
     picker.innerHTML = items.join('');
   }
 
   private async assignSlot(slot: SlotIndex, spell: SpellId | null): Promise<void> {
     if (!this.characterId) return;
 
-    // Optimistic: mirror the RPC's swap semantics locally so the bar updates
-    // before the round trip, then reload to reconcile.
-    const current = resolveSlots(this.ownedSpells(), this.slotRows);
-    const oldIndex = spell === null ? -1 : current.indexOf(spell);
-    const displaced = current[slot - 1];
-    const next = [...current];
+    // Snapshot-authoritative: compute the whole bar and store the whole bar.
+    // There is no swap to model against the server, so the optimistic view
+    // and what persists cannot drift apart.
+    const next = this.currentSlots();
+    const existing = spell === null ? -1 : next.indexOf(spell);
+    // Moving a spell that already sits somewhere swaps the two slots; the
+    // vacated one takes whatever the target was holding (possibly nothing).
+    if (existing !== -1) next[existing] = next[slot - 1];
     next[slot - 1] = spell;
-    if (oldIndex !== -1 && displaced !== null) next[oldIndex] = displaced;
-    else if (oldIndex !== -1) next[oldIndex] = null;
+
     this.slotRows = next
       .map((s, i) => ({ slot: i + 1, spell: s }))
       .filter((r): r is { slot: number; spell: SpellId } => r.spell !== null);
@@ -817,11 +833,11 @@ export class SkillTreeUI {
     this.pickingSlot = null;
     this.render();
 
-    await supabase.rpc('set_spell_slot', {
+    const { error } = await supabase.rpc('set_spell_slots', {
       p_character_id: this.characterId,
-      p_slot: slot,
-      p_spell: spell,
+      p_slots: next,
     });
+    if (error) console.error('Slot assignment failed, reverting:', error.message);
     await this.reload();
   }
 
