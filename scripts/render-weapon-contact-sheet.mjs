@@ -109,17 +109,20 @@ function renderFrame(layers, body, anim, dirRow, frame) {
       const dir = DIRS[meta.singleRow ? 2 : dirRow];
       const g = grip.byDir[dir];
       const role = layer.weaponRole === 'front' ? 'front' : 'behind';
-      const half = g && (role === 'front' ? g.front : g.behind);
-      const srcPath = grip.source[role === 'front' ? 1 : 0];
-      if (!g || !half || !srcPath) continue;
+      // Attached weapons always draw in front — see weaponAttach.ts.
+      if (!g || role !== 'front') continue;
+      const halves = [[g.behind, grip.source[0]], [g.front, grip.source[1]]]
+        .filter(([h, p]) => h && p);
+      if (!halves.length) continue;
       const anchor = (HAND_ANCHORS[body] ?? HAND_ANCHORS.male)?.[anim]?.[row]?.[frame];
       if (!anchor) continue;
       const inset = grip.oversize ? 32 : 0;
       const srcFrame = grip.oversize ? FRAME * 2 : FRAME;
+      buf = blank();
+      for (const [half, srcPath] of halves) {
       const [rx, ry, rw, rh] = half.rect;
       const s = sheet(srcPath, grip.anim);
       if (!s) continue;
-      buf = blank();
       const cutOut = cut(s, g.frame, DIRS.indexOf(dir), srcFrame, inset + rx, inset + ry, rw, rh);
       const dx = Math.round(anchor[0] + half.offset[0]);
       const dy = Math.round(anchor[1] + half.offset[1]);
@@ -128,7 +131,7 @@ function renderFrame(layers, body, anim, dirRow, frame) {
       const restX = rx - half.offset[0];
       // Only swings tilt — see weaponAttach.ts.
       const tilt = anim === 'slash'
-        ? Math.max(-70, Math.min(70, (anchor[0] - restX) * 5))
+        ? Math.max(-150, Math.min(150, (anchor[0] - restX) * 13))
         : 0;
       if (Math.abs(tilt) < 1) {
         blit(buf, FRAME, cutOut, rw, rh, dx, dy);
@@ -151,6 +154,7 @@ function renderFrame(layers, body, anim, dirRow, frame) {
             buf[di + 2] = cutOut[si + 2]; buf[di + 3] = cutOut[si + 3];
           }
         }
+      }
       }
     }
     if (!buf) continue;

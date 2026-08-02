@@ -23,8 +23,10 @@ const OVERSIZE_INSET = 32; // 128px source frames centre the body in the middle 
 // there just lays the weapon over at an angle across the body — which is the
 // look this whole system exists to avoid.
 const TILTING = new Set<LpcAnimation>(['slash']);
-const TILT_PER_PX = 5;
-const MAX_TILT = 70;
+// Enough travel to carry the weapon head past horizontal and down, so it
+// leads the swing the way a blade tip does rather than merely leaning.
+const TILT_PER_PX = 13;
+const MAX_TILT = 150;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -76,22 +78,30 @@ export function drawAttachedWeapon(
     const dir = DIRS[meta.singleRow ? 2 : row];
     const g: WeaponGrip | null = grip.byDir[dir] ?? null;
     if (!g) continue;
-    // Each layer paints only its own half of the weapon, so the parts that
-    // pass behind and in front of the body keep their separate depths.
-    const piece = opts.role === 'front' ? g.front : g.behind;
-    const src = opts.sources[opts.role === 'front' ? 1 : 0];
-    if (!piece || !src) continue;
+    // An attached weapon always draws in front of the body. Its own art
+    // splits into behind and in-front halves, but that split assumes the
+    // artist's placement, well clear of the torso; hung off the hand the
+    // weapon sits over the body, and drawing it behind lets the torso cut a
+    // section out of the middle. So the behind layer paints nothing, and the
+    // front layer paints whichever halves the weapon actually has.
+    if (opts.role !== 'front') continue;
+    const halves = [
+      [g.behind, opts.sources[0]] as const,
+      [g.front, opts.sources[1]] as const,
+    ].filter((h): h is readonly [NonNullable<typeof h[0]>, HTMLImageElement] => !!h[0] && !!h[1]);
+    if (!halves.length) continue;
 
-    const [rx, ry, rw, rh] = piece.rect;
     const inset = grip.oversize ? OVERSIZE_INSET : 0;
     const srcFrame = grip.oversize ? FRAME * 2 : FRAME;
-    // Where the hand sits when the weapon is at rest, recovered from the
-    // grip: the rect was measured at (restAnchor + offset).
-    const restX = rx - piece.offset[0];
 
     for (let f = 0; f < meta.frames; f++) {
       const anchor = anchors[row]?.[f];
       if (!anchor) continue;
+      for (const [piece, src] of halves) {
+      const [rx, ry, rw, rh] = piece.rect;
+      // Where the hand sits when the weapon is at rest, recovered from the
+      // grip: the rect was measured at (restAnchor + offset).
+      const restX = rx - piece.offset[0];
       // Round to whole pixels: this is pixel art, and a half-pixel offset
       // would blur the weapon against the crisp body underneath.
       const dx = Math.round(f * FRAME + anchor[0] + piece.offset[0]);
@@ -116,6 +126,7 @@ export function drawAttachedWeapon(
         ctx.restore();
       }
       drew = true;
+      }
     }
   }
   return drew;

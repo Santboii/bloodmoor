@@ -44,6 +44,7 @@ const FOOT_Y = 53;
 // Max distance an anchor may sit from its row's median before it is treated
 // as a misdetection rather than arm swing.
 const OUTLIER_PX = 12;
+const BODY_CX = 32;
 // Animations that reach the weapon arm out, rather than swinging it beside
 // the body. These pick the hand by reach; everything else tracks continuity.
 const EXTENDING = new Set(['slash', 'thrust', 'spellcast', 'shoot']);
@@ -141,9 +142,13 @@ function trackRow(layers, row, frames, side, extend = false) {
   // on the weapon's side instead.
   if (extend) {
     return Array.from({ length: frames }, (_, f) => {
-      const hands = skinParts(layers, f, row);
-      if (!hands.length) return null;
       const dir = side === 'right' ? 1 : -1;
+      // Only ever the weapon side. Mid-swing the other arm is often the only
+      // one still visible, and taking it would fling the weapon across the
+      // body and back. A frame with nothing on the weapon side is left empty
+      // for the neighbour fill, which holds the weapon still instead.
+      const hands = skinParts(layers, f, row).filter(h => (h.cx - BODY_CX) * dir > 0);
+      if (!hands.length) return null;
       return hands.slice().sort((a, b) => (b.cx - a.cx) * dir)[0];
     });
   }
@@ -257,7 +262,7 @@ for (const [name, parts] of Object.entries(BODIES)) {
       // from the row's median is treated as a miss and refilled below; real
       // arm swing stays well inside this radius.
       const seen = perRow.filter(Boolean);
-      if (seen.length >= 3) {
+      if (seen.length >= 3 && !EXTENDING.has(anim)) {
         const med = k => {
           const v = seen.map(p => p[k]).sort((a, b) => a - b);
           return v[v.length >> 1];

@@ -387,8 +387,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      34.5
     ],
     [
-     53.4,
-     34.5
+     51.9,
+     27.9
     ],
     [
      47.7,
@@ -443,12 +443,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      42.5
     ],
     [
-     45.6,
-     42.5
+     53.2,
+     33.8
     ],
     [
-     45.6,
-     42.5
+     51.8,
+     27.3
     ],
     [
      44.6,
@@ -493,12 +493,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      47
     ],
     [
-     41.9,
-     47
+     41.7,
+     50.9
     ],
     [
-     41.9,
-     47
+     41.7,
+     50.9
     ],
     [
      39.8,
@@ -543,12 +543,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
    ],
    [
     [
-     18.3,
-     44
+     24.6,
+     45.5
     ],
     [
-     18.3,
-     44
+     22.7,
+     45.9
     ],
     [
      18.3,
@@ -613,50 +613,50 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      46.6
     ],
     [
-     30.8,
-     44.1
+     32.8,
+     46.6
     ],
     [
-     28.2,
-     40.4
+     32.8,
+     46.6
     ],
     [
-     28.3,
-     39.3
+     32.8,
+     46.6
     ],
     [
-     32,
-     41.2
+     32.8,
+     46.6
     ],
     [
-     31.1,
-     44.1
+     32.8,
+     46.6
     ],
     [
-     31,
-     44.1
+     32.8,
+     46.6
     ],
     [
-     31.1,
-     44.1
+     32.8,
+     46.6
     ],
     [
-     28.1,
-     43.7
+     32.8,
+     46.6
     ],
     [
-     31,
-     44.1
+     32.8,
+     46.6
     ]
    ],
    [
     [
-     44.7,
-     44
+     38.4,
+     45.5
     ],
     [
-     44.7,
-     44
+     40.3,
+     45.9
     ],
     [
      44.7,
@@ -751,12 +751,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      47.2
     ],
     [
-     42.8,
-     47.2
+     50.1,
+     31.3
     ],
     [
-     42.8,
-     47.2
+     53.1,
+     35.7
     ]
    ],
    [
@@ -777,12 +777,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      44
     ],
     [
-     14.5,
-     44
+     10.9,
+     33
     ],
     [
-     14.5,
-     44
+     13.8,
+     32.2
     ]
    ],
    [
@@ -807,8 +807,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      43
     ],
     [
-     50.9,
-     43
+     54,
+     40.1
     ]
    ],
    [
@@ -829,12 +829,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      44
     ],
     [
-     48.5,
-     44
+     52.1,
+     33
     ],
     [
-     48.5,
-     44
+     49.2,
+     32.2
     ]
    ]
   ]
@@ -1227,8 +1227,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      37.8
     ],
     [
-     20.1,
-     37.8
+     19.9,
+     30.8
     ],
     [
      22.1,
@@ -1257,8 +1257,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      35.6
     ],
     [
-     50.4,
-     35.6
+     49.9,
+     28.8
     ],
     [
      43.8,
@@ -1287,8 +1287,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      37.8
     ],
     [
-     42.9,
-     37.8
+     43.1,
+     30.8
     ],
     [
      40.9,
@@ -1304,15 +1304,15 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
     ],
     [
      40.9,
-     47.7
+     50.7
     ],
     [
      40.9,
-     47.7
+     50.7
     ],
     [
      40.9,
-     47.7
+     50.7
     ],
     [
      38.7,
@@ -1353,12 +1353,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
    ],
    [
     [
-     18.1,
-     44.1
+     25,
+     47.5
     ],
     [
-     18.1,
-     44.1
+     22.7,
+     45.9
     ],
     [
      18.1,
@@ -1423,50 +1423,50 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      46.8
     ],
     [
-     31.1,
-     44.6
+     33.1,
+     46.8
     ],
     [
-     28.1,
-     40.3
+     33.1,
+     46.8
     ],
     [
-     31.3,
-     42.5
+     33.1,
+     46.8
     ],
     [
      32.2,
      41.2
     ],
     [
-     31.5,
-     44.5
+     32.2,
+     41.2
     ],
     [
-     31.2,
-     44.3
+     32.2,
+     41.2
     ],
     [
-     31,
-     44.3
+     32.2,
+     41.2
     ],
     [
-     27.9,
-     43.8
+     32.2,
+     41.2
     ],
     [
-     31,
-     44.3
+     32.2,
+     41.2
     ]
    ],
    [
     [
-     44.9,
-     44.1
+     38,
+     47.5
     ],
     [
-     44.9,
-     44.1
+     40.3,
+     45.9
     ],
     [
      44.9,
@@ -1561,12 +1561,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      47.7
     ],
     [
-     41.9,
-     47.7
+     50.1,
+     31.4
     ],
     [
-     41.9,
-     47.7
+     53,
+     35.7
     ]
    ],
    [
@@ -1587,12 +1587,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      44.1
     ],
     [
-     15.4,
-     44.1
+     10.8,
+     32.9
     ],
     [
-     15.4,
-     44.1
+     14.3,
+     31.7
     ]
    ],
    [
@@ -1617,8 +1617,8 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      43.4
     ],
     [
-     51.5,
-     43.4
+     54.3,
+     39.2
     ]
    ],
    [
@@ -1639,12 +1639,12 @@ export const HAND_ANCHORS: Record<string, Record<string, HandAnchor[][]>> =
      44.1
     ],
     [
-     47.6,
-     44.1
+     52.2,
+     32.9
     ],
     [
-     47.6,
-     44.1
+     48.7,
+     31.7
     ]
    ]
   ]
@@ -1948,8 +1948,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       44
      ],
      "offset": [
-      -4.2,
-      -24.3
+      -5.2,
+      -21.2
      ]
     }
    },
@@ -2022,8 +2022,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       44
      ],
      "offset": [
-      -5.2,
-      -25.3
+      -6.2,
+      -22.2
      ]
     }
    },
@@ -2096,8 +2096,8 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
       52
      ],
      "offset": [
-      -6.2,
-      -32.3
+      -7.2,
+      -29.2
      ]
     }
    },
