@@ -422,4 +422,19 @@ describe('advanceState — rest', () => {
     state = advanceState(state, bothIdle());
     expect(state.players['p1'].restCastEndTick).toBeUndefined();
   });
+
+  it('damage landing on the start tick breaks the fresh wind-up', () => {
+    const state = twoPlayerState();
+    state.players['p1'].hp = 400;
+    state.projectiles.push({
+      id: 'fb_startbreak',
+      ownerId: 'p2',
+      type: 'fireball',
+      position: { x: 200, y: 1000 },
+      velocity: { x: 400, y: 0 },
+    });
+    const next = advanceState(state, { p1: { ...idle(), rest: true }, p2: idle() });
+    expect(next.players['p1'].hp).toBeLessThan(400);
+    expect(next.players['p1'].restCastEndTick).toBeUndefined();
+  });
 });

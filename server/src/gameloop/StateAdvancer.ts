@@ -164,6 +164,7 @@ export function advanceState(
   // so in-place mutation is safe.
   const restHpSnapshot: Record<string, number> = {};
   for (const p of Object.values(players)) {
+    if ((p.restCooldownUntil ?? 0) <= tick && p.restCooldownUntil !== undefined) p.restCooldownUntil = undefined;
     if (p.hp <= 0) {
       p.restCastEndTick = undefined;
       p.resting = undefined;
@@ -460,6 +461,9 @@ export function advanceState(
     if (p.restCastEndTick !== undefined || p.resting) continue;
     p.restCastEndTick = tick + REST_CAST_TICKS;
     p.restCooldownUntil = tick + REST_COOLDOWN_TICKS;
+    // DoT that ticked in §0.5 this tick precedes this start pass, so a burning
+    // player's fresh wind-up breaks on the NEXT tick's snapshot — 1/60s late,
+    // behaviorally invisible.
     restHpSnapshot[id] = p.hp;
   }
 

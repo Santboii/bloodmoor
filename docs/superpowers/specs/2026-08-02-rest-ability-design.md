@@ -78,8 +78,9 @@ restCooldownUntil?: number;
 All logic lives in `advanceState`
 (`server/src/gameloop/StateAdvancer.ts`).
 
-- **Start** — in the input loop (section 1): if `input.rest` and the player is
-  alive, not evading, off cooldown, and not already casting or resting, set
+- **Start** — its own pass (§2.5) after the spell-cast section, so a same-frame
+  spell cast takes priority over rest: if `input.rest` and the player is alive,
+  not evading, off cooldown, and not already casting or resting, set
   `restCastEndTick = tick + REST_CAST_TICKS` and stamp `restCooldownUntil`.
 - **Resolve and regen** — a small pass beside the status-effects section
   (0.5): when `tick >= restCastEndTick`, clear it and set `resting = true`.
