@@ -278,9 +278,9 @@ export class HUD {
     const cdRemaining = Math.max(0, (me.restCooldownUntil ?? 0) - tick);
     const casting = me.restCastEndTick !== undefined && castRemaining > 0;
     const restState = casting ? 'channeling' : me.resting ? 'resting' : cdRemaining > 0 ? 'cooling' : '';
-    const restPct = casting
+    const restPct = restState === 'channeling'
       ? Math.round((castRemaining / REST_CAST_TICKS) * 1000) / 10
-      : cdRemaining > 0 ? Math.round((cdRemaining / REST_COOLDOWN_TICKS) * 1000) / 10 : 0;
+      : restState === 'cooling' ? Math.round((cdRemaining / REST_COOLDOWN_TICKS) * 1000) / 10 : 0;
     if (restPct !== this.lastRestPct) {
       this.restCd.style.height = `${restPct}%`;
       this.lastRestPct = restPct;
@@ -291,8 +291,8 @@ export class HUD {
       this.restSlot.classList.toggle('cooling', restState === 'cooling');
       this.lastRestState = restState;
     }
-    const restCdText = casting || cdRemaining > 0
-      ? (Math.max(castRemaining, casting ? 0 : cdRemaining) / 60).toFixed(1) : '';
+    const restCdText = restState === 'channeling' ? (castRemaining / 60).toFixed(1)
+      : restState === 'cooling' ? (cdRemaining / 60).toFixed(1) : '';
     if (restCdText !== this.lastRestCdText) {
       this.restCdTime.textContent = restCdText;
       this.lastRestCdText = restCdText;
