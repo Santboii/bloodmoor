@@ -87,7 +87,8 @@ export class RestAuraRenderer {
         continue;
       }
       const rate = phase === 'resting' ? RESTING_RATE : WINDUP_RATE;
-      let acc = (this.carry.get(p.id) ?? 0) + rate * delta;
+      // Cap the backlog: a stalled tab resuming with a huge delta must not burst-dump motes.
+      let acc = Math.min((this.carry.get(p.id) ?? 0) + rate * delta, 4);
       while (acc >= 1) {
         acc -= 1;
         if (phase === 'resting') this.spawnRising(p.position.x, p.position.y);

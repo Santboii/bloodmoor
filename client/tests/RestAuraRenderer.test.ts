@@ -46,6 +46,10 @@ describe('auraPhaseFor', () => {
     expect(auraPhaseFor(mkPlayer({ restCastEndTick: 1100, invisibleUntil: 1200 }), 1000)).toBeNull();
   });
 
+  it('shows the aura once invisibility has expired (boundary tick)', () => {
+    expect(auraPhaseFor(mkPlayer({ resting: true, invisibleUntil: 1000 }), 1000)).toBe('resting');
+  });
+
   it('returns null for an idle player', () => {
     expect(auraPhaseFor(mkPlayer(), 1000)).toBeNull();
   });
