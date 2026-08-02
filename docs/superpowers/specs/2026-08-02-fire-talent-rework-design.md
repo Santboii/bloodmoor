@@ -272,12 +272,11 @@ item-granted fire keystone shows in match behavior but not as a gold node.
    than the hidden indicator it replaces, and steering erodes the 1.5s
    telegraph that is currently Meteor's only counterplay. Steer radius is the
    tuning lever and should start deliberately small.
-4. **Reconnect drops entity ownership.** `remapPlayer` (`Room.ts:180-275`)
-   remaps `state.players` but not the `ownerId` on in-flight projectiles,
-   walls, or meteors, so a reconnecting player's live entities lose their
-   damage multipliers and friendly-fire exclusion. This is pre-existing, but
-   this rework multiplies long-lived entities and makes it far likelier to
-   surface. Fix it here rather than leaving it.
+4. ~~**Reconnect drops entity ownership.**~~ **Withdrawn — this was wrong.**
+   `remapPlayer` already remaps `ownerId` across projectiles, fire walls,
+   meteors, rain zones, and echo volleys (`Room.ts:287-307`). The claim came
+   from reading only the first half of the function. No fix is needed; the
+   longer-lived entities this rework adds are covered by the existing code.
 5. **Rotating walls and line-of-sight.** The fireball blast already respects
    line of sight (`StateAdvancer.ts:569-570`) and walls already split around
    pillars. A rotating wall sweeping into a pillar re-splits correctly because

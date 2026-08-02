@@ -292,3 +292,43 @@ describe('Room.startMatch with modes', () => {
     expect(room.state!.gameMode).toBe('2v2');
   });
 });
+
+describe('remapPlayer entity ownership', () => {
+  it('remaps ownerId on in-flight projectiles, walls, and meteors', () => {
+    const room = new Room('r1');
+    room.addPlayer('old', 'Alice');
+    room.addPlayer('other', 'Bob');
+    room.startMatch();
+
+    room.state!.projectiles.push({
+      id: 'fb_1', ownerId: 'old', type: 'fireball',
+      position: { x: 0, y: 0 }, velocity: { x: 1, y: 0 },
+    });
+    room.state!.fireWalls.push({
+      id: 'fw_1', ownerId: 'old', segments: [], spawnedAt: 0, expiresAt: 999,
+    });
+    room.state!.meteors.push({
+      id: 'm_1', ownerId: 'old', target: { x: 0, y: 0 }, origin: { x: 0, y: 0 },
+      strikeAt: 99, aoeRadius: 60,
+    });
+
+    room.remapPlayer('old', 'new');
+
+    expect(room.state!.projectiles[0].ownerId).toBe('new');
+    expect(room.state!.fireWalls[0].ownerId).toBe('new');
+    expect(room.state!.meteors[0].ownerId).toBe('new');
+  });
+
+  it('leaves another player\'s entities alone', () => {
+    const room = new Room('r1');
+    room.addPlayer('old', 'Alice');
+    room.addPlayer('other', 'Bob');
+    room.startMatch();
+    room.state!.projectiles.push({
+      id: 'fb_1', ownerId: 'other', type: 'fireball',
+      position: { x: 0, y: 0 }, velocity: { x: 1, y: 0 },
+    });
+    room.remapPlayer('old', 'new');
+    expect(room.state!.projectiles[0].ownerId).toBe('other');
+  });
+});

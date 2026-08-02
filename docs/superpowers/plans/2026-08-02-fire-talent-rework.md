@@ -1971,7 +1971,7 @@ git commit -m "feat(fire): render rotating walls, steered meteors, and new node 
 - Consumes: nothing.
 - Produces: nothing.
 
-`remapPlayer` remaps `state.players` but not the `ownerId` on in-flight projectiles, walls, or meteors, so a reconnecting player's live entities lose their damage multipliers and friendly-fire exclusion. Pre-existing, but this rework multiplies long-lived entities (4s bouncing fireballs, Eternal Pyre walls, chunk meteors) and makes it far likelier to surface.
+**Correction: no fix is required.** `remapPlayer` already remaps `ownerId` across projectiles, fire walls, meteors, rain zones, and echo volleys (`Room.ts:287-307`) — the spec's risk #4 was written from a partial read of the function. This task reduces to adding regression coverage, which is still worth having now that `FireWallState` and `MeteorState` carry required `spawnedAt` / `origin` fields.
 
 - [ ] **Step 1: Write the failing test**
 
