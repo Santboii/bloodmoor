@@ -72,7 +72,7 @@ can complete a build.
 | **Absolute Zero** | A target standing in your Blizzard continuously for 1.5s is rooted for 0.4s. Per-target 6s internal cooldown; the dwell timer resets on leaving the field. |
 | **Blinding Squall** | Enemies inside your Blizzard cannot see your Meteor and Blizzard impact indicators. Mirrors Blind Strike (`skills.ts:94`). |
 | **Cataclysmic Orb** | The Frozen Orb detonates when it expires: 120 damage in a 100-unit radius. |
-| **Absolute Cold** | Frost damage ignores the falloff applied at the edge of area effects — Blizzard and orb detonations deal full damage across their whole radius. |
+| **Absolute Cold** | Your chill lasts 50% longer. *(Originally specified as removing area-damage edge falloff. No frost area damage has falloff, so that described a no-op; repointed at `chillTicks`, which Ice Bolt and Blizzard already read, and which feeds Frostbite and Rimeheart.)* |
 
 Glacial Drift is intentionally keystone-free, matching how fire leaves
 Cataclysm and Inferno Expanse as pure numbers.

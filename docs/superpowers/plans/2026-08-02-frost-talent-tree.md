@@ -261,7 +261,7 @@ In `SKILL_NODES`, after the utility entries (`:99`):
     keystone: { name: 'Cataclysmic Orb', description: 'The orb detonates when it expires: 120 damage in a 100-unit radius.' } },
   { id: 'frost.glacial_drift',    name: 'Glacial Drift',    tree: 'frost', tier: 7, cost: 1, isSpell: false, description: 'Frozen Orb travels slower and lives longer per rank.', stackable: { softCap: 5, baseEffect: 0.12 } },
   { id: 'frost.cold_mastery',     name: 'Cold Mastery',     tree: 'frost', tier: 7, cost: 2, isSpell: false, description: '+6% damage to all frost spells per rank.', stackable: { softCap: 5, baseEffect: 0.06 },
-    keystone: { name: 'Absolute Cold', description: 'Frost area damage ignores edge falloff — full damage across the whole radius.' } },
+    keystone: { name: 'Absolute Cold', description: 'Your chill lasts 50% longer.' } },
 ```
 
 - [ ] **Step 6: Run the tests**
