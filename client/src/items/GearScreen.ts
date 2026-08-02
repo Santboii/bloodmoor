@@ -1,9 +1,10 @@
 import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
-  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
+  ITEM_BASES, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
+  uniqueForRow,
 } from '@arena/shared';
 import type {
-  ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass, Appearance,
+  ItemRow, ItemBase, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass, Appearance,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -60,15 +61,8 @@ export function itemBase(item: ItemRow): ItemBase | undefined {
   return ITEM_BASES.find(b => b.id === item.base_id);
 }
 
-// Every current unique manifest entry has a distinct baseId (see items.ts),
-// so matching on baseId alone is unambiguous today; if a base ever grows a
-// second unique, this needs an affix-shape tiebreak.
-function findUniqueItem(item: ItemRow): UniqueItem | undefined {
-  return UNIQUE_ITEMS.find(u => u.baseId === item.base_id);
-}
-
 export function itemDisplayName(item: ItemRow, base: ItemBase): string {
-  if (item.rarity === 'unique') return findUniqueItem(item)?.name ?? base.name;
+  if (item.rarity === 'unique') return uniqueForRow(item)?.name ?? base.name;
   return base.name;
 }
 
@@ -438,7 +432,7 @@ export class GearScreen {
 
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
-    const unique = item.rarity === 'unique' ? findUniqueItem(item) : undefined;
+    const unique = item.rarity === 'unique' ? uniqueForRow(item) : undefined;
     const isEquippedHere = item.equipped_by === this.characterId;
 
     const flavorHtml = unique ? `<div class="gr-flavor">${esc(unique.flavor)}</div>` : '';

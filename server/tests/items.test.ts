@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
-  classOwnsTree, validateItemRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
+  classOwnsTree, validateItemRow, uniqueForRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
 } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -163,5 +163,48 @@ describe('rollRarity + validateItemRow', () => {
   it('validateItemRow rejects malformed rows and passes real ones', () => {
     expect(validateItemRow(null)).toBeNull();
     expect(validateItemRow({ base_id: 'nope' })).toBeNull();
+  });
+});
+
+describe('uniqueForRow', () => {
+  const uniqueRow = (over: Partial<ItemRow> = {}): ItemRow => ({
+    id: 'u1', base_id: 'moon_amulet', rarity: 'unique', affixes: [],
+    level_req: 7, equipped_by: null, equipped_slot: null, slot: 'amulet', ...over,
+  });
+
+  it('resolves by unique_id', () => {
+    expect(uniqueForRow(uniqueRow({ unique_id: 'emberheart' }))?.id).toBe('emberheart');
+  });
+  it('returns undefined when unique_id names a unique that does not sit on this base', () => {
+    expect(uniqueForRow(uniqueRow({ base_id: 'bone_ring', unique_id: 'emberheart' }))).toBeUndefined();
+  });
+  it('returns undefined for an unknown unique_id', () => {
+    expect(uniqueForRow(uniqueRow({ unique_id: 'no_such_unique' }))).toBeUndefined();
+  });
+  it('falls back to a base_id match for legacy rows granted before the column existed', () => {
+    expect(uniqueForRow(uniqueRow())?.id).toBe('emberheart');
+  });
+});
+
+describe('validateItemRow unique_id', () => {
+  const raw = (over: Record<string, unknown> = {}) => ({
+    id: 'r1', base_id: 'moon_amulet', rarity: 'unique', affixes: [],
+    level_req: 7, equipped_by: null, equipped_slot: null, slot: 'amulet', ...over,
+  });
+
+  it('accepts a row with no unique_id at all', () => {
+    expect(validateItemRow(raw())).not.toBeNull();
+  });
+  it('accepts null unique_id', () => {
+    expect(validateItemRow(raw({ unique_id: null }))?.unique_id).toBeNull();
+  });
+  it('accepts a valid unique_id and passes it through', () => {
+    expect(validateItemRow(raw({ unique_id: 'emberheart' }))?.unique_id).toBe('emberheart');
+  });
+  it('rejects an unknown unique_id', () => {
+    expect(validateItemRow(raw({ unique_id: 'no_such_unique' }))).toBeNull();
+  });
+  it('rejects a unique_id whose manifest base disagrees with the row base', () => {
+    expect(validateItemRow(raw({ base_id: 'bone_ring', slot: 'ring', unique_id: 'emberheart' }))).toBeNull();
   });
 });

@@ -56,6 +56,10 @@ export type ItemRow = {                      // DB shape, snake_case at the boun
   id: string; base_id: string; rarity: ItemRarity; affixes: RolledAffix[];
   level_req: number; equipped_by: string | null; equipped_slot: EquipSlot | null;
   slot: ItemBaseSlot;
+  /** Which manifest unique this row is, for rarity 'unique' rows. Absent on
+   * every non-unique row, and on unique rows granted before the column
+   * existed — uniqueForRow falls back to a base_id match for those. */
+  unique_id?: string | null;
   // Optional: only populated by callers that select it (fetchItems, for the
   // Gear screen's starter-detection gate on selling) — other ItemRow
   // producers (loadSkills, economy/service's vendor/lootbox/drop rows,
@@ -215,6 +219,21 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     levelReq: 7,
   },
 ];
+
+const UNIQUES_BY_ID = new Map(UNIQUE_ITEMS.map(u => [u.id, u]));
+
+/** The manifest unique a stored row represents. Resolves by unique_id, and
+ * falls back to a base_id match for legacy rows granted before that column
+ * existed. The fallback is ambiguous once a base carries two uniques — it
+ * returns the first in manifest order — which is correct, because the second
+ * one cannot predate the column. */
+export function uniqueForRow(row: Pick<ItemRow, 'base_id' | 'unique_id'>): UniqueItem | undefined {
+  if (row.unique_id) {
+    const byId = UNIQUES_BY_ID.get(row.unique_id);
+    return byId && byId.baseId === row.base_id ? byId : undefined;
+  }
+  return UNIQUE_ITEMS.find(u => u.baseId === row.base_id);
+}
 
 /** Weight that one of a rolled item's affix slots is a 'talent' affix
  * (rare rolls only — see rollItem). Tuned so ~1 in 4 rare rolls includes
@@ -406,6 +425,13 @@ export function validateItemRow(row: unknown): ItemRow | null {
   // source is optional (see ItemRow) — validated only when a caller's
   // select includes it; absent entirely for callers that don't.
   if (r.source !== undefined && (typeof r.source !== 'string' || !VALID_SOURCES.includes(r.source as ItemSource))) return null;
+  // unique_id is optional (see ItemRow); when present it must name a manifest
+  // unique that actually sits on this row's base.
+  if (r.unique_id !== undefined && r.unique_id !== null) {
+    if (typeof r.unique_id !== 'string') return null;
+    const u = UNIQUES_BY_ID.get(r.unique_id);
+    if (!u || u.baseId !== r.base_id) return null;
+  }
 
   return {
     id: r.id,
@@ -416,6 +442,7 @@ export function validateItemRow(row: unknown): ItemRow | null {
     equipped_by: r.equipped_by as string | null,
     equipped_slot: r.equipped_slot as EquipSlot | null,
     slot: r.slot as ItemBaseSlot,
+    unique_id: r.unique_id as string | null | undefined,
     source: r.source as ItemSource | undefined,
   };
 }
