@@ -205,10 +205,14 @@ export const EMBER_DAMAGE_RATIO = 0.20;
 export const EMBER_CHAIN_DAMAGE_RATIO = 0.10;
 export const EMBER_SPEED_RATIO = 0.75;
 // Homing is a turn-rate model (accelerate laterally, renormalize speed), so
-// the turn radius is v^2/a. At speed 300 an accel of 260 gives r≈346 — wider
-// than a player, so embers orbit forever instead of converging. 1400 gives
-// r≈64, tight enough to actually land.
-export const EMBER_HOMING = 1400;
+// the turn radius is v^2/a. Two failure modes bound this: at 260 (r≈346)
+// embers orbit forever and never converge, so Chain Reaction can never
+// trigger; at 1400 (r≈64) they read as guided missiles that cannot be outrun.
+// 450 (r≈200) converges reliably while leaving room to dodge. Measured: the
+// extra pursuit at 1400 was worth only ~14 damage against a moving target,
+// because most ember damage lands on the initial spawn-on-target contact
+// regardless of how hard they steer afterwards.
+export const EMBER_HOMING = 450;
 export const EMBER_LIFETIME_TICKS = 90; // 1.5s — embers are a burst, not a swarm
 export const MAX_LIVE_EMBERS = 12;                        // hard cap per owner
 export const FIREWALL_DAMAGE_START = 25 / TICK_RATE;
