@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { Segment } from '@arena/shared';
+import { INTERNAL_HEIGHT, MAX_PIXEL_RATIO } from './pixelation';
 
 const POOL_SIZE = 4096;
 const SOFT_CAP = Math.floor(POOL_SIZE * 0.9);
 
-const DEFAULT_COLOR_R = 1.0;
+// HDR fire ember: >1.0 channels survive into the half-float composer buffer,
+// so trails and bursts feed the bloom pass like the fireball core does.
+const DEFAULT_COLOR_R = 1.05;
 const DEFAULT_COLOR_G = 0.4;
-const DEFAULT_COLOR_B = 0.0;
+const DEFAULT_COLOR_B = 0.05;
 
 export class ParticleSystem {
   private posX = new Float32Array(POOL_SIZE);
@@ -31,6 +34,15 @@ export class ParticleSystem {
   private colorAttr: THREE.BufferAttribute;
   private geometry: THREE.BufferGeometry;
   private points: THREE.Points;
+  private material: THREE.ShaderMaterial;
+
+  // gl_PointSize is in device pixels, but particle sizes are authored in the
+  // legacy 360p grid (INTERNAL_HEIGHT). Scale by the drawing-buffer height so
+  // particles keep their intended screen proportion at native resolution.
+  private onResize = () => {
+    this.material.uniforms.uSizeScale.value =
+      (window.innerHeight * Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)) / INTERNAL_HEIGHT;
+  };
 
   constructor(private scene: THREE.Scene) {
     this.positionBuffer = new Float32Array(POOL_SIZE * 3);
@@ -54,14 +66,18 @@ export class ParticleSystem {
     this.geometry.setDrawRange(0, 0);
 
     const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uSizeScale: { value: 1 },
+      },
       vertexShader: `
+        uniform float uSizeScale;
         attribute float size;
         attribute vec3 particleColor;
         varying vec3 vColor;
         void main() {
           vColor = particleColor;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size;
+          gl_PointSize = size * uSizeScale;
         }
       `,
       fragmentShader: `
@@ -69,7 +85,10 @@ export class ParticleSystem {
         void main() {
           float dist = length(gl_PointCoord - vec2(0.5));
           if (dist > 0.5) discard;
-          float alpha = 1.0 - dist * 2.0;
+          // Additive blending sums overlapping embers, so a dense trail
+          // saturates to white regardless of per-particle color — the 0.4
+          // scale caps the stacked energy while keeping the plume's size.
+          float alpha = (1.0 - dist * 2.0) * 0.4;
           gl_FragColor = vec4(vColor, alpha);
         }
       `,
@@ -78,16 +97,20 @@ export class ParticleSystem {
       blending: THREE.AdditiveBlending,
     });
 
+    this.material = material;
     this.points = new THREE.Points(this.geometry, material);
     this.points.frustumCulled = false;
     scene.add(this.points);
+
+    this.onResize();
+    window.addEventListener('resize', this.onResize);
   }
 
   emitTrail(x: number, y: number, z: number, dirX: number, dirZ: number, radius = 10): void {
     if (this.activeCount >= SOFT_CAP) return;
     const scale = radius / 10;
-    const count = Math.min(12, Math.floor((3 + Math.floor(Math.random() * 3)) * scale));
-    const spread = 4 * scale;
+    const count = Math.min(14, Math.floor((4 + Math.floor(Math.random() * 3)) * scale));
+    const spread = 8 * scale;
     for (let i = 0; i < count; i++) {
       if (this.activeCount >= POOL_SIZE) return;
       this.spawn(
@@ -97,8 +120,8 @@ export class ParticleSystem {
         -dirX * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
         (10 + Math.random() * 20) * scale,
         -dirZ * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
-        0.35 + Math.random() * 0.15,
-        (12 + Math.random() * 4) * scale,
+        0.4 + Math.random() * 0.2,
+        (16 + Math.random() * 7) * scale,
       );
     }
   }
@@ -337,6 +360,7 @@ export class ParticleSystem {
   }
 
   dispose(): void {
+    window.removeEventListener('resize', this.onResize);
     this.scene.remove(this.points);
     this.geometry.dispose();
     (this.points.material as THREE.ShaderMaterial).dispose();

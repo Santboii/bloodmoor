@@ -6,9 +6,11 @@ import { worldUnitsPerTexel } from '../pixelation';
 import { FRAME, LpcDirection, frameRect, directionFromWorldAngle, animationFrame } from './lpc';
 import { compositeAppearance, disposeComposite } from './SpriteCompositor';
 
-// Exact 2:1 sprite-pixel to internal-pixel ratio: deterministic nearest
-// downsampling (no shimmer), and the visible LPC body (~48 of 64 frame px)
-// lands at ~50 world units — matching the old model height.
+// Sized so the visible LPC body (~48 of 64 frame px) lands at ~44 world
+// units. The scale is defined against the legacy 360p texel grid
+// (worldUnitsPerTexel), which now only anchors world scale; on screen the
+// sprite renders at native resolution with NearestFilter, so the art's own
+// pixels carry the look.
 const SPRITE_SCALE = 0.5;
 
 // Casting while moving draws a split-body frame: legs from the locomotion
