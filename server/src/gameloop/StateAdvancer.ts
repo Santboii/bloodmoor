@@ -8,6 +8,7 @@ import {
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
+  FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -16,7 +17,7 @@ import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState 
 import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
-import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
+import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, surfaceNormal, reflect } from '../spells/Fireball.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
@@ -272,7 +273,15 @@ export function advanceState(
         damageMax:  mods.fireball.damageMax,
         homing:     mods.fireball.homingStrength,
       });
-      projectiles = [...projectiles, fb];
+      projectiles = [...projectiles, {
+        ...fb,
+        bounces: mods.fireball.bounces,
+        bounceCount: 0,
+        perpetual: mods.fireball.perpetual,
+        loopback: mods.fireball.huntersEmber,
+        emberGen: 0,
+        spawnTick: tick,
+      }];
     } else if (spell === 2) {
       const dx = input.aimTarget.x - p.position.x;
       const dy = input.aimTarget.y - p.position.y;
@@ -537,9 +546,21 @@ export function advanceState(
       }
       if (!hit) survivingProjectiles.push(moved);
     } else {
-      const moved = advanceFireball(proj, enemyEntry?.[1].position);
+      let moved = advanceFireball(proj, enemyEntry?.[1].position);
+
+      // Ricochet: bounce off pillars and arena walls instead of detonating.
+      // `normal` is null once the fireball is too old, so the hard lifetime
+      // ceiling wins over an unlimited Perpetual Flame budget.
+      const tooOld = (moved.spawnTick ?? tick) + FIREBALL_MAX_LIFETIME_TICKS <= tick;
+      const normal = tooOld ? null : surfaceNormal(moved, tick);
+      const canBounce = moved.perpetual || (moved.bounces ?? 0) > 0;
+      if (normal && canBounce) {
+        survivingProjectiles.push(reflect(moved, normal, tick));
+        continue;
+      }
+
       const inGrace = (moved.noHitUntil ?? 0) > tick;
-      const expired = isFireballExpired(moved, tick);
+      const expired = tooOld || isFireballExpired(moved, tick);
       let directHit = false;
 
       if (!expired && !inGrace) {
@@ -566,7 +587,8 @@ export function advanceState(
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const falloff = 1 - Math.min(dist / blastRadius, 1);
-            players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * falloff * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const bounceBonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
+            players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
           }
         }
         if ((moved.split ?? 0) > 0) {
