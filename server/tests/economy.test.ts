@@ -173,6 +173,7 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(result.rarity).toBe('unique');
     expect(result.base.id).toBe(expected.baseId);
     expect(result.levelReq).toBe(expected.levelReq);
+    expect(result.affixes).toHaveLength(expected.affixes.length);
     result.affixes.forEach((a, i) => {
       const spec = expected.affixes[i];
       expect(a.id).toBe(spec.id);
@@ -190,7 +191,9 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(manifest).toBeDefined();
     expect(result.base.id).toBe(manifest.baseId);
     expect(result.levelReq).toBe(manifest.levelReq);
+    expect(result.affixes).toHaveLength(manifest.affixes.length);
     result.affixes.forEach((a, i) => {
+      expect(a.id).toBe(manifest.affixes[i].id);
       expect(a.value).toBeGreaterThanOrEqual(manifest.affixes[i].min);
       expect(a.value).toBeLessThanOrEqual(manifest.affixes[i].max);
     });

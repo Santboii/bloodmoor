@@ -76,3 +76,79 @@ end;
 $$;
 
 grant execute on function admin_grant_item(uuid, text, text, jsonb, integer, text, text, text) to authenticated;
+
+-- equip_item: adds a same-unique guard. Two ring slots let a character equip
+-- two copies of one unique, and computeLoadout sums their talent affixes —
+-- Windrunner Band's archer.barrage (+1-3) at two copies clears the softCap-5
+-- keystone gate for free. Diablo II's fix is the simplest one: forbid
+-- equipping a second copy of a unique already equipped elsewhere. Signature
+-- is unchanged from 20260731000000_items.sql, so no drop-function is needed —
+-- create-or-replace only breaks an existing signature when the arg types or
+-- count change, and this touches only the body.
+create or replace function equip_item(
+  p_item_id uuid,
+  p_character_id uuid,
+  p_slot text
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_item items%rowtype;
+  v_character characters%rowtype;
+begin
+  select * into v_item from items where id = p_item_id and user_id = auth.uid();
+  if not found then
+    raise exception 'item not found or not owned by caller';
+  end if;
+
+  select * into v_character from characters where id = p_character_id and user_id = auth.uid();
+  if not found then
+    raise exception 'character not found or not owned by caller';
+  end if;
+
+  if v_item.equipped_by is not null and v_item.equipped_by <> p_character_id then
+    raise exception 'item is equipped by another character';
+  end if;
+
+  if v_item.slot = 'ring' then
+    if p_slot not in ('ring1', 'ring2') then
+      raise exception 'invalid slot % for ring item', p_slot;
+    end if;
+  else
+    if p_slot <> v_item.slot then
+      raise exception 'invalid slot % for % item', p_slot, v_item.slot;
+    end if;
+  end if;
+
+  if v_character.level < v_item.level_req then
+    raise exception 'character level % is below item level_req %', v_character.level, v_item.level_req;
+  end if;
+
+  if v_item.class_restriction is not null and v_item.class_restriction <> v_character.class then
+    raise exception 'item is restricted to class %', v_item.class_restriction;
+  end if;
+
+  -- Reject a second copy of the same unique in a different slot. Same-row
+  -- re-equip (id = p_item_id) and same-slot replacement are both allowed —
+  -- only a distinct row of the same unique landing in a distinct slot is
+  -- the double-count case this guards against.
+  if v_item.unique_id is not null and exists (
+    select 1 from items
+    where equipped_by = p_character_id
+      and equipped_slot is not null
+      and equipped_slot <> p_slot
+      and unique_id = v_item.unique_id
+      and id <> p_item_id
+  ) then
+    raise exception 'character already has % equipped', v_item.unique_id;
+  end if;
+
+  -- Free whatever currently occupies the target slot for this character.
+  update items set equipped_by = null, equipped_slot = null
+  where equipped_by = p_character_id and equipped_slot = p_slot and id <> p_item_id;
+
+  update items set equipped_by = p_character_id, equipped_slot = p_slot
+  where id = p_item_id;
+end;
+$$;
+
+grant execute on function equip_item(uuid, uuid, text) to authenticated;

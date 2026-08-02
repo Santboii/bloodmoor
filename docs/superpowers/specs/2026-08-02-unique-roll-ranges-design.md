@@ -166,7 +166,7 @@ Talent ranges are constrained by both structural invariants above.
 | Item | Rolls |
 |---|---|
 | **Kindling** | Damage `+4–6` · Volatile Ember `+1–2` · Max Health `-45 → -25` |
-| **Threefold Draw** | Multi-shot `+1` *(binary)* · Cast Speed `+2–4` · Max Mana `-35 → -18` |
+| **Threefold Draw** | Multi-shot `+1` *(binary)* · Cast Speed `+2–4` · Max Mana `-33 → -18` |
 | **Hunter's Eye** | Seeking Flame `+1–2` · Guided `+1–2` · Max Mana `+15–26` · Damage `-7 → -3` |
 
 ### Level 4
@@ -174,7 +174,7 @@ Talent ranges are constrained by both structural invariants above.
 | Item | Rolls |
 |---|---|
 | **Widow's Vow** | Max Mana `+60–90` · Mana Regen `+14–22` · Cast Speed `+3–5` · Max Health `-115 → -75` |
-| **Marshstrider Breeches** | Move Speed `+5–7` · Max Health `+35–55` · Cast Speed `-8 → -4` |
+| **Marshstrider Breeches** | Move Speed `+5–7` · Max Health `+40–55` · Cast Speed `-6 → -4` |
 | **Hollowhide Jerkin** | Ethereal Form `+1` · Shadowstep `+1` *(both binary)* · Max Health `+40–60` · Mana Regen `-45 → -25` · Damage `-8 → -4` |
 
 ### Level 7

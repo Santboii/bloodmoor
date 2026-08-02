@@ -131,6 +131,18 @@ describe('manifests', () => {
       }
     }
   });
+  // admin_grant_item raises 'affix value must be a non-zero number', so a
+  // range spanning zero would make an admin grant of that roll fail while a
+  // drop (inserted via service role, no such guard) silently stores a
+  // 0-value affix.
+  it('no affix range spans or touches zero', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) {
+        expect(a.min > 0 || a.max < 0, `${u.id} ${a.id}`).toBe(true);
+      }
+    }
+  });
+
   it('the two uniques sharing moon_amulet are distinguishable by unique_id', () => {
     const onMoon = UNIQUE_ITEMS.filter(u => u.baseId === 'moon_amulet');
     expect(onMoon.length).toBe(2);
@@ -459,6 +471,28 @@ describe('rollQuality', () => {
       affixes: [{ id: 'damage_pct', min: 5, max: 5 }],
     };
     expect(rollQuality(frozen, [{ id: 'damage_pct', value: 5 }])).toBeNull();
+  });
+
+  // doomsayers_barbute carries two talent specs with the identical [1,3]
+  // range on different nodes (fire.cataclysm, archer.wide_rain) — an
+  // id-only match (dropping the `node` clause) would resolve both specs to
+  // whichever rolled 'talent' affix comes first, and because the ranges are
+  // identical that bug wouldn't show up in an all-min/all-max/midpoint test.
+  // Rolling the two talents to different ends of their range makes it
+  // self-verifying: a node mismatch changes the computed quality.
+  it('matches doomsayers_barbute\'s two talent specs by node, not id alone', () => {
+    const u = byId('doomsayers_barbute');
+    const cataclysm = u.affixes.find(a => a.node === 'fire.cataclysm')!;
+    const wideRain = u.affixes.find(a => a.node === 'archer.wide_rain')!;
+    const maxHealth = u.affixes.find(a => a.id === 'max_health')!;
+    const moveSpeed = u.affixes.find(a => a.id === 'move_speed_pct')!;
+    const rolled: RolledAffix[] = [
+      { id: 'talent', value: cataclysm.min, node: 'fire.cataclysm' }, // 0
+      { id: 'talent', value: wideRain.max, node: 'archer.wide_rain' }, // 1
+      { id: 'max_health', value: maxHealth.min },                     // 0
+      { id: 'move_speed_pct', value: moveSpeed.max },                 // 1 (max is the lucky end for a drawback)
+    ];
+    expect(rollQuality(u, rolled)).toBeCloseTo(0.5, 5);
   });
 
   it('every shipped unique yields a quality between 0 and 1 for real rolls', () => {

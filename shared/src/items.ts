@@ -349,8 +349,8 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     flavor: 'Peat-stained to the knee. They remember every path out of the moor.',
     affixes: [
       { id: 'move_speed_pct', min: 5, max: 7 },
-      { id: 'max_health', min: 35, max: 55 },
-      { id: 'cast_speed_pct', min: -8, max: -4 },
+      { id: 'max_health', min: 40, max: 55 },
+      { id: 'cast_speed_pct', min: -6, max: -4 },
     ],
     levelReq: 4,
     lpcTint: { color: '#6f8f4a', mode: 'fabric' },
@@ -390,8 +390,8 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     aura: { style: 'embers', color: [1.0, 0.35, 0.05], anchor: 'chest', intensity: 1.4 },
   },
   {
-    // Two tree ranks of Freeze plus these two reach rank 4 — past the soft
-    // cap of 3 — and unlock Deep Freeze.
+    // A max roll (+3) plus one invested tree rank of Freeze reaches rank
+    // 4 — past the soft cap of 3 — and unlocks Deep Freeze.
     id: 'quiverfrost', baseId: 'war_bow', name: 'Quiverfrost',
     flavor: 'The string does not thaw.',
     affixes: [
@@ -405,8 +405,9 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     aura: { style: 'frost', color: [0.6, 0.9, 1.0], anchor: 'chest', intensity: 1.0 },
   },
   {
-    // Four tree ranks of Wide Rain plus these two reach 6 and unlock Twin
-    // Storm. The negative move_speed_pct on a helmet is deliberate: the
+    // A max roll (+3) plus three invested tree ranks of Wide Rain reach 6 —
+    // past the soft cap of 5 — and unlock Twin Storm. The negative
+    // move_speed_pct on a helmet is deliberate: the
     // leggings-only rule in AFFIX_ALLOWED_SLOTS governs ROLLED affixes, and a
     // heavy helm that slows you is the whole idea.
     id: 'doomsayers_barbute', baseId: 'iron_helm', name: "Doomsayer's Barbute",
@@ -608,7 +609,10 @@ export function rollQuality(unique: UniqueItem, affixes: RolledAffix[]): number 
     sum += (rolled.value - spec.min) / (spec.max - spec.min);
     count++;
   }
-  return count === 0 ? null : sum / count;
+  // Clamped defensively: a legacy stored value from a since-narrowed range
+  // would otherwise land outside [0, 1] and break both the PERFECT check
+  // (exact 1) and the percentage display.
+  return count === 0 ? null : Math.min(1, Math.max(0, sum / count));
 }
 
 const RARITY_ORDER: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];

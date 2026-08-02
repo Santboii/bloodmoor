@@ -60,15 +60,31 @@ export function ringTargetSlot(occupiedSlots: EquipSlot[]): 'ring1' | 'ring2' {
   return 'ring2';
 }
 
-/** Pure gate for whether an item can be equipped right now — level and
- * class checks only; slot targeting is handled separately by the caller. */
-export function canEquip(item: ItemRow, charLevel: number, charClass: CharacterClass): { ok: boolean; reason?: string } {
+/** Pure gate for whether an item can be equipped right now — level, class,
+ * and same-unique checks; slot targeting (beyond what's needed to evaluate
+ * the same-unique check) is handled separately by the caller. `equipped` is
+ * the character's currently-equipped rows, used only for the same-unique
+ * gate below — mirrors the equip_item RPC's guard, so a player never sees
+ * "Click to equip" for a second copy the server would then reject. */
+export function canEquip(
+  item: ItemRow, charLevel: number, charClass: CharacterClass, equipped: ItemRow[],
+): { ok: boolean; reason?: string } {
   if (charLevel < item.level_req) {
     return { ok: false, reason: `Requires level ${item.level_req}` };
   }
   const base = ITEM_BASES.find(b => b.id === item.base_id);
   if (base?.classRestriction && base.classRestriction !== charClass) {
     return { ok: false, reason: `Restricted to ${base.classRestriction}` };
+  }
+  if (item.unique_id) {
+    const targetSlot: EquipSlot = item.slot === 'ring'
+      ? ringTargetSlot(equipped.filter(e => e.equipped_slot !== null).map(e => e.equipped_slot as EquipSlot))
+      : (item.slot as EquipSlot);
+    const dup = equipped.some(e =>
+      e.id !== item.id && e.unique_id === item.unique_id && e.equipped_slot !== targetSlot);
+    if (dup) {
+      return { ok: false, reason: 'Already equipped' };
+    }
   }
   return { ok: true };
 }
@@ -257,6 +273,12 @@ export class GearScreen {
       .map(i => i.equipped_slot as EquipSlot);
   }
 
+  /** Rows currently equipped by the open character — canEquip's same-unique
+   * gate needs the whole row (for unique_id), not just the occupied slots. */
+  private equippedItems(): ItemRow[] {
+    return this.items.filter(i => i.equipped_by === this.characterId);
+  }
+
   private render(): void {
     const dollHtml = SLOT_ORDER.map(slot => this.renderDollSlot(slot)).join('');
     const stashItems = this.items.filter(i => i.equipped_by === null);
@@ -368,7 +390,7 @@ export class GearScreen {
           this.handleUnequip(item);
           return;
         }
-        const check = canEquip(item, this.charLevel, this.charClass);
+        const check = canEquip(item, this.charLevel, this.charClass, this.equippedItems());
         if (!check.ok) {
           this.selectItem(id);
           return;
@@ -472,7 +494,9 @@ export class GearScreen {
     const quality = unique ? rollQuality(unique, item.affixes) : null;
     const qualityHtml = quality === null ? '' : (quality === 1
       ? `<div class="gr-details-row gr-perfect">PERFECT ROLL</div>`
-      : `<div class="gr-details-row gr-quality">Roll quality ${Math.round(quality * 100)}%</div>`);
+      // min(99, ...) rather than a plain round: a 0.996 roll rounds to 100,
+      // which would read as perfect without earning the PERFECT marker above.
+      : `<div class="gr-details-row gr-quality">Roll quality ${Math.min(99, Math.round(quality * 100))}%</div>`);
 
     const levelBad = this.charLevel < item.level_req;
     const levelReqHtml = `<div class="gr-details-row ${levelBad ? 'gr-bad' : 'gr-ok'}">Requires Level ${item.level_req}</div>`;
@@ -483,7 +507,7 @@ export class GearScreen {
       classHtml = `<div class="gr-details-row ${mismatched ? 'gr-bad' : 'gr-ok'}">Class: ${esc(base.classRestriction)}</div>`;
     }
 
-    const check = canEquip(item, this.charLevel, this.charClass);
+    const check = canEquip(item, this.charLevel, this.charClass, this.equippedItems());
     const statusHtml = isEquippedHere
       ? `<div class="gr-details-status gr-ok">Equipped — click to unequip</div>`
       : check.ok
