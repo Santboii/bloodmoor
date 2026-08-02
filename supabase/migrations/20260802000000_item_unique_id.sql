@@ -15,6 +15,12 @@ update items set unique_id = 'windrunner_band'
 -- "> 0" to "non-zero". Unique items now carry negative affix values as
 -- deliberate drawbacks; the old guard made every one of them ungrantable.
 -- Body is otherwise verbatim from 20260731010000_items_fixes.sql.
+
+-- create-or-replace cannot change a function's signature: adding p_unique_id
+-- would leave the old 7-arg version in place as a second overload, and a
+-- 7-argument call would then be ambiguous rather than resolving to either.
+drop function if exists admin_grant_item(uuid, text, text, jsonb, integer, text, text);
+
 create or replace function admin_grant_item(
   p_user_id uuid,
   p_base_id text,
