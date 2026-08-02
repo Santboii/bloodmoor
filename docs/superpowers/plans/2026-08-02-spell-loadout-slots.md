@@ -58,9 +58,16 @@ describe('resolveSlots', () => {
     expect(resolveSlots(owned(1, 2, 3, 4), [])).toEqual([1, 2, 3, 4, null, null]);
   });
 
-  it('with no rows, closes gaps rather than preserving spell ids as slots', () => {
-    // A mage with only Fireball and Teleport gets them on keys 1 and 2.
-    expect(resolveSlots(owned(1, 4), [])).toEqual([1, 4, null, null, null, null]);
+  it('with no rows, seeds each spell at its legacy default slot', () => {
+    // A mage with only Fireball and Teleport keeps them on keys 1 and 4 —
+    // exactly where they sit today. Nothing is silently rebound.
+    expect(resolveSlots(owned(1, 4), [])).toEqual([1, null, null, 4, null, null]);
+  });
+
+  it('falls back to the lowest empty slot when a default slot is taken', () => {
+    // Spell 5 is the ranger's Power Shot (defaultSlot 1); with the mage's
+    // Fireball already holding slot 1 it spills to the first free slot.
+    expect(resolveSlots(owned(1, 5), [])).toEqual([1, 5, null, null, null, null]);
   });
 
   it('honors explicit rows and auto-fills the rest into the lowest empty slots', () => {
@@ -133,14 +140,25 @@ const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spe
 /**
  * Resolve persisted slot rows into the character's hotbar.
  *
- * Explicit rows win. Owned spells with no row fill the lowest empty slots in
- * SPELL_BINDINGS declaration order, which reproduces the old fixed-key layout
- * for any character that has never edited a slot. Spells that do not fit stay
- * unslotted rather than displacing an explicit assignment.
+ * Three passes, in priority order:
+ *   1. Explicit rows win — the character put that spell there deliberately.
+ *   2. Every other owned spell seeds at its legacy default slot if that slot
+ *      is free. This is what keeps an existing character's bar identical to
+ *      what it is today: a mage owning Fireball and Meteor keeps them on
+ *      keys 1 and 3, with the gap where Fire Wall would go.
+ *   3. Anything still unplaced (its default slot was taken, or it has no
+ *      default at all) falls to the lowest empty slot.
+ *
+ * Spells that do not fit stay unslotted rather than displacing an assignment.
  */
 export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
   const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
   const placed = new Set<SpellId>();
+
+  const claim = (index: number, spell: SpellId) => {
+    slots[index] = spell;
+    placed.add(spell);
+  };
 
   for (const row of rows) {
     if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
@@ -149,16 +167,22 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
     if (!owned.has(spell)) continue;
     if (placed.has(spell)) continue;      // first row wins
     if (slots[row.slot - 1] !== null) continue;
-    slots[row.slot - 1] = spell;
-    placed.add(spell);
+    claim(row.slot - 1, spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    // `key` is today's fixed keybind. Task 6 renames it to `defaultSlot`,
+    // which is what it actually means once slots are assignable.
+    const index = binding.key - 1;
+    if (slots[index] === null) claim(index, binding.spell);
   }
 
   for (const binding of SPELL_BINDINGS) {
     if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
     const free = slots.indexOf(null);
     if (free === -1) break;
-    slots[free] = binding.spell;
-    placed.add(binding.spell);
+    claim(free, binding.spell);
   }
 
   return slots;
@@ -693,47 +717,102 @@ git commit -m "feat(client): load persisted spell slots into the bar and input"
 
 ---
 
-### Task 6: Drop `key` from `SpellBinding`
+### Task 6: Rename `key` to `defaultSlot`
 
-Now that nothing reads it, remove the field. This is the change that guarantees no keybind logic survived.
+The field survives, but its meaning has changed. It is no longer "the key that casts this spell" — nothing looks a spell up by keypress any more. It is now "the slot this spell occupies when the character has not assigned one," which is what preserves an existing character's bar unchanged. Renaming it forces every read site to be revisited, which is the same guarantee deleting it would have given.
+
+Making it optional matters for Phase B: the frost tree adds three more mage spells, and with only six slots they cannot all have a distinct default. A spell with no `defaultSlot` simply falls to the lowest empty slot.
 
 **Files:**
-- Modify: `shared/src/skills.ts:137-148`
+- Modify: `shared/src/skills.ts:137-148` and the `resolveSlots` default-slot pass
+- Test: `server/tests/spell-slots.test.ts` (extend)
 
 **Interfaces:**
-- Produces: `SpellBinding = { spell: SpellId; node: NodeId; charClass: CharacterClass }`.
+- Produces: `SpellBinding = { spell: SpellId; node: NodeId; charClass: CharacterClass; defaultSlot?: SlotIndex }`.
 
-- [ ] **Step 1: Remove the field and every `key` value**
+- [ ] **Step 1: Write the failing test**
+
+Append to `server/tests/spell-slots.test.ts`:
+
+```ts
+import { SPELL_BINDINGS } from '@arena/shared';
+
+describe('default slots', () => {
+  it('keeps every existing spell on the key it uses today', () => {
+    const slotOf = (s: number) => SPELL_BINDINGS.find(b => b.spell === s)?.defaultSlot;
+    expect(slotOf(1)).toBe(1);  // Fireball
+    expect(slotOf(2)).toBe(2);  // Fire Wall
+    expect(slotOf(3)).toBe(3);  // Meteor
+    expect(slotOf(4)).toBe(4);  // Teleport
+    expect(slotOf(5)).toBe(1);  // Power Shot
+    expect(slotOf(8)).toBe(4);  // Evade
+  });
+
+  it('places a spell with no default slot in the lowest empty one', () => {
+    // Simulates a Phase B frost spell: owned, but with no legacy key.
+    const binding = SPELL_BINDINGS.find(b => b.defaultSlot === undefined);
+    if (!binding) return; // no such spell yet in Phase A
+    expect(resolveSlots(new Set([binding.spell]), [])[0]).toBe(binding.spell);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm test -- spell-slots`
+Expected: FAIL — `defaultSlot` does not exist on `SpellBinding`.
+
+- [ ] **Step 3: Rename the field**
 
 Replace `:137-148`:
 
 ```ts
-export type SpellBinding = { spell: SpellId; node: NodeId; charClass: CharacterClass };
+/** Maps a spell to the node that unlocks it and the class that can cast it.
+ *  `defaultSlot` is the hotbar slot the spell takes when the character has
+ *  not assigned one — it preserves the pre-slots keybind layout. A spell
+ *  without one falls to the lowest empty slot. */
+export type SpellBinding = {
+  spell: SpellId;
+  node: NodeId;
+  charClass: CharacterClass;
+  defaultSlot?: SlotIndex;
+};
 
 export const SPELL_BINDINGS: SpellBinding[] = [
-  { spell: 1, node: 'fire.fireball',          charClass: 'mage' },
-  { spell: 2, node: 'fire.fire_wall',         charClass: 'mage' },
-  { spell: 3, node: 'fire.meteor',            charClass: 'mage' },
-  { spell: 4, node: 'utility.teleport',       charClass: 'mage' },
-  { spell: 5, node: 'archer.power_shot',      charClass: 'ranger' },
-  { spell: 6, node: 'archer.multishot',       charClass: 'ranger' },
-  { spell: 7, node: 'archer.rain_of_arrows',  charClass: 'ranger' },
-  { spell: 8, node: 'archer_utility.evade',   charClass: 'ranger' },
+  { spell: 1, node: 'fire.fireball',          defaultSlot: 1, charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         defaultSlot: 2, charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            defaultSlot: 3, charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       defaultSlot: 4, charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
 ];
 ```
 
-Declaration order is now load-bearing — it is the default slot order in `resolveSlots`. Leave the comment above the type reflecting that.
+- [ ] **Step 4: Update the `resolveSlots` default-slot pass**
 
-- [ ] **Step 2: Build every workspace to find stragglers**
+The second pass currently reads `binding.key`. It becomes:
+
+```ts
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    if (binding.defaultSlot === undefined) continue;
+    const index = binding.defaultSlot - 1;
+    if (slots[index] === null) claim(index, binding.spell);
+  }
+```
+
+- [ ] **Step 5: Build every workspace to find stragglers**
 
 Run: `npm run build --workspace=client && npm test`
-Expected: PASS. Any `b.key` reference surfaces here as a type error.
+Expected: PASS. Any surviving `b.key` reference surfaces here as a type error — that is the rename doing the job deletion would have done.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add shared/src/skills.ts
-git commit -m "refactor(spells): drop the fixed keybind from spell bindings"
+git add shared/src/skills.ts server/tests/spell-slots.test.ts
+git commit -m "refactor(spells): rename the spell keybind to defaultSlot"
 ```
 
 ---
