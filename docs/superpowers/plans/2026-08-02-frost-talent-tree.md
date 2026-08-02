@@ -1269,6 +1269,28 @@ Cold Mastery multiplies `damageMin`/`damageMax` on Ice Bolt and the orb, and `da
 
 Chill deepens by *subtracting* from the factor (lower = slower): `chillFactor = ICEBOLT_CHILL_FACTOR - effectAtRank(0.05, rank)`, clamped at a floor of `0.4` so no stack of ranks approaches a root.
 
+- [ ] **Step 3a: Consume Frostbite at hit time**
+
+Frostbite is the one frost modifier that cannot be a spawn-config value — it depends on the target's live slow state at the moment of impact, which the spawner cannot know. Without this step it is computed, reported by the tests, and never read: a tier-3 node costing 2 points per rank that does nothing.
+
+Apply it in the ice-bolt branch of the projectile stepping loop, in the damage calculation:
+
+```ts
+// Frostbite: the deeper the target's chill, the harder the bolt lands.
+//
+// Read the slow BEFORE this bolt applies its own chill. Otherwise every
+// bolt pays itself the bonus on first contact and the talent silently
+// becomes a flat damage increase, which is not what it says it does.
+const slowBefore = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
+const frostbiteMult = 1 + m.frostbite * (1 - slowBefore);
+```
+
+Then multiply it into the damage alongside the existing `getDamageMultiplier` call. An unchilled target has `slowBefore === 1`, so the multiplier is exactly 1 and Frostbite contributes nothing — correct, since the node's whole premise is rewarding a target you have already chilled.
+
+Scale sanity, for the record: at Frostbite rank 3, `effectAtRank(0.10, 3) ≈ 0.216`. Against a target at the chill floor (0.4) that is `1 + 0.216 × 0.6 ≈ 1.13`, so +13%. Against a target at base chill (0.85) it is about +3%. That is a modest payoff and a tuning candidate, but land it as specified — the plan's numbers are a baseline to tune from, not a target.
+
+The Rimeheart keystone (Task 8) extends this same bonus to all your frost damage against that target, so keep the calculation in a form Task 8 can lift out.
+
 - [ ] **Step 4: Pass the modifiers into the three spawn calls**
 
 Replace the placeholder spawn calls from Tasks 4-6 with the full config objects shown in Task 4 Step 6, Task 5 Step 4, and Task 6 Step 6.
