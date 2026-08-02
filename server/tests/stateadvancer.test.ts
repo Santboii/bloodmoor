@@ -372,4 +372,54 @@ describe('advanceState — rest', () => {
     expect(next.projectiles.length).toBe(1);
     expect(next.players['p1'].restCastEndTick).toBeUndefined();
   });
+
+  it('movement cancels the wind-up', () => {
+    let state = twoPlayerState();
+    state = advanceState(state, { p1: { ...idle(), rest: true }, p2: idle() });
+    expect(state.players['p1'].restCastEndTick).toBeDefined();
+    state = advanceState(state, { p1: { ...idle(), move: { x: 1, y: 0 } }, p2: idle() });
+    expect(state.players['p1'].restCastEndTick).toBeUndefined();
+    expect(state.players['p1'].resting).toBeUndefined();
+    // interrupt does not refund the cooldown
+    expect(state.players['p1'].restCooldownUntil).toBe(REST_COOLDOWN_TICKS);
+  });
+
+  it('movement cancels active resting', () => {
+    let state = twoPlayerState();
+    state.players['p1'].hp = 100;
+    state.players['p1'].resting = true;
+    state = advanceState(state, { p1: { ...idle(), move: { x: 1, y: 0 } }, p2: idle() });
+    expect(state.players['p1'].resting).toBeUndefined();
+  });
+
+  it('casting a spell cancels resting', () => {
+    let state = twoPlayerState();
+    state.players['p1'].hp = 100;
+    state.players['p1'].resting = true;
+    state = advanceState(state, {
+      p1: { ...idle(), castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
+      p2: idle(),
+    });
+    expect(state.players['p1'].resting).toBeUndefined();
+  });
+
+  it('zone damage cancels resting even on a net-healing tick', () => {
+    let state = twoPlayerState();
+    state.players['p1'].hp = 100;
+    state.players['p1'].resting = true;
+    // Fire wall crossing p1's spawn — its per-tick damage (0.67) is smaller
+    // than rest regen (1.25); the break keys on damage, not net hp change.
+    state.fireWalls.push(spawnFireWall('p2', { x: 150, y: 1000 }, { x: 250, y: 1000 }, 0));
+    state = advanceState(state, bothIdle());
+    expect(state.players['p1'].resting).toBeUndefined();
+  });
+
+  it('DoT damage cancels the wind-up', () => {
+    let state = twoPlayerState();
+    state = advanceState(state, { p1: { ...idle(), rest: true }, p2: idle() });
+    state.players['p1'].burnUntil = 300;
+    state.players['p1'].burnDps = 30;
+    state = advanceState(state, bothIdle());
+    expect(state.players['p1'].restCastEndTick).toBeUndefined();
+  });
 });
