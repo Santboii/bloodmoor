@@ -41,6 +41,19 @@ const NODE_ICONS: Record<NodeId, string> = {
   'archer_utility.combat_roll': 'fa-person-falling',
   'archer_utility.shadowstep':  'fa-ghost',
   'archer_utility.acrobatics':  'fa-tornado',
+  'frost.ice_bolt':         'fa-icicles',
+  'frost.bitter_chill':     'fa-temperature-low',
+  'frost.ice_lance':        'fa-arrow-right-long',
+  'frost.frostbite':        'fa-tooth',
+  'frost.splintering_ice':  'fa-shapes',
+  'frost.blizzard':         'fa-snowflake',
+  'frost.lingering_winter': 'fa-hourglass-half',
+  'frost.deepening_cold':   'fa-temperature-arrow-down',
+  'frost.whiteout':         'fa-expand',
+  'frost.frozen_orb':       'fa-circle-nodes',
+  'frost.shard_storm':      'fa-burst',
+  'frost.glacial_drift':    'fa-gauge-simple-low',
+  'frost.cold_mastery':     'fa-snowflake',
 };
 
 function esc(s: string): string {
@@ -83,6 +96,22 @@ const FIRE_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'fire.cataclysm':       { x: 80, y: ROW * 6 },
 };
 
+const FROST_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'frost.ice_bolt':         { x: 50, y: 0 },
+  'frost.bitter_chill':     { x: 30, y: ROW },
+  'frost.ice_lance':        { x: 70, y: ROW },
+  'frost.frostbite':        { x: 30, y: ROW * 2 },
+  'frost.splintering_ice':  { x: 70, y: ROW * 2 },
+  'frost.blizzard':         { x: 50, y: ROW * 3 },
+  'frost.lingering_winter': { x: 20, y: ROW * 4 },
+  'frost.deepening_cold':   { x: 50, y: ROW * 4 },
+  'frost.whiteout':         { x: 80, y: ROW * 4 },
+  'frost.frozen_orb':       { x: 50, y: ROW * 5 },
+  'frost.shard_storm':      { x: 20, y: ROW * 6 },
+  'frost.glacial_drift':    { x: 50, y: ROW * 6 },
+  'frost.cold_mastery':     { x: 80, y: ROW * 6 },
+};
+
 const UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'utility.teleport':      { x: 50, y: 0 },
   'utility.phase_shift':   { x: 28, y: ROW },
@@ -113,7 +142,7 @@ const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7;
 /** Tallest node block: a spell circle (52) + gap + one-line name, which just
  *  edges out a mod circle (38) + gap + two-line name. */
 const NODE_BLOCK = 66;
@@ -135,11 +164,12 @@ const STYLES = `
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
 /* ── two-column workspace ───────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
-.st-col-main{flex:1 1 560px;min-width:480px;max-width:640px;}
+.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
 /* Both columns are pinned to the same workspace height (set inline) so the
    page height never depends on which class is open or how much the details
    panel has to say — the panel absorbs the difference by scrolling itself. */
 .st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:16px;}
+.st-col-frost{flex:1 1 420px;min-width:380px;}
 .st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
 .st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:8px;}
 .st-tree-container{position:relative;width:100%;}
@@ -386,6 +416,8 @@ export class SkillTreeUI {
     const mainLabel = isRanger ? 'Archer' : 'Fire';
     const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS)}px`;
     const utilContainerHeight = `${treeHeight(UTIL_ROWS)}px`;
+    const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
+    const frostContainerHeight = `${treeHeight(FROST_ROWS)}px`;
 
     this.el.innerHTML = `
       <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('st')}</div>
@@ -411,6 +443,14 @@ export class SkillTreeUI {
               ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
             </div>
           </div>
+          ${!isRanger ? `
+          <div class="st-col-frost" style="height:${WORKSPACE_H}px">
+            <div class="st-tree-label">Frost</div>
+            <div class="st-tree-container" style="height:${frostContainerHeight}">
+              <svg id="st-frost-svg" class="st-tree-svg"></svg>
+              ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+            </div>
+          </div>` : ''}
           <div class="st-col-side" style="height:${WORKSPACE_H}px">
             <div id="st-details" class="st-details px-panel"></div>
             <div class="st-util-block">
@@ -453,6 +493,7 @@ export class SkillTreeUI {
 
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
+    this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
     this.attachNodeListeners(pts);
     this.renderDetails(this.selectedId, pts);
 
