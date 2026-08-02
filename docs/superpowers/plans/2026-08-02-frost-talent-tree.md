@@ -1628,7 +1628,11 @@ Extend the rows constant (`:112`): `const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_R
 
 In `render()` (`:374-392`), the mage layout becomes fire | frost | utility+details; the ranger keeps two columns. Add a `.st-col-frost` block with `<svg id="st-frost-svg" class="st-tree-svg">`, rendered only when `!isRanger`.
 
-CSS: raise `.st-columns{max-width}` (`:133`) to `1060px` and lower `.st-col-main{min-width}` (`:134`) to `380px`, or the third column wraps. Add `.st-col-frost{flex:1 1 420px;min-width:380px}`. Below ~1100px the row must wrap or scroll — add `flex-wrap:wrap` to `.st-columns` so narrow viewports degrade instead of clipping. **This is the first time this screen has rendered three columns; check it at 1280px, 1100px, and 900px.**
+CSS: lower `.st-col-main{min-width}` (`:134`) to `380px`, add `.st-col-frost{flex:1 1 420px;min-width:380px}`, and add `flex-wrap:wrap` to `.st-columns` so narrow viewports degrade instead of clipping.
+
+**`.st-columns{max-width}` must be at least `1400px`.** Do the arithmetic before picking a number: the three columns are `.st-col-main` (min 380), `.st-col-frost` (min 380), and the fixed `.st-col-side` (340), plus two 24px gaps — so one row needs **1148px minimum** and **1368px** at preferred flex-basis. A cap below that makes the row wrap at *every* viewport width, because the cap, not the screen, becomes the binding constraint. 1400px fits the preferred basis and still wraps gracefully below 1148px.
+
+**This is the first time this screen has rendered three columns; check it at 1440px, 1280px, and 900px**, and state the flex math at each rather than asserting it looks fine.
 
 - [ ] **Step 4: Draw the connections**
 
