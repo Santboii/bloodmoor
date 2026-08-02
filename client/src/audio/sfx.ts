@@ -56,6 +56,12 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   6: 'cast_bow',
   7: 'cast_rain',
   8: 'evade',
+  // No dedicated cold/ice sample exists in the bank (see sampleBank.ts:11-18)
+  // — reusing the closest existing cast sound per spell shape rather than
+  // adding new assets. Follow-up: record a proper ice cast sting.
+  9: 'cast_fire', // Ice Bolt: fast single projectile, same shape as Fireball's cast
+  10: 'cast_firewall', // Blizzard: persistent zone, same shape as Fire Wall's cast
+  11: 'cast_meteor', // Frozen Orb: summoned construct that acts over time, closest to Meteor's cast
 };
 
 export function playCast(spell: SpellId): void {

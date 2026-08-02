@@ -6,12 +6,14 @@ import * as sfx from '../audio/sfx';
 const SPELL_ICONS: Record<number, string> = {
   1: 'fa-fire', 2: 'fa-fire-flame-simple', 3: 'fa-meteor', 4: 'fa-wand-magic',
   5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
+  9: 'fa-icicles', 10: 'fa-snowflake', 11: 'fa-circle-nodes',
 };
 
-// Spell-school tint for slot icons: fire / utility (mobility) / ranger.
+// Spell-school tint for slot icons: fire / utility (mobility) / ranger / frost.
 const SPELL_TINTS: Record<number, string> = {
   1: '#ff8c42', 2: '#ff8c42', 3: '#ff8c42', 4: '#b48cff',
   5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
+  9: '#6fd3f2', 10: '#6fd3f2', 11: '#6fd3f2',
 };
 
 // Chunky 20-gon staircase — a circle drawn at pixel-art resolution.
