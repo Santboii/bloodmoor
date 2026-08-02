@@ -45,9 +45,29 @@ export type ItemBase = {
   lpc?: ItemBaseLpc;
 };
 
+/** A unique's particle aura. `style` picks a shared emitter shape; there is
+ * no per-item emitter code. Colors are 0-1 rgb, matching ParticleSystem's
+ * float color buffers. */
+export type AuraStyle = 'embers' | 'frost' | 'orbit' | 'drip' | 'wisp';
+export type AuraAnchor = 'head' | 'chest' | 'feet';
+export type UniqueAura = {
+  style: AuraStyle;
+  color: [number, number, number];
+  anchor: AuraAnchor;
+  /** Scales emission rate and particle size; 1 is the default weight. */
+  intensity?: number;
+  /** 'orbit' only — how many motes ride the ring. Defaults to 1. */
+  motes?: number;
+};
+
 export type UniqueItem = {
   id: string; baseId: string; name: string; flavor: string;
   affixes: RolledAffix[]; levelReq: number;
+  /** Overrides the tint of every layer of the base's lpc manifest, so the
+   * unique is visually distinct in-world and on its inventory icon. Only
+   * meaningful on bases that have an lpc entry. */
+  lpcTint?: { color: string; mode?: 'fabric' };
+  aura?: UniqueAura;
 };
 
 export type ItemSource = 'starter' | 'drop' | 'vendor' | 'lootbox' | 'admin';
@@ -196,7 +216,156 @@ export const ITEM_BASES: ItemBase[] = [
   },
 ];
 
+/**
+ * Hand-authored uniques: one axis above rare, one axis below. Negative affix
+ * values are drawbacks and are load-bearing — `computeLoadout`'s STAT_FLOORS
+ * bound what they can stack into.
+ *
+ * Talent affixes are the payload, used three ways: granting a spell the
+ * player never bought (the cast gate only checks node presence), granting a
+ * binary modifier node, and pushing a stackable node past its soft cap into
+ * its keystone. An item never trips a keystone alone — it rewards investment
+ * already made.
+ *
+ * Class-shared slots grant BOTH classes' equivalent node; off-class talent
+ * affixes are inert in computeLoadout, so one item reads identically on
+ * either class at no extra cost.
+ *
+ * Only ranger nodes carry keystone data today, so keystone-forcing is
+ * ranger-only here; the mage's equivalent payoff is the spell grants.
+ */
 export const UNIQUE_ITEMS: UniqueItem[] = [
+  // --- Level 1 ---
+  {
+    id: 'kindling', baseId: 'apprentice_staff', name: 'Kindling',
+    flavor: 'Every apprentice is told not to feed it. Every apprentice does.',
+    affixes: [
+      { id: 'damage_pct', value: 5 },
+      { id: 'talent', value: 1, node: 'fire.volatile_ember' },
+      { id: 'max_health', value: -35 },
+    ],
+    levelReq: 1,
+    lpcTint: { color: '#ff8a3d' },
+    aura: { style: 'embers', color: [1.0, 0.45, 0.1], anchor: 'chest', intensity: 0.6 },
+  },
+  {
+    // Grants Multi-shot — a 2-point tier-2 spell — at level 1. The mana cut
+    // is what makes firing it a choice rather than a freebie.
+    id: 'threefold_draw', baseId: 'short_bow', name: 'Threefold Draw',
+    flavor: 'One string. It has never agreed with itself.',
+    affixes: [
+      { id: 'talent', value: 1, node: 'archer.multishot' },
+      { id: 'cast_speed_pct', value: 3 },
+      { id: 'max_mana', value: -25 },
+    ],
+    levelReq: 1,
+    lpcTint: { color: '#e8e2cf', mode: 'fabric' },
+    aura: { style: 'orbit', color: [0.88, 0.9, 0.82], anchor: 'chest', intensity: 0.8, motes: 3 },
+  },
+  {
+    // Both classes' homing node: your shots track, and they hit softer.
+    id: 'hunters_eye', baseId: 'bone_ring', name: "Hunter's Eye",
+    flavor: 'It always knows where you meant to look.',
+    affixes: [
+      { id: 'talent', value: 1, node: 'fire.seeking_flame' },
+      { id: 'talent', value: 1, node: 'archer.guided' },
+      { id: 'max_mana', value: 20 },
+      { id: 'damage_pct', value: -5 },
+    ],
+    levelReq: 1,
+    aura: { style: 'orbit', color: [1.0, 0.72, 0.25], anchor: 'chest', intensity: 0.5, motes: 1 },
+  },
+
+  // --- Level 4 ---
+  {
+    id: 'widows_vow', baseId: 'carved_amulet', name: "Widow's Vow",
+    flavor: "She traded her heart's warmth for one more word with him.",
+    affixes: [
+      { id: 'max_mana', value: 75 },
+      { id: 'mana_regen_pct', value: 18 },
+      { id: 'cast_speed_pct', value: 4 },
+      { id: 'max_health', value: -95 },
+    ],
+    levelReq: 4,
+    aura: { style: 'drip', color: [0.7, 0.85, 1.0], anchor: 'chest', intensity: 0.7 },
+  },
+  {
+    id: 'marshstrider_breeches', baseId: 'cloth_pants', name: 'Marshstrider Breeches',
+    flavor: 'Peat-stained to the knee. They remember every path out of the moor.',
+    affixes: [
+      { id: 'move_speed_pct', value: 6 },
+      { id: 'max_health', value: 45 },
+      { id: 'cast_speed_pct', value: -6 },
+    ],
+    levelReq: 4,
+    lpcTint: { color: '#6f8f4a', mode: 'fabric' },
+    aura: { style: 'wisp', color: [0.45, 0.7, 0.35], anchor: 'feet', intensity: 0.9 },
+  },
+  {
+    // Each class's 2-point vanish-while-moving node: invulnerability after
+    // teleport for a mage, invisibility after evade for a ranger.
+    id: 'hollowhide_jerkin', baseId: 'padded_tunic', name: 'Hollowhide Jerkin',
+    flavor: 'Cut from something that had already learned to vanish.',
+    affixes: [
+      { id: 'talent', value: 1, node: 'utility.ethereal_form' },
+      { id: 'talent', value: 1, node: 'archer_utility.shadowstep' },
+      { id: 'max_health', value: 50 },
+      { id: 'mana_regen_pct', value: -35 },
+      { id: 'damage_pct', value: -6 },
+    ],
+    levelReq: 4,
+    lpcTint: { color: '#7d5f96', mode: 'fabric' },
+    aura: { style: 'drip', color: [0.55, 0.35, 0.7], anchor: 'chest', intensity: 0.7 },
+  },
+
+  // --- Level 7 (keystone band opens) ---
+  {
+    // The boldest item in the set: a free tier-6, 3-point spell, paid for
+    // with the mana to sustain it.
+    id: 'cinderfall', baseId: 'gnarled_staff', name: 'Cinderfall',
+    flavor: 'The sky owes it a favour.',
+    affixes: [
+      { id: 'talent', value: 1, node: 'fire.meteor' },
+      { id: 'damage_pct', value: 6 },
+      { id: 'max_mana', value: -110 },
+      { id: 'cast_speed_pct', value: -8 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#6b4a3a' },
+    aura: { style: 'embers', color: [1.0, 0.35, 0.05], anchor: 'chest', intensity: 1.4 },
+  },
+  {
+    // Two tree ranks of Freeze plus these two reach rank 4 — past the soft
+    // cap of 3 — and unlock Deep Freeze.
+    id: 'quiverfrost', baseId: 'war_bow', name: 'Quiverfrost',
+    flavor: 'The string does not thaw.',
+    affixes: [
+      { id: 'talent', value: 2, node: 'archer.freeze' },
+      { id: 'damage_pct', value: 8 },
+      { id: 'max_health', value: -75 },
+      { id: 'mana_regen_pct', value: -20 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#9fd8f0', mode: 'fabric' },
+    aura: { style: 'frost', color: [0.6, 0.9, 1.0], anchor: 'chest', intensity: 1.0 },
+  },
+  {
+    // Four tree ranks of Wide Rain plus these two reach 6 and unlock Twin
+    // Storm. The negative move_speed_pct on a helmet is deliberate: the
+    // leggings-only rule in AFFIX_ALLOWED_SLOTS governs ROLLED affixes, and a
+    // heavy helm that slows you is the whole idea.
+    id: 'doomsayers_barbute', baseId: 'iron_helm', name: "Doomsayer's Barbute",
+    flavor: 'The visor is welded shut. Whoever wore it last had stopped looking.',
+    affixes: [
+      { id: 'talent', value: 2, node: 'fire.cataclysm' },
+      { id: 'talent', value: 2, node: 'archer.wide_rain' },
+      { id: 'max_health', value: 85 },
+      { id: 'move_speed_pct', value: -6 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#b06a4a' },
+    aura: { style: 'drip', color: [0.7, 0.3, 0.18], anchor: 'head', intensity: 0.8 },
+  },
   {
     id: 'emberheart', baseId: 'moon_amulet', name: 'Emberheart',
     flavor: 'A cinder that never cools, warm to the touch even in the dead of winter.',
@@ -207,6 +376,7 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
       { id: 'talent', value: 1, node: 'fire.searing_heat' },
     ],
     levelReq: 7,
+    aura: { style: 'orbit', color: [1.0, 0.55, 0.15], anchor: 'chest', intensity: 0.8, motes: 2 },
   },
   {
     id: 'windrunner_band', baseId: 'bone_ring', name: 'Windrunner Band',
@@ -217,6 +387,53 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
       { id: 'talent', value: 2, node: 'archer.barrage' },
     ],
     levelReq: 7,
+    aura: { style: 'wisp', color: [0.75, 0.95, 0.8], anchor: 'feet', intensity: 0.8 },
+  },
+
+  // --- Level 10 ---
+  {
+    id: 'ninefold_ember', baseId: 'archmage_staff', name: 'Ninefold Ember',
+    flavor: 'Nine splinters of the same falling star, bound with wire.',
+    affixes: [
+      { id: 'talent', value: 3, node: 'fire.pyroclasm' },
+      { id: 'damage_pct', value: 12 },
+      { id: 'max_health', value: -150 },
+      { id: 'cast_speed_pct', value: -8 },
+    ],
+    levelReq: 10,
+    lpcTint: { color: '#ffd9a0', mode: 'fabric' },
+    aura: { style: 'embers', color: [1.0, 0.9, 0.75], anchor: 'chest', intensity: 1.8 },
+  },
+  {
+    // The full rain build in one item: can trip Stormcall (soft cap 5) and
+    // Exposed (soft cap 3) together on an invested tree.
+    id: 'stormcallers_yew', baseId: 'great_bow', name: "Stormcaller's Yew",
+    flavor: 'It bends toward weather that has not arrived yet.',
+    affixes: [
+      { id: 'talent', value: 2, node: 'archer.sustained_rain' },
+      { id: 'talent', value: 2, node: 'archer.piercing_rain' },
+      { id: 'cast_speed_pct', value: 6 },
+      { id: 'max_mana', value: -120 },
+      { id: 'move_speed_pct', value: -5 },
+    ],
+    levelReq: 10,
+    lpcTint: { color: '#9a86d6', mode: 'fabric' },
+    aura: { style: 'wisp', color: [0.65, 0.5, 0.95], anchor: 'feet', intensity: 1.2 },
+  },
+  {
+    // Shares moon_amulet with Emberheart — legal only because rows now carry
+    // unique_id.
+    id: 'the_quiet_hour', baseId: 'moon_amulet', name: 'The Quiet Hour',
+    flavor: 'Between the last bell and the first, nothing is owed to anyone.',
+    affixes: [
+      { id: 'talent', value: 1, node: 'utility.phantom_step' },
+      { id: 'talent', value: 1, node: 'archer_utility.combat_roll' },
+      { id: 'cast_speed_pct', value: 9 },
+      { id: 'max_health', value: -110 },
+      { id: 'max_mana', value: -70 },
+    ],
+    levelReq: 10,
+    aura: { style: 'orbit', color: [0.85, 0.87, 0.95], anchor: 'chest', intensity: 0.5, motes: 2 },
   },
 ];
 

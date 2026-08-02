@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ITEM_BASES, UNIQUE_ITEMS, AFFIX_TIERS, rollItem, rollRarity, computeLoadout,
   classOwnsTree, validateItemRow, uniqueForRow, BASE_STAT_BLOCK, MAX_HP, MAX_MANA, mulberry32,
+  SKILL_NODES, ITEM_LEVEL_BANDS,
 } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -22,6 +23,74 @@ describe('manifests', () => {
     for (const u of UNIQUE_ITEMS) {
       expect(ITEM_BASES.some(b => b.id === u.baseId)).toBe(true);
       expect(u.affixes.filter(a => a.id === 'talent').length).toBeLessThanOrEqual(2);
+    }
+  });
+  it('ships fourteen uniques, three new per band', () => {
+    expect(UNIQUE_ITEMS).toHaveLength(14);
+    const byBand = (lvl: number) => UNIQUE_ITEMS.filter(u => u.levelReq === lvl).length;
+    expect(byBand(1)).toBe(3);
+    expect(byBand(4)).toBe(3);
+    expect(byBand(7)).toBe(5);  // 3 new + emberheart + windrunner_band
+    expect(byBand(10)).toBe(3);
+  });
+  it('unique ids are distinct', () => {
+    const ids = UNIQUE_ITEMS.map(u => u.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+  it('every talent affix on a unique names a real skill node', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) {
+        if (a.id !== 'talent') continue;
+        expect(a.node, `${u.id}`).toBeDefined();
+        expect(SKILL_NODES.some(n => n.id === a.node), `${u.id} -> ${a.node}`).toBe(true);
+      }
+    }
+  });
+  it('every unique carries flavor text and a level requirement in a real band', () => {
+    for (const u of UNIQUE_ITEMS) {
+      expect(u.flavor.length, u.id).toBeGreaterThan(0);
+      expect([1, 4, 7, 10], u.id).toContain(u.levelReq);
+    }
+  });
+  it('aura colors are 0-1 rgb triples and every unique has an aura', () => {
+    for (const u of UNIQUE_ITEMS) {
+      expect(u.aura, u.id).toBeDefined();
+      expect(u.aura!.color, u.id).toHaveLength(3);
+      for (const c of u.aura!.color) {
+        expect(c, u.id).toBeGreaterThanOrEqual(0);
+        expect(c, u.id).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+  it('lpcTint only sits on bases that have an lpc manifest', () => {
+    for (const u of UNIQUE_ITEMS) {
+      if (!u.lpcTint) continue;
+      const base = ITEM_BASES.find(b => b.id === u.baseId)!;
+      expect(base.lpc, `${u.id} on ${u.baseId}`).toBeDefined();
+    }
+  });
+  // Drift guard: a unique is rare-tier numbers plus a talent payload, not a
+  // stat item that outclasses its own rarity. Upside is held to 1.5x the top
+  // of its band's rare range. Drawbacks get a looser 2.5x bound on purpose —
+  // a unique buys its power with an outsized cost, and a drawback capped at
+  // the same multiple as the upside would not be felt.
+  it('unique upside stays within 1.5x its band top, drawbacks within 2.5x', () => {
+    for (const u of UNIQUE_ITEMS) {
+      const bandIndex = ITEM_LEVEL_BANDS.indexOf(u.levelReq as (typeof ITEM_LEVEL_BANDS)[number]);
+      expect(bandIndex, u.id).toBeGreaterThanOrEqual(0);
+      for (const a of u.affixes) {
+        if (a.id === 'talent') continue;
+        const [, hi] = AFFIX_TIERS[a.id][bandIndex];
+        const ceiling = hi * (a.value < 0 ? 2.5 : 1.5);
+        expect(Math.abs(a.value), `${u.id} ${a.id}`).toBeLessThanOrEqual(ceiling);
+      }
+    }
+  });
+  it('the two uniques sharing moon_amulet are distinguishable by unique_id', () => {
+    const onMoon = UNIQUE_ITEMS.filter(u => u.baseId === 'moon_amulet');
+    expect(onMoon.length).toBe(2);
+    for (const u of onMoon) {
+      expect(uniqueForRow({ base_id: 'moon_amulet', unique_id: u.id })?.id).toBe(u.id);
     }
   });
 });

@@ -152,20 +152,28 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(magicRoll.rarity).toBe('magic');
   });
 
-  it('downgrades unique to rare when no unique is eligible at band 1', () => {
-    // maxCharLevel 2 -> band 1; both UNIQUE_ITEMS require levelReq 7.
-    const result = rollLootboxItem('premium', weights, 2, () => 0.9999);
+  it('downgrades unique to rare when the account has no eligible unique at all', () => {
+    // maxCharLevel 0 (an account with no characters) — every unique requires
+    // at least level 1, so the unique roll has nothing to pick and falls back.
+    const result = rollLootboxItem('premium', weights, 0, () => 0.9999);
     expect(result.rarity).toBe('rare');
+  });
+  it('rolls a level-1 unique for a low-level account', () => {
+    const result = rollLootboxItem('premium', weights, 2, () => 0.9999);
+    expect(result.rarity).toBe('unique');
   });
 
   it('rolls an eligible unique deterministically when maxCharLevel qualifies', () => {
-    // Constant 0.9999 lands rollRarity on 'unique', then floor(0.9999 * 2) = 1
-    // selects the second eligible unique.
+    // A constant 0.9999 lands rollRarity on 'unique' and then selects the
+    // last eligible entry — the_quiet_hour, the final manifest item. This is
+    // one of the few places manifest order is load-bearing: re-sorting
+    // UNIQUE_ITEMS means updating this id.
+    const expected = UNIQUE_ITEMS.find(u => u.id === 'the_quiet_hour')!;
     const result = rollMatchDropItem(weights, 10, () => 0.9999);
     expect(result.rarity).toBe('unique');
-    expect(result.affixes).toEqual(UNIQUE_ITEMS[1].affixes);
-    expect(result.base.id).toBe(UNIQUE_ITEMS[1].baseId);
-    expect(result.levelReq).toBe(UNIQUE_ITEMS[1].levelReq);
+    expect(result.affixes).toEqual(expected.affixes);
+    expect(result.base.id).toBe(expected.baseId);
+    expect(result.levelReq).toBe(expected.levelReq);
   });
 
   it('is pure under an injected rng — same seed sequence yields identical output', () => {
