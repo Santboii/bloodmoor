@@ -9,7 +9,7 @@ import {
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
-  MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS,
+  MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS, EMBER_ARC, EMBER_SPREAD_STEP,
   ETERNAL_PYRE_MAX_TICKS, SEARING_CROSS_DAMAGE, SEARING_CROSS_BLAST,
   METEOR_DELAY_TICKS, SHOWER_SPREAD, SHOWER_RADIUS_RATIO, SHOWER_DAMAGE_RATIO,
   METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS,
@@ -700,8 +700,31 @@ export function advanceState(
         const liveEmbers = [...survivingProjectiles, ...newProjectiles]
           .filter(p => p.ownerId === moved.ownerId && (p.emberGen ?? 0) >= 1).length;
 
+        // Embers fan out in an arc aimed at the nearest enemy rather than a
+        // full circle. A radial burst wastes most of its embers on empty space
+        // — only tight homing dragged the strays back, which is what made them
+        // read as guided missiles. Aiming the spread is what makes extra ranks
+        // pay off; the homing is only there for the final approach.
+        let emberAim = Math.atan2(moved.velocity.y, moved.velocity.x);
+        {
+          let best = Infinity;
+          for (const other of Object.values(players)) {
+            if (other.id === moved.ownerId || other.hp <= 0) continue;
+            if (resolvedMode.teamsEnabled && other.teamId !== undefined &&
+                other.teamId === players[moved.ownerId]?.teamId) continue;
+            const dx = other.position.x - moved.position.x;
+            const dy = other.position.y - moved.position.y;
+            const d = dx * dx + dy * dy;
+            // Degenerate when the parent detonated on top of the target — the
+            // velocity heading stays a better spread axis than a zero vector.
+            if (d < best && d > 1) { best = d; emberAim = Math.atan2(dy, dx); }
+          }
+        }
+
+        const emberSpan = Math.min(EMBER_ARC, (emberCount - 1) * EMBER_SPREAD_STEP);
         for (let i = 0; i < emberCount && liveEmbers + i < MAX_LIVE_EMBERS; i++) {
-          const angle = (i / emberCount) * Math.PI * 2;
+          const offset = emberCount === 1 ? 0 : (i / (emberCount - 1) - 0.5) * emberSpan;
+          const angle = emberAim + offset;
           const spd = Math.sqrt(moved.velocity.x ** 2 + moved.velocity.y ** 2) * EMBER_SPEED_RATIO;
           const ratio = emberGen === 0 ? EMBER_DAMAGE_RATIO : EMBER_CHAIN_DAMAGE_RATIO;
           const child = spawnFireball(moved.ownerId, moved.position, {

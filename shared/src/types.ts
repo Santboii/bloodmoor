@@ -201,7 +201,9 @@ export const METEOR_AOE_RADIUS = 60; // world units
 // ── Fire rework tuning ──────────────────────────────────────────────────────
 export const FIREBALL_MAX_LIFETIME_TICKS = 4 * TICK_RATE; // 240 — Perpetual Flame ceiling
 export const BOUNCE_DAMAGE_BONUS = 0.12;                  // per completed bounce
-export const EMBER_DAMAGE_RATIO = 0.20;
+// Aiming the ember fan (see EMBER_ARC) made embers connect far more often, so
+// the per-ember ratio came down from 0.20 to hold total output steady.
+export const EMBER_DAMAGE_RATIO = 0.12;
 export const EMBER_CHAIN_DAMAGE_RATIO = 0.10;
 export const EMBER_SPEED_RATIO = 0.75;
 // Homing is a turn-rate model (accelerate laterally, renormalize speed), so
@@ -215,6 +217,12 @@ export const EMBER_SPEED_RATIO = 0.75;
 export const EMBER_HOMING = 450;
 export const EMBER_LIFETIME_TICKS = 90; // 1.5s — embers are a burst, not a swarm
 export const MAX_LIVE_EMBERS = 12;                        // hard cap per owner
+export const EMBER_ARC = Math.PI / 2;                      // 90° cap on the fan
+// Fixed angular gap between adjacent embers, so the fan widens with count
+// instead of always spanning the full arc. Spreading a 2-ember burst across
+// the whole 120° puts both embers on the edges and none on the target, which
+// made rank 1 worth nothing.
+export const EMBER_SPREAD_STEP = Math.PI / 7;             // ~25.7° between embers
 export const FIREWALL_DAMAGE_START = 25 / TICK_RATE;
 export const FIREWALL_DAMAGE_END = 55 / TICK_RATE;
 export const WALL_GROWTH_RATIO = 0.5;                     // 1.0× → 1.5× over life

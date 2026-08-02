@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { advanceState, makeInitialState } from '../src/gameloop/StateAdvancer.ts';
-import { PILLARS, FIREBALL_MAX_LIFETIME_TICKS, MAX_LIVE_EMBERS, ETERNAL_PYRE_MAX_TICKS } from '@arena/shared';
+import { PILLARS, FIREBALL_MAX_LIFETIME_TICKS, MAX_LIVE_EMBERS, ETERNAL_PYRE_MAX_TICKS, EMBER_ARC, EMBER_DAMAGE_RATIO } from '@arena/shared';
 import type { NodeId, InputFrame } from '@arena/shared';
 
 const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
@@ -129,8 +129,8 @@ describe('Volatile Ember', () => {
 
   it('embers hit for a fraction of the parent fireball', () => {
     const ember = firstEmberTick([['fire.volatile_ember', 1]], aim, from)[0];
-    expect(ember.damageMax!).toBeCloseTo(120 * 0.2, 5);
-    expect(ember.damageMin!).toBeCloseTo(80 * 0.2, 5);
+    expect(ember.damageMax!).toBeCloseTo(120 * EMBER_DAMAGE_RATIO, 5);
+    expect(ember.damageMin!).toBeCloseTo(80 * EMBER_DAMAGE_RATIO, 5);
   });
 });
 
@@ -439,5 +439,49 @@ describe('Guided Descent in flight', () => {
       state = advanceState(state, { a: { ...idle, aimTarget: { x: 760, y: 600 } }, b: idle }, sets);
     }
     expect(state.meteors[0].target.x).toBeCloseTo(700, 4);
+  });
+});
+
+describe('ember fan geometry', () => {
+  /** Embers fan out toward the enemy, not in a full circle. */
+  function emberHeadings() {
+    let state = clearLaneMages();
+    const sets = { a: mageSkills([['fire.volatile_ember', 5]]), b: new Map<NodeId, number>() };
+    state = advanceState(state, { a: { ...idle, castSpell: 1, aimTarget: { x: 700, y: 600 } }, b: idle }, sets);
+    for (let i = 0; i < 240; i++) {
+      state = advanceState(state, { a: idle, b: idle }, sets);
+      const embers = state.projectiles.filter(p => (p.emberGen ?? 0) >= 1);
+      if (embers.length) return embers.map(e => Math.atan2(e.velocity.y, e.velocity.x));
+    }
+    return [];
+  }
+
+  it('aims the fan at the enemy instead of spraying in a full circle', () => {
+    const headings = emberHeadings();
+    expect(headings.length).toBeGreaterThan(1);
+    // Enemy b sits at +x from the burst, so every ember starts within the
+    // half-arc of straight-ahead. A radial burst would put some at ~180°.
+    for (const h of headings) expect(Math.abs(h)).toBeLessThanOrEqual(EMBER_ARC / 2 + 1e-6);
+  });
+
+  it('widens the fan with ember count rather than always spanning the cap', () => {
+    const spanFor = (rank: number) => {
+      let state = clearLaneMages();
+      const sets = { a: mageSkills([['fire.volatile_ember', rank]]), b: new Map<NodeId, number>() };
+      state = advanceState(state, { a: { ...idle, castSpell: 1, aimTarget: { x: 700, y: 600 } }, b: idle }, sets);
+      for (let i = 0; i < 240; i++) {
+        state = advanceState(state, { a: idle, b: idle }, sets);
+        const e = state.projectiles.filter(p => (p.emberGen ?? 0) >= 1);
+        if (e.length) {
+          const hs = e.map(x => Math.atan2(x.velocity.y, x.velocity.x));
+          return Math.max(...hs) - Math.min(...hs);
+        }
+      }
+      return 0;
+    };
+    // Rank 1 is two embers: a narrow pair either side of straight-ahead, not
+    // both parked on the arc edges with nothing aimed at the target.
+    expect(spanFor(1)).toBeLessThan(EMBER_ARC / 2);
+    expect(spanFor(5)).toBeGreaterThan(spanFor(1));
   });
 });
