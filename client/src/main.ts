@@ -14,9 +14,9 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
-import type { CharacterRecord, CharacterClass, GearVisuals } from '@arena/shared';
+import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
@@ -100,6 +100,7 @@ let activeCharacter: CharacterRecord | null = null;
 // hero preview geared (lobby.updateHeroGear).
 let activeGear: GearVisuals = {};
 let ownedSpells = new Set<SpellId>();
+let activeSlots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
 let playerElement: ArrowElement = 'none';
 
 function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
@@ -116,7 +117,11 @@ let phaseShiftRank = 0;
  * merging talent-tree ranks with equipped-item talent affixes so the client
  * predicts off the same effective ranks the server computes at match start. */
 async function refreshLoadout(characterId: string, charClass: string): Promise<void> {
-  const { data } = await supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId);
+  const [{ data }, { data: slotData }] = await Promise.all([
+    supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId),
+    supabase.from('character_spell_slots').select('slot, spell').eq('character_id', characterId),
+  ]);
+  const slotRows = (slotData ?? []) as SpellSlotRow[];
   const rows = (data ?? []) as { node_id: string; rank: number | null }[];
   const nodeSet = new Set<NodeId>(rows.map(r => r.node_id as NodeId));
   const defaultNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
@@ -145,7 +150,9 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
-  hud.buildSpellSlots(resolveSlots(ownedSpells, []));
+  activeSlots = resolveSlots(ownedSpells, slotRows);
+  hud.buildSpellSlots(activeSlots);
+  inputHandler?.setSlots(activeSlots);
 }
 
 /** Re-deriving the loadout used to be awaited between hiding one screen and
@@ -720,10 +727,14 @@ function startGame(): void {
 
   // Guests have no skill unlocks but the server lets them cast their class's
   // bound spells — show those slots rather than an empty bar.
-  const slotSpells = ownedSpells.size > 0
-    ? ownedSpells
-    : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
-  hud.buildSpellSlots(resolveSlots(slotSpells, []));
+  const slots = ownedSpells.size > 0
+    ? activeSlots
+    : resolveSlots(
+        new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell)),
+        [],
+      );
+  hud.buildSpellSlots(slots);
+  inputHandler.setSlots(slots);
   hud.show();
   setScene('arena');
   setDueling(true);
