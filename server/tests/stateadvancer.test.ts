@@ -318,6 +318,7 @@ describe('advanceState — rest', () => {
   it('flips to resting after the wind-up and regens hp and mana per tick', () => {
     let state = twoPlayerState();
     state.players['p1'].hp = 100;
+    state.players['p1'].mana = 100;
     state = advanceState(state, { p1: { ...idle(), rest: true }, p2: idle() });
     for (let i = 0; i < REST_CAST_TICKS - 1; i++) state = advanceState(state, bothIdle());
     // last processed tick was REST_CAST_TICKS - 1: wind-up not done, no hp regen yet
@@ -338,6 +339,7 @@ describe('advanceState — rest', () => {
     state.players['p1'].resting = true;  // skip the wind-up; resolution is covered above
     state = advanceState(state, bothIdle());
     expect(state.players['p1'].hp).toBe(MAX_HP);
+    expect(state.players['p1'].mana).toBe(MAX_MANA);
     expect(state.players['p1'].resting).toBeUndefined();
   });
 
