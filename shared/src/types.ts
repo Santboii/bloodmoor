@@ -81,6 +81,9 @@ export type Projectile = {
   redirectCount?: number;   // guided redirects completed (momentum damage rider)
   relentless?: boolean;     // Guided keystone: unlimited redirects
   predator?: boolean;       // Predator keystone: leads moving targets
+  pierce?: number;        // remaining enemies this bolt can pass through
+  piercedIds?: string[];  // already hit, so one bolt cannot hit a target twice
+  impaler?: boolean;      // Impaler keystone: unlimited pierce + damage rider
 };
 
 /** Which spell produced a persistent ground zone. Zones share one state type

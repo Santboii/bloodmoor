@@ -8,6 +8,7 @@ import {
   ECHO_VOLLEY_DELAY_TICKS, ECHO_VOLLEY_DAMAGE_RATIO, EXPOSED_DAMAGE_MULT,
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
+  ICEBOLT_CHILL_FACTOR, ICEBOLT_CHILL_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -17,6 +18,7 @@ import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARA
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
+import { spawnIceBolt, advanceIceBolt, isIceBoltExpired, iceBoltHitsPlayer, iceBoltDamage } from '../spells/IceBolt.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
 import { spawnMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
 import { buildSpellModifiers } from '../skills/SpellModifiers.ts';
@@ -301,6 +303,10 @@ export function advanceState(
         invulnUntil: (hasSkillSystem && tMods.etherealForm) ? tick + Math.round(0.5 * TICK_RATE) : players[id].invulnUntil,
         phantomStepUntil: (hasSkillSystem && tMods.phantomStep) ? tick + 2 * TICK_RATE : players[id].phantomStepUntil,
       };
+    } else if (spell === 9) {
+      // mods.iceBolt arrives in Task 7 — no config yet so this task stays
+      // independently testable.
+      projectiles = [...projectiles, spawnIceBolt(id, p.position, input.aimTarget)];
     } else if (spell === 5) {
       const aMods = rangerMods[id];
       if (!aMods) continue;
@@ -537,6 +543,35 @@ export function advanceState(
             players[pid] = next;
           }
           hit = true;
+          break;
+        }
+      }
+      if (!hit) survivingProjectiles.push(moved);
+    } else if (proj.type === 'icebolt') {
+      const moved = advanceIceBolt(proj);
+      if (isIceBoltExpired(moved)) continue;
+      let hit = false;
+      for (const [pid, player] of Object.entries(players)) {
+        if (player.hp <= 0) continue;
+        if (iceBoltHitsPlayer(moved, player.position, pid)) {
+          hit = true;
+          const invuln = (player.invulnUntil ?? 0) > tick;
+          if (!invuln) {
+            // Chill reuses the ranger's slow fields; the strongest slow wins
+            // so a Blizzard tick cannot be downgraded by a passing bolt.
+            const incoming = ICEBOLT_CHILL_FACTOR;
+            const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
+            const next = { ...player, slowFactor: Math.min(existing, incoming), slowUntil: tick + ICEBOLT_CHILL_TICKS };
+            next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
+            players[pid] = next;
+          }
+          // Pierce budget is checked before decrementing: this hit consumes
+          // one unit of the remaining budget, so the bolt survives only if
+          // budget was still available going into it.
+          const survivesHit = moved.impaler || (moved.pierce ?? 0) > 0;
+          moved.piercedIds = [...(moved.piercedIds ?? []), pid];
+          moved.pierce = (moved.pierce ?? 0) - 1;
+          if (survivesHit) survivingProjectiles.push(moved);
           break;
         }
       }
