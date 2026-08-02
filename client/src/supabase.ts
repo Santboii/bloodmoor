@@ -180,6 +180,7 @@ export async function adminGrantItem(
   levelReq: number,
   slot: ItemBaseSlot,
   classRestriction?: CharacterClass,
+  uniqueId?: string | null,
 ): Promise<string | null> {
   const { data, error } = await supabase.rpc('admin_grant_item', {
     p_user_id: userId,
@@ -189,6 +190,7 @@ export async function adminGrantItem(
     p_level_req: levelReq,
     p_slot: slot,
     p_class_restriction: classRestriction ?? null,
+    p_unique_id: uniqueId ?? null,
   });
   if (error) { console.error('admin_grant_item failed:', error.message); return null; }
   return data as string;

@@ -466,6 +466,8 @@ export class AdminScreen {
         <td>${u.levelReq}</td>
         <td>${u.affixes.map(a => esc(adminAffixLabel(a))).join('<br>')}</td>
         <td class="ad-flavor">${esc(u.flavor)}</td>
+        <td>${u.aura ? esc(u.aura.style) : '—'}</td>
+        <td>${u.lpcTint ? esc(u.lpcTint.color) : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -480,7 +482,7 @@ export class AdminScreen {
       <div class="ad-manifest-label">Unique Items (${UNIQUE_ITEMS.length})</div>
       <div class="ad-table-wrap">
         <table class="ad-table">
-          <thead><tr><th>ID</th><th>Name</th><th>Base</th><th>Lvl Req</th><th>Affixes</th><th>Flavor</th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Base</th><th>Lvl Req</th><th>Affixes</th><th>Flavor</th><th>Aura</th><th>Tint</th></tr></thead>
           <tbody>${uniqueRows}</tbody>
         </table>
       </div>
@@ -669,6 +671,7 @@ export class AdminScreen {
     let levelReq: number;
     let slot: ItemBaseSlot;
     let classRestriction: CharacterClass | undefined;
+    let uniqueId: string | null = null;
     let label: string;
 
     if (this.grantRarity === 'unique') {
@@ -682,6 +685,7 @@ export class AdminScreen {
       levelReq = unique.levelReq;
       slot = base.slot;
       classRestriction = base.classRestriction;
+      uniqueId = unique.id;
       label = unique.name;
     } else {
       const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
@@ -695,7 +699,7 @@ export class AdminScreen {
       label = base.name;
     }
 
-    const result = await adminGrantItem(this.grantTargetUserId, baseId, rarity, affixes, levelReq, slot, classRestriction);
+    const result = await adminGrantItem(this.grantTargetUserId, baseId, rarity, affixes, levelReq, slot, classRestriction, uniqueId);
     this.grantStatus = result
       ? { ok: true, text: `Granted ${label} to ${this.grantTargetUsername ?? this.grantTargetUserId}.` }
       : { ok: false, text: 'Grant failed — see console.' };

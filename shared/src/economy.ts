@@ -108,7 +108,12 @@ export function vendorStockFor(userId: string, utcDay: string, maxCharLevel: num
   return slots;
 }
 
-export type DropResult = { base: ItemBase; rarity: ItemRarity; affixes: RolledAffix[]; levelReq: number };
+export type DropResult = {
+  base: ItemBase; rarity: ItemRarity; affixes: RolledAffix[]; levelReq: number;
+  /** Set only on a unique roll — persisted to items.unique_id so the row
+   * keeps its identity through future balance tuning. */
+  uniqueId?: string;
+};
 
 /** Shared rarity/base/affix roll used by both lootbox opens and match-end
  * drops. Unique rolls are restricted to UNIQUE_ITEMS eligible for
@@ -122,7 +127,7 @@ function rollDropItem(weights: Record<ItemRarity, number>, maxCharLevel: number,
     if (eligibleUniques.length > 0) {
       const unique = eligibleUniques[Math.floor(rng() * eligibleUniques.length)];
       const base = ITEM_BASES.find(b => b.id === unique.baseId)!;
-      return { base, rarity: 'unique', affixes: unique.affixes, levelReq: unique.levelReq };
+      return { base, rarity: 'unique', affixes: unique.affixes, levelReq: unique.levelReq, uniqueId: unique.id };
     }
   }
   const rarity: ItemRarity = rolledRarity === 'unique' ? 'rare' : rolledRarity;

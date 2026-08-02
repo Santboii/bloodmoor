@@ -176,6 +176,22 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(result.levelReq).toBe(expected.levelReq);
   });
 
+  it('reports which unique a unique roll picked', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const result = rollLootboxItem('premium', weights, 10, mulberry32(7));
+    expect(result.rarity).toBe('unique');
+    expect(result.uniqueId).toBeDefined();
+    const manifest = UNIQUE_ITEMS.find(u => u.id === result.uniqueId)!;
+    expect(manifest).toBeDefined();
+    expect(result.base.id).toBe(manifest.baseId);
+    expect(result.affixes).toEqual(manifest.affixes);
+    expect(result.levelReq).toBe(manifest.levelReq);
+  });
+  it('leaves uniqueId unset on a non-unique roll', () => {
+    const weights = { basic: 1, magic: 0, rare: 0, unique: 0 };
+    expect(rollLootboxItem('basic', weights, 10, mulberry32(3)).uniqueId).toBeUndefined();
+  });
+
   it('is pure under an injected rng — same seed sequence yields identical output', () => {
     const a = rollMatchDropItem(weights, 8, mulberry32(fnv1aHash('purity-seed')));
     const b = rollMatchDropItem(weights, 8, mulberry32(fnv1aHash('purity-seed')));
