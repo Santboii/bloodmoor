@@ -300,7 +300,7 @@ export class SpellRenderer {
     }
 
     for (const fw of state.fireWalls) {
-      const isRainZone = fw.id.startsWith('rain_zone_');
+      const isRainZone = fw.kind === 'rain';
 
       if (!this.fireWalls.has(fw.id)) {
         if (!isRainZone) sfx.startFireWallLoop(fw.id);

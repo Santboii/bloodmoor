@@ -59,7 +59,7 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
 function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null, targetPos: Vec2, fireWalls: FireWallState[]): number {
   if (!ownerAM?.rain.exposed) return 1;
   const inZone = fireWalls.some(fw =>
-    fw.shape === 'circle' && fw.id.startsWith('rain_zone_') && fw.ownerId === ownerId &&
+    fw.shape === 'circle' && fw.kind === 'rain' && fw.ownerId === ownerId &&
     (targetPos.x - fw.center!.x) ** 2 + (targetPos.y - fw.center!.y) ** 2 <= (fw.radius! + PLAYER_HALF_SIZE) ** 2);
   return inZone ? EXPOSED_DAMAGE_MULT : 1;
 }
@@ -446,7 +446,7 @@ export function advanceState(
   fireWalls = fireWalls.filter(fw => tick < fw.expiresAt);
   // Stormcall keystone: rain zones drift toward the owner's nearest visible enemy.
   fireWalls = fireWalls.map(fw => {
-    if (fw.shape !== 'circle' || !fw.id.startsWith('rain_zone_')) return fw;
+    if (fw.shape !== 'circle' || fw.kind !== 'rain') return fw;
     if (!rangerMods[fw.ownerId]?.rain.stormcall) return fw;
     let nearest: PlayerState | undefined;
     let nearestDist = Infinity;
@@ -603,7 +603,7 @@ export function advanceState(
   // Stormcall-drifted above, before the arrow-hit section)
   const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
-    const isRainZone = fw.id.startsWith('rain_zone_');
+    const isRainZone = fw.kind === 'rain';
     const widthMult = isRainZone ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
     for (const [pid] of Object.entries(players)) {
       if (fireWallDamagesPlayer(fw, players[pid].position, pid, widthMult)) {
@@ -662,6 +662,7 @@ export function advanceState(
       const rainDurMult = ownerAMods?.rain.durationMultiplier ?? 1;
       fireWalls = [...fireWalls, {
         id: `rain_zone_${rain.id}`,
+        kind: 'rain',
         ownerId: rain.ownerId,
         segments: [],
         expiresAt: tick + Math.round(RAIN_SUSTAINED_TICKS * rainDurMult),

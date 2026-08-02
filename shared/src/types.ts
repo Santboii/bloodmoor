@@ -83,8 +83,15 @@ export type Projectile = {
   predator?: boolean;       // Predator keystone: leads moving targets
 };
 
+/** Which spell produced a persistent ground zone. Zones share one state type
+ *  and one array; this is what distinguishes them. Previously inferred by
+ *  string-matching the id prefix, which silently mis-attributed any id that
+ *  happened to share a prefix. */
+export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard';
+
 export type FireWallState = {
   id: string;
+  kind: ZoneKind;
   ownerId: string;
   segments: Segment[];
   expiresAt: number; // server tick

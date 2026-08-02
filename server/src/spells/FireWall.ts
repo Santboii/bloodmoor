@@ -17,6 +17,7 @@ export function spawnFireWall(
 ): FireWallState {
   return {
     id: nextId(),
+    kind: 'firewall',
     ownerId,
     segments: buildWallSegments(from, to, FIREWALL_MAX_LENGTH * lengthMultiplier),
     expiresAt: currentTick + Math.round(FIREWALL_DURATION_TICKS * durationMultiplier),
@@ -103,6 +104,7 @@ export function spawnFireCrater(
 ): FireWallState {
   return {
     id: nextId(),
+    kind: 'crater',
     ownerId,
     segments: [],
     expiresAt: currentTick + durationTicks,

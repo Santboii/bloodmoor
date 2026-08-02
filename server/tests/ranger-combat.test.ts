@@ -241,8 +241,8 @@ describe('Ranger combat integration', () => {
     ]);
     // Two already-detonated zones stacked on p2.
     state.fireWalls.push(
-      { id: 'rain_zone_a', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
-      { id: 'rain_zone_b', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+      { id: 'rain_zone_a', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+      { id: 'rain_zone_b', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
     );
     const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
     const before = state.players['p2'].hp;
@@ -272,7 +272,7 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
     ]);
     state.fireWalls.push({
-      id: 'rain_zone_test', ownerId: 'p1', segments: [], expiresAt: 10_000,
+      id: 'rain_zone_test', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000,
       shape: 'circle', center: { x: 1513, y: 1000 }, radius: 70.5,
     });
     state.projectiles.push({
