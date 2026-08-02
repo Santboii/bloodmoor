@@ -311,7 +311,7 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     affixes: [
       { id: 'talent', min: 1, max: 1, node: 'archer.multishot' },
       { id: 'cast_speed_pct', min: 2, max: 4 },
-      { id: 'max_mana', min: -35, max: -18 },
+      { id: 'max_mana', min: -33, max: -18 },
     ],
     levelReq: 1,
     lpcTint: { color: '#e8e2cf', mode: 'fabric' },
