@@ -67,14 +67,67 @@ export function advanceFireball(p: Projectile, enemyPos?: Vec2): Projectile {
   };
 }
 
-export function isFireballExpired(p: Projectile, tick = Infinity): boolean {
+export function isOutOfBounds(p: Projectile): boolean {
   const r = p.radius ?? FIREBALL_RADIUS;
   const { x, y } = p.position;
-  if (x - r < 0 || x + r > ARENA_SIZE || y - r < 0 || y + r > ARENA_SIZE) return true;
+  return x - r < 0 || x + r > ARENA_SIZE || y - r < 0 || y + r > ARENA_SIZE;
+}
+
+/**
+ * Unit normal of the surface this projectile is touching, or null in open
+ * space. Both surface kinds are axis-aligned (the arena is a box, PILLARS are
+ * AABBs), so the normal is whichever axis has the shallower penetration —
+ * that is the face the projectile came through.
+ */
+export function surfaceNormal(p: Projectile, tick = Infinity): Vec2 | null {
+  const r = p.radius ?? FIREBALL_RADIUS;
+  const { x, y } = p.position;
+  if (x - r < 0) return { x: 1, y: 0 };
+  if (x + r > ARENA_SIZE) return { x: -1, y: 0 };
+  if (y - r < 0) return { x: 0, y: 1 };
+  if (y + r > ARENA_SIZE) return { x: 0, y: -1 };
+
+  if ((p.noHitUntil ?? 0) > tick) return null;
+
+  for (const pillar of PILLARS) {
+    if (!circleHitsAABB(p.position, r, pillar)) continue;
+    const overlapX = pillar.halfSize + r - Math.abs(x - pillar.x);
+    const overlapY = pillar.halfSize + r - Math.abs(y - pillar.y);
+    return overlapX < overlapY
+      ? { x: Math.sign(x - pillar.x) || 1, y: 0 }
+      : { x: 0, y: Math.sign(y - pillar.y) || 1 };
+  }
+  return null;
+}
+
+/**
+ * Mirror velocity about the normal, spend a bounce, and push clear of the
+ * surface so the next tick does not immediately re-collide. `noHitUntil` is
+ * the same grace mechanism split children already use.
+ */
+export function reflect(p: Projectile, normal: Vec2, tick: number): Projectile {
+  const dot = p.velocity.x * normal.x + p.velocity.y * normal.y;
+  const vx = p.velocity.x - 2 * dot * normal.x;
+  const vy = p.velocity.y - 2 * dot * normal.y;
+  const clear = (p.radius ?? FIREBALL_RADIUS) + 2;
+  return {
+    ...p,
+    velocity: { x: vx, y: vy },
+    position: { x: p.position.x + normal.x * clear, y: p.position.y + normal.y * clear },
+    bounces: p.perpetual ? (p.bounces ?? 0) : Math.max(0, (p.bounces ?? 0) - 1),
+    bounceCount: (p.bounceCount ?? 0) + 1,
+    noHitUntil: tick + 3,
+  };
+}
+
+/** Retained for existing call sites: a fireball "expires" when it leaves the
+ *  arena, or touches a pillar with no bounce left. */
+export function isFireballExpired(p: Projectile, tick = Infinity): boolean {
+  if (isOutOfBounds(p)) return true;
   // Freshly split children ignore pillar overlap until their grace elapses so
   // they can fly clear of the obstacle their parent detonated on.
   if ((p.noHitUntil ?? 0) > tick) return false;
-  return PILLARS.some(pillar => circleHitsAABB(p.position, r, pillar));
+  return PILLARS.some(pillar => circleHitsAABB(p.position, p.radius ?? FIREBALL_RADIUS, pillar));
 }
 
 export function fireballHitsPlayer(p: Projectile, playerPos: Vec2, playerId: string): boolean {

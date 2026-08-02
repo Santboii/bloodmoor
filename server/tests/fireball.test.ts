@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../src/spells/Fireball.ts';
+import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, isOutOfBounds, surfaceNormal, reflect } from '../src/spells/Fireball.ts';
+import { PILLARS } from '@arena/shared';
 
 describe('spawnFireball', () => {
   it('creates a projectile aimed at the target', () => {
@@ -93,5 +94,52 @@ describe('spawnFireball with config overrides', () => {
   it('stores radius override on the projectile', () => {
     const fb = spawnFireball('p1', { x: 100, y: 400 }, { x: 700, y: 400 }, { radius: 30 });
     expect(fb.radius).toBe(30);
+  });
+});
+
+// ── Fire rework: bounce geometry ────────────────────────────────────────────
+
+describe('bounce geometry', () => {
+  it('separates out-of-bounds from pillar hits', () => {
+    const oob = spawnFireball('p1', { x: 1999, y: 1000 }, { x: 2100, y: 1000 });
+    const moved = advanceFireball(oob);
+    expect(isOutOfBounds(moved)).toBe(true);
+    expect(surfaceNormal(moved)).toEqual({ x: -1, y: 0 });
+  });
+
+  it('returns an axis-aligned normal for a pillar hit', () => {
+    const pillar = PILLARS[0];
+    const fb = spawnFireball('p1', { x: pillar.x - pillar.halfSize - 2, y: pillar.y }, { x: pillar.x, y: pillar.y });
+    const n = surfaceNormal(fb);
+    expect(n).not.toBeNull();
+    expect(Math.abs(n!.x) + Math.abs(n!.y)).toBe(1);
+  });
+
+  it('returns null in open space', () => {
+    const fb = spawnFireball('p1', { x: 100, y: 300 }, { x: 500, y: 300 });
+    expect(surfaceNormal(fb)).toBeNull();
+  });
+
+  it('reflects velocity, increments bounceCount, and decrements the budget', () => {
+    const fb = { ...spawnFireball('p1', { x: 100, y: 300 }, { x: 500, y: 300 }), bounces: 2, bounceCount: 0 };
+    const bounced = reflect(fb, { x: -1, y: 0 }, 10);
+    expect(bounced.velocity.x).toBeCloseTo(-fb.velocity.x, 5);
+    expect(bounced.velocity.y).toBeCloseTo(fb.velocity.y, 5);
+    expect(bounced.bounceCount).toBe(1);
+    expect(bounced.bounces).toBe(1);
+    expect(bounced.noHitUntil).toBeGreaterThan(10);
+  });
+
+  it('pushes the projectile clear so it does not re-collide next tick', () => {
+    const pillar = PILLARS[0];
+    const fb = { ...spawnFireball('p1', { x: pillar.x - pillar.halfSize, y: pillar.y }, { x: pillar.x, y: pillar.y }), bounces: 1 };
+    const n = surfaceNormal(fb)!;
+    const bounced = reflect(fb, n, 0);
+    expect(surfaceNormal(advanceFireball(bounced))).toBeNull();
+  });
+
+  it('does not consume budget when perpetual', () => {
+    const fb = { ...spawnFireball('p1', { x: 100, y: 300 }, { x: 500, y: 300 }), bounces: 0, perpetual: true };
+    expect(reflect(fb, { x: -1, y: 0 }, 0).bounces).toBe(0);
   });
 });
