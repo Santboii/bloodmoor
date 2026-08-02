@@ -1,0 +1,935 @@
+# Spell Loadout Slots Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace the fixed four-key spell bar with six freely assignable slots persisted per character, so a mage specced into two trees can choose which spells it carries.
+
+**Architecture:** A pure function in `shared` (`resolveSlots`) turns persisted slot rows plus the set of owned spells into a six-entry array. Client input, HUD, and the assignment UI all read that array; nothing reads keybinds from `SPELL_BINDINGS` any more. The server is untouched — its cast gate already authorizes on spell *ownership*, never on keys.
+
+**Tech Stack:** TypeScript, npm workspaces (`shared` / `server` / `client`), Vitest, Supabase (Postgres + RLS + SECURITY DEFINER RPCs), Three.js client.
+
+## Global Constraints
+
+- Six slots, not seven. A hybrid mage must still bench one spell.
+- Slots are edited **out of match only**. `PlayerState.cooldowns` is keyed by `SpellId`, so mid-match swapping is not supported and must not be offered.
+- Existing characters must see **no change** to their bar until they deliberately move a spell. The defaulting rule reproduces today's layout exactly.
+- All tests live in `server/tests/` and run via `npm test` from the repo root, even when they cover `shared` code (see `server/tests/skills.test.ts` for the precedent). The `client` workspace has a `test` script but no test files; do not add the first one here.
+- Supabase mutations go through `SECURITY DEFINER` RPCs that check `characters.user_id = auth.uid()`. Tables get a read policy only — no insert/update/delete policies (the pattern in `supabase/migrations/20260731000000_items.sql:31-38`).
+- Do not modify anything under `server/src/gameloop/` or `server/src/rooms/` in this plan.
+
+---
+
+### Task 1: `resolveSlots` in shared
+
+The pure defaulting rule everything else depends on. Additive — nothing is removed yet, so the build stays green.
+
+**Files:**
+- Modify: `shared/src/types.ts` (add `MAX_SPELL_SLOTS`, `SlotIndex` near the other constants around `:148-157`)
+- Modify: `shared/src/skills.ts` (add `SpellSlotRow`, `MOBILITY_SPELLS`, `resolveSlots` after `SPELL_BINDINGS` at `:148`)
+- Test: `server/tests/spell-slots.test.ts` (create)
+
+**Interfaces:**
+- Consumes: `SpellId` and `SPELL_BINDINGS` as they exist today.
+- Produces:
+  - `MAX_SPELL_SLOTS: 6`
+  - `type SlotIndex = 1 | 2 | 3 | 4 | 5 | 6`
+  - `type SpellSlotRow = { slot: number; spell: number }`
+  - `MOBILITY_SPELLS: Record<CharacterClass, SpellId>`
+  - `resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[]` — always returns exactly `MAX_SPELL_SLOTS` entries, index 0 being slot 1.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `server/tests/spell-slots.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { resolveSlots, MAX_SPELL_SLOTS, MOBILITY_SPELLS } from '@arena/shared';
+import type { SpellId } from '@arena/shared';
+
+const owned = (...ids: number[]) => new Set(ids as SpellId[]);
+
+describe('resolveSlots', () => {
+  it('always returns exactly MAX_SPELL_SLOTS entries', () => {
+    expect(resolveSlots(new Set(), []).length).toBe(MAX_SPELL_SLOTS);
+    expect(resolveSlots(owned(1, 2, 3, 4), []).length).toBe(MAX_SPELL_SLOTS);
+  });
+
+  it('with no rows, fills slots in SPELL_BINDINGS declaration order', () => {
+    expect(resolveSlots(owned(1, 2, 3, 4), [])).toEqual([1, 2, 3, 4, null, null]);
+  });
+
+  it('with no rows, closes gaps rather than preserving spell ids as slots', () => {
+    // A mage with only Fireball and Teleport gets them on keys 1 and 2.
+    expect(resolveSlots(owned(1, 4), [])).toEqual([1, 4, null, null, null, null]);
+  });
+
+  it('honors explicit rows and auto-fills the rest into the lowest empty slots', () => {
+    expect(resolveSlots(owned(1, 2), [{ slot: 3, spell: 1 }]))
+      .toEqual([2, null, 1, null, null, null]);
+  });
+
+  it('drops rows naming a spell the character does not own', () => {
+    expect(resolveSlots(owned(1), [{ slot: 2, spell: 7 }]))
+      .toEqual([1, null, null, null, null, null]);
+  });
+
+  it('drops rows with an out-of-range slot', () => {
+    expect(resolveSlots(owned(1), [{ slot: 0, spell: 1 }, { slot: 9, spell: 1 }]))
+      .toEqual([1, null, null, null, null, null]);
+  });
+
+  it('drops rows naming a spell id outside the SpellId range', () => {
+    expect(resolveSlots(owned(1), [{ slot: 2, spell: 99 }]))
+      .toEqual([1, null, null, null, null, null]);
+  });
+
+  it('keeps the first row when two rows name the same spell', () => {
+    expect(resolveSlots(owned(1), [{ slot: 2, spell: 1 }, { slot: 4, spell: 1 }]))
+      .toEqual([null, 1, null, null, null, null]);
+  });
+
+  it('leaves the overflow unslotted when more spells are owned than slots', () => {
+    const result = resolveSlots(owned(1, 2, 3, 4, 5, 6, 7), []);
+    expect(result.filter(s => s !== null).length).toBe(MAX_SPELL_SLOTS);
+    expect(result).not.toContain(null);
+  });
+
+  it('names a mobility spell for every class', () => {
+    expect(MOBILITY_SPELLS.mage).toBe(4);
+    expect(MOBILITY_SPELLS.ranger).toBe(8);
+  });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- spell-slots`
+Expected: FAIL — `resolveSlots` is not exported from `@arena/shared`.
+
+- [ ] **Step 3: Add the constants to `shared/src/types.ts`**
+
+Add immediately after `export const MAX_MANA = 500;` (currently `:156`):
+
+```ts
+export const MAX_SPELL_SLOTS = 6;
+export type SlotIndex = 1 | 2 | 3 | 4 | 5 | 6;
+```
+
+- [ ] **Step 4: Implement `resolveSlots` in `shared/src/skills.ts`**
+
+Add after the `SPELL_BINDINGS` array (currently ends `:148`):
+
+```ts
+export type SpellSlotRow = { slot: number; spell: number };
+
+/** Each class's movement spell, cast by Space regardless of which slot holds it. */
+export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
+  mage: 4,    // Teleport
+  ranger: 8,  // Evade
+};
+
+const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
+
+/**
+ * Resolve persisted slot rows into the character's hotbar.
+ *
+ * Explicit rows win. Owned spells with no row fill the lowest empty slots in
+ * SPELL_BINDINGS declaration order, which reproduces the old fixed-key layout
+ * for any character that has never edited a slot. Spells that do not fit stay
+ * unslotted rather than displacing an explicit assignment.
+ */
+export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
+  const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+  const placed = new Set<SpellId>();
+
+  for (const row of rows) {
+    if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
+    if (!ALL_SPELL_IDS.has(row.spell)) continue;
+    const spell = row.spell as SpellId;
+    if (!owned.has(spell)) continue;
+    if (placed.has(spell)) continue;      // first row wins
+    if (slots[row.slot - 1] !== null) continue;
+    slots[row.slot - 1] = spell;
+    placed.add(spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    const free = slots.indexOf(null);
+    if (free === -1) break;
+    slots[free] = binding.spell;
+    placed.add(binding.spell);
+  }
+
+  return slots;
+}
+```
+
+Add `MAX_SPELL_SLOTS` to the existing `types.js` import at the top of `skills.ts` (currently `import { TELEPORT_MAX_RANGE } from './types.js';`):
+
+```ts
+import { TELEPORT_MAX_RANGE, MAX_SPELL_SLOTS } from './types.js';
+```
+
+- [ ] **Step 5: Verify `shared/src/index.ts` re-exports the new symbols**
+
+Read `shared/src/index.ts`. It re-exports whole modules; if it uses explicit named exports instead, add `MAX_SPELL_SLOTS`, `SlotIndex`, `SpellSlotRow`, `MOBILITY_SPELLS`, and `resolveSlots`.
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npm test -- spell-slots`
+Expected: PASS, 10 tests.
+
+- [ ] **Step 7: Run the full suite to confirm nothing regressed**
+
+Run: `npm test`
+Expected: PASS — this task is purely additive.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add shared/src/types.ts shared/src/skills.ts shared/src/index.ts server/tests/spell-slots.test.ts
+git commit -m "feat(spells): resolve persisted hotbar slots from owned spells"
+```
+
+---
+
+### Task 2: Slot persistence migration
+
+**Files:**
+- Create: `supabase/migrations/20260802000000_spell_slots.sql`
+
+**Interfaces:**
+- Consumes: existing `characters` table (`id`, `user_id`).
+- Produces: table `character_spell_slots(character_id, slot, spell)` and RPC `set_spell_slot(p_character_id uuid, p_slot smallint, p_spell smallint)`. Passing `null` for `p_spell` clears the slot. Assigning a spell that already lives elsewhere **swaps** the two slots.
+
+- [ ] **Step 1: Write the migration**
+
+Create `supabase/migrations/20260802000000_spell_slots.sql`:
+
+```sql
+-- Per-character hotbar assignment. One row per filled slot; an absent row
+-- means empty. Characters with no rows fall back to the TS-side default in
+-- resolveSlots (SPELL_BINDINGS declaration order), which reproduces the old
+-- fixed-key layout — so existing characters see no change until they move a
+-- spell themselves.
+--
+-- `spell` is deliberately unconstrained by FK: SpellId lives in TypeScript,
+-- not in the database. resolveSlots drops unknown values on read rather than
+-- failing the match.
+create table if not exists character_spell_slots (
+  character_id uuid not null references characters(id) on delete cascade,
+  slot         smallint not null check (slot between 1 and 6),
+  spell        smallint not null check (spell >= 1),
+  primary key (character_id, slot)
+);
+
+create index if not exists character_spell_slots_character_idx
+  on character_spell_slots (character_id);
+
+alter table character_spell_slots enable row level security;
+
+create policy character_spell_slots_owner_read on character_spell_slots for select
+  using (exists (
+    select 1 from characters c
+    where c.id = character_spell_slots.character_id and c.user_id = auth.uid()
+  ));
+
+-- No insert/update/delete policies: mutations only happen through the
+-- SECURITY DEFINER RPC below, which bypasses RLS as the function owner.
+
+-- Assign a spell to a slot, clear a slot (p_spell null), or swap two slots
+-- (when p_spell already lives in a different slot on the same character).
+create or replace function set_spell_slot(
+  p_character_id uuid,
+  p_slot smallint,
+  p_spell smallint
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_old_slot  smallint;
+  v_displaced smallint;
+begin
+  if p_slot is null or p_slot < 1 or p_slot > 6 then
+    raise exception 'slot out of range';
+  end if;
+
+  if not exists (
+    select 1 from characters where id = p_character_id and user_id = auth.uid()
+  ) then
+    raise exception 'character not found or not owned by caller';
+  end if;
+
+  if p_spell is null then
+    delete from character_spell_slots
+    where character_id = p_character_id and slot = p_slot;
+    return;
+  end if;
+
+  -- Where the incoming spell lives now (if anywhere), and what currently
+  -- occupies the target slot. Both are read before any mutation so the swap
+  -- below cannot see its own writes.
+  select slot into v_old_slot from character_spell_slots
+  where character_id = p_character_id and spell = p_spell and slot <> p_slot;
+
+  select spell into v_displaced from character_spell_slots
+  where character_id = p_character_id and slot = p_slot;
+
+  -- Clear both rows first: writing the target directly would collide with the
+  -- primary key while the old row still holds the same spell.
+  delete from character_spell_slots
+  where character_id = p_character_id and (slot = p_slot or slot = v_old_slot);
+
+  insert into character_spell_slots (character_id, slot, spell)
+  values (p_character_id, p_slot, p_spell);
+
+  -- Only a genuine swap re-homes the displaced spell; if the incoming spell
+  -- was previously unslotted there is nothing to move back.
+  if v_old_slot is not null and v_displaced is not null then
+    insert into character_spell_slots (character_id, slot, spell)
+    values (p_character_id, v_old_slot, v_displaced);
+  end if;
+end;
+$$;
+```
+
+- [ ] **Step 2: Write a shape-guard test for the migration**
+
+There is no local Postgres in this repo's test loop, but `server/tests/economy.test.ts:185-203` establishes the pattern for asserting on migration SQL as text. Use it to lock the security guarantees in place.
+
+Append to `server/tests/spell-slots.test.ts`:
+
+```ts
+import { readFileSync } from 'node:fs';
+
+describe('set_spell_slot migration guardrails', () => {
+  const sql = readFileSync(
+    new URL('../../supabase/migrations/20260802000000_spell_slots.sql', import.meta.url),
+    'utf8',
+  );
+
+  it('enables RLS and grants read only to the owning account', () => {
+    expect(sql).toMatch(/alter table character_spell_slots enable row level security/);
+    expect(sql).toMatch(/create policy character_spell_slots_owner_read[\s\S]*?for select/);
+  });
+
+  it('exposes no insert, update, or delete policy', () => {
+    expect(sql).not.toMatch(/for (insert|update|delete)/);
+  });
+
+  it('runs the RPC as SECURITY DEFINER with a pinned search_path', () => {
+    expect(sql).toMatch(/security definer set search_path = public/);
+  });
+
+  it('checks character ownership before mutating', () => {
+    const ownership = sql.indexOf('user_id = auth.uid()');
+    const firstMutation = Math.min(
+      ...['delete from character_spell_slots', 'insert into character_spell_slots']
+        .map(s => sql.indexOf(s, sql.indexOf('create or replace function set_spell_slot')))
+        .filter(i => i > 0),
+    );
+    expect(ownership).toBeGreaterThan(0);
+    expect(ownership).toBeLessThan(firstMutation);
+  });
+
+  it('bounds the slot range in both the table and the RPC', () => {
+    expect(sql).toMatch(/check \(slot between 1 and 6\)/);
+    expect(sql).toMatch(/p_slot < 1 or p_slot > 6/);
+  });
+});
+```
+
+- [ ] **Step 3: Run the tests to verify they pass**
+
+Run: `npm test -- spell-slots`
+Expected: PASS. A failure here means a guardrail is genuinely missing from the migration — fix the SQL, not the test.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260802000000_spell_slots.sql server/tests/spell-slots.test.ts
+git commit -m "feat(db): persist per-character spell slot assignments"
+```
+
+---
+
+### Task 3: Slot-indexed HUD spell bar
+
+**Files:**
+- Modify: `client/src/hud/HUD.ts` — `SlotEntry` type (`:25-36`), `slotEls` field (`:50`), `buildSpellSlots` (`:144-170`), the slot loop in `update` (`:210-252`), and the CSS block (`:77-91`)
+- Modify: `client/src/main.ts:148` and `:723-725` (the two `buildSpellSlots` call sites)
+
+**Interfaces:**
+- Consumes: `resolveSlots`, `MAX_SPELL_SLOTS` from Task 1.
+- Produces: `HUD.buildSpellSlots(slots: (SpellId | null)[]): void` — replaces the old `(ownedSpells: Set<SpellId>)` signature. Always renders exactly `MAX_SPELL_SLOTS` slots; empty ones are dimmed and never show cooldown or mana state.
+
+- [ ] **Step 1: Widen the `SlotEntry` type and the `slotEls` field**
+
+In `HUD.ts`, add `spell` to `SlotEntry` (`:25-36`) so the update loop no longer needs a map key:
+
+```ts
+type SlotEntry = {
+  spell: SpellId;
+  slot: HTMLElement;
+  cd: HTMLElement;
+  cdTime: HTMLElement;
+  pips: HTMLElement;
+  lastPct: number;
+  lastActive: boolean;
+  lastNoMana: boolean;
+  lastCooling: boolean;
+  lastCdText: string;
+  lastCharges?: number;
+};
+```
+
+Replace the field at `:50`:
+
+```ts
+private slotEls: (SlotEntry | null)[] = [];
+```
+
+- [ ] **Step 2: Add the empty-slot CSS rule**
+
+In the `<style>` block, immediately after the `.spell-slot.active::after` rule (`:88`):
+
+```css
+.spell-slot.empty{opacity:0.3}
+.spell-slot.empty .slot-icon{opacity:0.5}
+```
+
+- [ ] **Step 3: Rewrite `buildSpellSlots`**
+
+Replace `:144-170` entirely:
+
+```ts
+buildSpellSlots(slots: (SpellId | null)[]): void {
+  this.spellsEl.textContent = '';
+  this.slotEls = [];
+  for (let i = 0; i < MAX_SPELL_SLOTS; i++) {
+    const spell = slots[i] ?? null;
+    const slot = document.createElement('div');
+    slot.className = spell === null ? 'spell-slot empty' : 'spell-slot';
+    const icon = spell === null ? 'fa-minus' : (SPELL_ICONS[spell] ?? 'fa-star');
+    const tint = spell === null ? 'var(--px-text)' : (SPELL_TINTS[spell] ?? 'var(--px-text)');
+    slot.innerHTML = `
+      <i class="fa ${icon} fa-fw slot-icon" style="color:${tint}"></i>
+      <span class="slot-key">${i + 1}</span>
+      <div class="cd-overlay" style="height:0%"></div>
+      <span class="cd-time"></span>
+      <div class="charge-pips"></div>`;
+    this.spellsEl.appendChild(slot);
+    if (spell === null) {
+      this.slotEls.push(null);
+      continue;
+    }
+    this.slotEls.push({
+      spell,
+      slot,
+      cd: slot.querySelector('.cd-overlay') as HTMLElement,
+      cdTime: slot.querySelector('.cd-time') as HTMLElement,
+      pips: slot.querySelector('.charge-pips') as HTMLElement,
+      lastPct: 0,
+      lastActive: false,
+      lastNoMana: false,
+      lastCooling: false,
+      lastCdText: '',
+    });
+  }
+}
+```
+
+Add `MAX_SPELL_SLOTS` to the `@arena/shared` import on `:1`.
+
+- [ ] **Step 4: Update the slot loop in `update`**
+
+Replace the loop header at `:210` (`for (const [key, entry] of this.slotEls) {`) with:
+
+```ts
+for (const entry of this.slotEls) {
+  if (!entry) continue;
+  const key = entry.spell;
+```
+
+The body from `:211` to `:251` is unchanged — it already reads `key` as a `SpellId`, and the two `key === 8` checks for evade charge pips stay correct because 8 is a spell id, not a slot.
+
+- [ ] **Step 5: Update both call sites in `main.ts`**
+
+At `:148`, inside `refreshLoadout` — for now resolve with no persisted rows, which reproduces current behavior exactly (Task 5 supplies the real rows):
+
+```ts
+hud.buildSpellSlots(resolveSlots(ownedSpells, []));
+```
+
+At `:723-725`, the guest fallback:
+
+```ts
+// Guests have no skill unlocks but the server lets them cast their class's
+// bound spells — show those slots rather than an empty bar.
+const slotSpells = ownedSpells.size > 0
+  ? ownedSpells
+  : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
+hud.buildSpellSlots(resolveSlots(slotSpells, []));
+```
+
+Add `resolveSlots` to the `@arena/shared` import in `main.ts`.
+
+- [ ] **Step 6: Verify the client builds**
+
+Run: `npm run build --workspace=client`
+Expected: PASS. A type error on `buildSpellSlots` means a call site was missed.
+
+- [ ] **Step 7: Verify the bar renders unchanged**
+
+Run the app (`npm run dev`), enter a match with an existing mage, and confirm: six slots render, the first four hold Fireball / Fire Wall / Meteor / Teleport with keys 1-4 as before, slots 5 and 6 are visibly dimmed, and cooldown sweeps and mana graying still work on the filled slots.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add client/src/hud/HUD.ts client/src/main.ts
+git commit -m "feat(hud): render the spell bar as six indexed slots"
+```
+
+---
+
+### Task 4: Six-key, slot-driven input
+
+**Files:**
+- Modify: `client/src/input/InputHandler.ts` — `spellForKey` (`:27-29`), `onKeyDown` (`:31-44`), `setCharacterClass` (`:90-93`), and add a `setSlots` method
+
+**Interfaces:**
+- Consumes: `resolveSlots` output shape and `MOBILITY_SPELLS` from Task 1.
+- Produces: `InputHandler.setSlots(slots: (SpellId | null)[]): void` — called by `main.ts` whenever the loadout changes. Until it is called, the handler holds an all-null array and number keys do nothing.
+
+- [ ] **Step 1: Replace the binding lookup with a slot array**
+
+In `InputHandler.ts`, replace the `activeSpell` field (`:11`) and add a slots field:
+
+```ts
+private activeSpell: SpellId | null = null;
+private slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+```
+
+Replace `spellForKey` (`:27-29`):
+
+```ts
+private spellForSlot(slot: number): SpellId | null {
+  return this.slots[slot - 1] ?? null;
+}
+```
+
+Update the import on `:1`:
+
+```ts
+import { InputFrame, SpellId, MAX_SPELL_SLOTS, MOBILITY_SPELLS } from '@arena/shared';
+```
+
+`SPELL_BINDINGS` is no longer needed here — remove it from the import.
+
+- [ ] **Step 2: Widen the digit regex and fix Space**
+
+Replace `onKeyDown` (`:31-44`):
+
+```ts
+private onKeyDown = (e: KeyboardEvent) => {
+  this.keys.add(e.code);
+  const digit = /^Digit([1-6])$/.exec(e.code);
+  if (digit) {
+    const spell = this.spellForSlot(Number(digit[1]));
+    if (spell) this.activeSpell = spell;
+  }
+  if (e.code === 'Space') {
+    e.preventDefault();
+    // The mobility spell is cast by its id wherever it sits — slots are free
+    // now, so "whatever is on key 4" is no longer the same thing.
+    const mobility = MOBILITY_SPELLS[this.charClass];
+    if (this.slots.includes(mobility)) {
+      this.pendingCast = { spell: mobility, aimTarget: this.mouseWorld };
+    }
+  }
+};
+```
+
+- [ ] **Step 3: Add `setSlots` and fix `setCharacterClass`**
+
+Replace `setCharacterClass` (`:90-93`) and add `setSlots` beside it:
+
+```ts
+setSlots(slots: (SpellId | null)[]): void {
+  this.slots = slots;
+  // Keep the current selection if it survived the change; otherwise fall back
+  // to the first non-empty slot so left-click is never a no-op.
+  if (this.activeSpell === null || !slots.includes(this.activeSpell)) {
+    this.activeSpell = slots.find((s): s is SpellId => s !== null) ?? null;
+  }
+}
+
+setCharacterClass(cls: string): void {
+  this.charClass = cls === 'ranger' ? 'ranger' : 'mage';
+}
+```
+
+- [ ] **Step 4: Guard the cast path against an empty bar**
+
+`onMouseUp` (`:57-60`) and `buildInputFrame` (`:62-84`) must not queue a null spell. Replace `onMouseUp`:
+
+```ts
+private onMouseUp = (e: MouseEvent) => {
+  if (e.button !== 0) return;
+  if (this.activeSpell === null) return;
+  this.pendingCast = { spell: this.activeSpell, aimTarget: this.mouseWorld };
+};
+```
+
+Change `getActiveSpell` (`:95`) to return the nullable type:
+
+```ts
+getActiveSpell(): SpellId | null { return this.activeSpell; }
+```
+
+- [ ] **Step 5: Fix the `getActiveSpell` consumer**
+
+`main.ts:881` passes the result into `hud.update(state, inputHandler.getActiveSpell())`. Widen `HUD.update`'s second parameter (`HUD.ts:172`) to `activeSpell: SpellId | null`. The comparison at `:211` (`const active = key === activeSpell;`) is already correct for null.
+
+- [ ] **Step 6: Verify the client builds**
+
+Run: `npm run build --workspace=client`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add client/src/input/InputHandler.ts client/src/hud/HUD.ts
+git commit -m "feat(input): drive spell selection from six assignable slots"
+```
+
+---
+
+### Task 5: Load and thread persisted slots
+
+**Files:**
+- Modify: `client/src/main.ts` — `refreshLoadout` (`:118-149`), match start (`:715-725`)
+
+**Interfaces:**
+- Consumes: `set_spell_slot` / `character_spell_slots` from Task 2, `resolveSlots` from Task 1, `InputHandler.setSlots` from Task 4.
+- Produces: a module-level `activeSlots: (SpellId | null)[]` that both the HUD and the input handler read.
+
+- [ ] **Step 1: Add the module-level slot state**
+
+Beside `let ownedSpells = new Set<SpellId>();` (`:102`):
+
+```ts
+let activeSlots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+```
+
+- [ ] **Step 2: Fetch slot rows in `refreshLoadout`**
+
+`refreshLoadout` already runs two awaited fetches before its staleness guard at `:140`. Add the slot fetch alongside the existing `skill_unlocks` query at `:119`:
+
+```ts
+const [{ data }, { data: slotData }] = await Promise.all([
+  supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId),
+  supabase.from('character_spell_slots').select('slot, spell').eq('character_id', characterId),
+]);
+const slotRows = (slotData ?? []) as SpellSlotRow[];
+```
+
+Then replace the `buildSpellSlots` line added in Task 3 (`:148`):
+
+```ts
+ownedSpells = spellsFromNodes(nodeSet);
+playerElement = deriveElement(effRanks);
+phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
+activeSlots = resolveSlots(ownedSpells, slotRows);
+hud.buildSpellSlots(activeSlots);
+inputHandler?.setSlots(activeSlots);
+```
+
+`inputHandler` is only constructed at match start, so the optional call is required — `refreshLoadout` also runs from the lobby.
+
+Add `SpellSlotRow` and `MAX_SPELL_SLOTS` to the `@arena/shared` import.
+
+- [ ] **Step 3: Seed the handler at match start**
+
+At `:715-725`, after `inputHandler.setCharacterClass(...)`, replace the guest-fallback block written in Task 3:
+
+```ts
+inputHandler = new InputHandler(scene, scene.renderer.domElement);
+if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
+
+// Guests have no skill unlocks but the server lets them cast their class's
+// bound spells — show those slots rather than an empty bar.
+const slots = ownedSpells.size > 0
+  ? activeSlots
+  : resolveSlots(
+      new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell)),
+      [],
+    );
+hud.buildSpellSlots(slots);
+inputHandler.setSlots(slots);
+```
+
+- [ ] **Step 4: Verify the teleport prediction needs no change**
+
+Read `main.ts:803-816`. The condition is `frame.castSpell === 4 && ownedSpells.has(4)`. `castSpell` is a `SpellId`, so this already keys off the *spell*, not a keybind, and stays correct under free assignment. **Make no change here.** (The design doc listed this as a change site; that was wrong, and this step exists to stop an implementer "fixing" working code.)
+
+- [ ] **Step 5: Verify the client builds**
+
+Run: `npm run build --workspace=client`
+Expected: PASS.
+
+- [ ] **Step 6: Manually verify persistence end to end**
+
+Run the app. With a logged-in mage: confirm the bar matches the pre-change layout. Then insert a row directly via the Supabase SQL editor —
+`select set_spell_slot('<character-id>'::uuid, 6::smallint, 1::smallint);`
+— reload, and confirm Fireball has moved to slot 6 and slot 1 now holds Fire Wall.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add client/src/main.ts
+git commit -m "feat(client): load persisted spell slots into the bar and input"
+```
+
+---
+
+### Task 6: Drop `key` from `SpellBinding`
+
+Now that nothing reads it, remove the field. This is the change that guarantees no keybind logic survived.
+
+**Files:**
+- Modify: `shared/src/skills.ts:137-148`
+
+**Interfaces:**
+- Produces: `SpellBinding = { spell: SpellId; node: NodeId; charClass: CharacterClass }`.
+
+- [ ] **Step 1: Remove the field and every `key` value**
+
+Replace `:137-148`:
+
+```ts
+export type SpellBinding = { spell: SpellId; node: NodeId; charClass: CharacterClass };
+
+export const SPELL_BINDINGS: SpellBinding[] = [
+  { spell: 1, node: 'fire.fireball',          charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   charClass: 'ranger' },
+];
+```
+
+Declaration order is now load-bearing — it is the default slot order in `resolveSlots`. Leave the comment above the type reflecting that.
+
+- [ ] **Step 2: Build every workspace to find stragglers**
+
+Run: `npm run build --workspace=client && npm test`
+Expected: PASS. Any `b.key` reference surfaces here as a type error.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add shared/src/skills.ts
+git commit -m "refactor(spells): drop the fixed keybind from spell bindings"
+```
+
+---
+
+### Task 7: Slot assignment UI
+
+**Files:**
+- Modify: `client/src/skills/SkillTreeUI.ts` — CSS block (near `:133`), `render()` markup (`:363-392`), `reload()` (`:299-344`), and new handler methods beside `buyNode` (`:709-728`)
+
+**Interfaces:**
+- Consumes: `set_spell_slot` RPC (Task 2), `resolveSlots` (Task 1).
+- Produces: a slot bar at the bottom of the skill tree screen. Click a slot to open a picker of unlocked spells; click a spell to assign; click the assigned spell again to clear.
+
+- [ ] **Step 1: Load the character's slots in `reload()`**
+
+`reload()` runs a parallel fetch pair at `:302-313`. Add one field beside the existing `private ranks = new Map<NodeId, number>();` (`:221`):
+
+```ts
+private slotRows: SpellSlotRow[] = [];
+```
+
+Widen the destructure and add a third query:
+
+```ts
+const [{ data: charData }, { data }, { data: slotData }] = await Promise.all([
+  supabase
+    .from('characters')
+    .select('skill_points_available, name, class')
+    .eq('id', this.characterId)
+    .single(),
+  supabase
+    .from('skill_unlocks')
+    .select('node_id, rank')
+    .eq('character_id', this.characterId),
+  supabase
+    .from('character_spell_slots')
+    .select('slot, spell')
+    .eq('character_id', this.characterId),
+]);
+```
+
+Then, immediately before the trailing `this.render();` (`:343`):
+
+```ts
+this.slotRows = (slotData ?? []) as SpellSlotRow[];
+```
+
+Owned spells are derived from `this.ranks`, which is the existing map of unlocked nodes — there is no separate owned-node field. Add a getter beside the other private helpers:
+
+```ts
+private ownedSpells(): Set<SpellId> {
+  return new Set(SPELL_BINDINGS.filter(b => this.ranks.has(b.node)).map(b => b.spell));
+}
+```
+
+Placing the assignment before `this.render()` matters: `reload()` already grants the class-default node above this point, so `this.ranks` is complete by the time the bar renders.
+
+- [ ] **Step 2: Add the slot bar CSS**
+
+In the `<style>` block near the other `.st-*` rules (`:133-144`):
+
+```css
+.st-slots{display:flex;gap:8px;justify-content:center;margin-top:14px}
+.st-slot{width:46px;height:46px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.st-slot.picking{box-shadow:0 0 0 2px var(--px-accent)}
+.st-slot .st-slot-key{position:absolute;right:2px;bottom:2px;font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-text)}
+.st-picker{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.st-picker-item{padding:6px 10px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);cursor:pointer;font-family:'VT323',monospace;font-size:15px;color:var(--px-text)}
+.st-picker-item:hover{box-shadow:0 0 0 2px var(--px-accent)}
+```
+
+- [ ] **Step 3: Render the bar**
+
+In `render()`, after the closing tag of the two-column block (`:392`), insert:
+
+```ts
+<div class="st-slots" id="st-slots">${this.renderSlotBar()}</div>
+<div class="st-picker" id="st-picker"></div>
+```
+
+Add the method beside the other render helpers:
+
+```ts
+private renderSlotBar(): string {
+  const slots = resolveSlots(this.ownedSpells(), this.slotRows);
+  return slots.map((spell, i) => {
+    const icon = spell === null ? 'fa-minus' : (NODE_ICONS[nodeForSpell(spell)] ?? 'fa-star');
+    return `<div class="st-slot" data-slot="${i + 1}">
+      <i class="fa ${icon} fa-fw"${spell === null ? ' style="opacity:0.3"' : ''}></i>
+      <span class="st-slot-key">${i + 1}</span>
+    </div>`;
+  }).join('');
+}
+```
+
+And a module-level helper beside `esc` (`:46`):
+
+```ts
+function nodeForSpell(spell: SpellId): NodeId {
+  return SPELL_BINDINGS.find(b => b.spell === spell)!.node;
+}
+```
+
+- [ ] **Step 4: Wire the picker**
+
+Add beside `buyNode` (`:709-728`), following its optimistic-then-reconcile shape. Note `this.el` is the root element (there is no `this.root`) and `this.characterId` is `string | null`:
+
+```ts
+private pickingSlot: SlotIndex | null = null;
+
+private openPicker(slot: SlotIndex): void {
+  this.pickingSlot = slot;
+  const picker = this.el.querySelector('#st-picker') as HTMLElement;
+  const items = [...this.ownedSpells()].map(spell => {
+    const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
+    return `<div class="st-picker-item" data-spell="${spell}">${esc(node?.name ?? String(spell))}</div>`;
+  });
+  items.push('<div class="st-picker-item" data-spell="clear">— Clear —</div>');
+  picker.innerHTML = items.join('');
+}
+
+private async assignSlot(slot: SlotIndex, spell: SpellId | null): Promise<void> {
+  if (!this.characterId) return;
+
+  // Optimistic: mirror the RPC's swap semantics locally so the bar updates
+  // before the round trip, then reload to reconcile.
+  const current = resolveSlots(this.ownedSpells(), this.slotRows);
+  const oldIndex = spell === null ? -1 : current.indexOf(spell);
+  const displaced = current[slot - 1];
+  const next = [...current];
+  next[slot - 1] = spell;
+  if (oldIndex !== -1 && displaced !== null) next[oldIndex] = displaced;
+  else if (oldIndex !== -1) next[oldIndex] = null;
+  this.slotRows = next
+    .map((s, i) => ({ slot: i + 1, spell: s }))
+    .filter((r): r is SpellSlotRow => r.spell !== null);
+
+  this.pickingSlot = null;
+  this.render();
+
+  await supabase.rpc('set_spell_slot', {
+    p_character_id: this.characterId,
+    p_slot: slot,
+    p_spell: spell,
+  });
+  await this.reload();
+}
+```
+
+- [ ] **Step 5: Bind the click handlers**
+
+`render()` re-binds listeners at `:403` (respec) and `:642-680` (nodes), using `this.el.querySelector` / `this.el.querySelectorAll`. Match that idiom — add after the respec binding at `:403`:
+
+```ts
+this.el.querySelectorAll('.st-slot').forEach(el => {
+  el.addEventListener('click', () => {
+    this.openPicker(Number((el as HTMLElement).dataset.slot) as SlotIndex);
+  });
+});
+this.el.querySelectorAll('.st-picker-item').forEach(el => {
+  el.addEventListener('click', () => {
+    if (this.pickingSlot === null) return;
+    const raw = (el as HTMLElement).dataset.spell;
+    this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
+  });
+});
+```
+
+Because `render()` rebuilds `innerHTML` wholesale, these bindings are re-established on every render — the same lifecycle the node handlers already rely on.
+
+- [ ] **Step 6: Verify the client builds**
+
+Run: `npm run build --workspace=client`
+Expected: PASS.
+
+- [ ] **Step 7: Manually verify the full loop**
+
+Run the app. Open the skill tree on a mage. Confirm: six slots render with the current assignment; clicking a slot opens the picker; picking a spell already in another slot swaps them; "Clear" empties the slot; closing and reopening the tree preserves the change; and entering a match shows the new arrangement on the HUD with the matching number keys.
+
+- [ ] **Step 8: Run the full suite**
+
+Run: `npm test`
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add client/src/skills/SkillTreeUI.ts
+git commit -m "feat(ui): assign spells to hotbar slots from the skill tree"
+```
+
+---
+
+## Notes for the implementer
+
+- **`SkillTreeUI.ts` is 810 lines** and this plan adds to it rather than splitting it. That is deliberate: the slot bar genuinely belongs to the loadout screen, and a split should be its own change. If it crosses ~950 lines, raise it rather than refactoring mid-task.
+- **`SkillTreeUI` field names in Task 7 are verified against the source:** `this.el` is the root element (there is no `this.root`), `this.ranks: Map<NodeId, number>` holds unlocked nodes (there is no separate owned-node set), `this.characterId: string | null`, and `esc` is a module-level function at `:46`. Do not add fields that duplicate this state.
+- **The design doc lists `main.ts:803` as a change site. It is not** — see Task 5 Step 4. The condition there already keys off the spell id.
+- **Do not touch the server.** If a change here appears to require a server edit, the design is wrong; stop and raise it.
