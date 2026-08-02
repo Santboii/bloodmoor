@@ -70,14 +70,22 @@ describe('resolveSlots', () => {
     expect(resolveSlots(owned(1, 5), [])).toEqual([1, 5, null, null, null, null]);
   });
 
-  it('honors an explicit row over the spell\'s default slot', () => {
-    // Fireball is pinned to slot 3; Fire Wall still takes its own default
-    // slot 2 rather than packing into slot 1.
+  it('treats a stored snapshot as the complete bar', () => {
+    // Fireball is pinned to slot 3. Fire Wall is owned but absent from the
+    // snapshot, which means the player benched it — it must NOT reappear.
     expect(resolveSlots(owned(1, 2), [{ slot: 3, spell: 1 }]))
-      .toEqual([null, 2, 1, null, null, null]);
+      .toEqual([null, null, 1, null, null, null]);
   });
 
-  it('drops rows naming a spell the character does not own', () => {
+  it('lets a slot stay deliberately empty', () => {
+    // The bench that makes "Clear" work: slot 1 has no row, and Fireball
+    // does not fall back into it because a snapshot exists.
+    expect(resolveSlots(owned(1, 2), [{ slot: 2, spell: 2 }])[0]).toBeNull();
+  });
+
+  it('falls back to defaults when no row survives validation', () => {
+    // A snapshot whose spells were all respecced away must not strand the
+    // player on an empty bar.
     expect(resolveSlots(owned(1), [{ slot: 2, spell: 7 }]))
       .toEqual([1, null, null, null, null, null]);
   });
@@ -142,16 +150,29 @@ const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spe
 /**
  * Resolve persisted slot rows into the character's hotbar.
  *
- * Three passes, in priority order:
- *   1. Explicit rows win — the character put that spell there deliberately.
- *   2. Every other owned spell seeds at its legacy default slot if that slot
- *      is free. This is what keeps an existing character's bar identical to
- *      what it is today: a mage owning Fireball and Meteor keeps them on
- *      keys 1 and 3, with the gap where Fire Wall would go.
- *   3. Anything still unplaced (its default slot was taken, or it has no
- *      default at all) falls to the lowest empty slot.
+ * The model is **snapshot-authoritative**: a character who has edited their
+ * bar has every slot persisted, and those rows are the complete truth.
+ * Defaults apply only to a character who has never edited.
  *
- * Spells that do not fit stay unslotted rather than displacing an assignment.
+ *   1. Explicit rows win. If any survived validation, return immediately —
+ *      an absent slot in a stored snapshot means *deliberately empty*, and
+ *      nothing may fall into it. This is what makes benching a spell
+ *      possible, and it is why "Clear" works.
+ *   2. Otherwise (a never-edited character) every owned spell seeds at its
+ *      legacy default slot. This keeps an existing character's bar identical
+ *      to what it was before slots existed: a mage owning Fireball and
+ *      Meteor keeps them on keys 1 and 3, with the gap where Fire Wall goes.
+ *   3. Anything still unplaced — its default slot was taken, or it has no
+ *      default (Phase B frost spells) — falls to the lowest empty slot.
+ *
+ * The early return keys off whether any row *survived validation*, not
+ * whether any row was supplied. A snapshot whose spells were all respecced
+ * away resolves to defaults rather than stranding the player on an empty
+ * bar.
+ *
+ * Consequence to know: once a character has edited, a newly unlocked spell
+ * does NOT auto-appear on the bar. They assign it from the slot bar on the
+ * skill tree screen, which is where they just spent the point.
  */
 export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
   const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
@@ -171,6 +192,10 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
     if (slots[row.slot - 1] !== null) continue;
     claim(row.slot - 1, spell);
   }
+
+  // Snapshot-authoritative: a stored assignment is the whole bar. Empty
+  // slots in it are deliberate benches, so the default passes must not run.
+  if (placed.size > 0) return slots;
 
   for (const binding of SPELL_BINDINGS) {
     if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
@@ -227,7 +252,7 @@ git commit -m "feat(spells): resolve persisted hotbar slots from owned spells"
 
 **Interfaces:**
 - Consumes: existing `characters` table (`id`, `user_id`).
-- Produces: table `character_spell_slots(character_id, slot, spell)` and RPC `set_spell_slot(p_character_id uuid, p_slot smallint, p_spell smallint)`. Passing `null` for `p_spell` clears the slot. Assigning a spell that already lives elsewhere **swaps** the two slots.
+- Produces: table `character_spell_slots(character_id, slot, spell)` and RPC `set_spell_slots(p_character_id uuid, p_slots smallint[])`, which atomically replaces the character's whole six-slot bar. `NULL` at an index means that slot is deliberately empty.
 
 - [ ] **Step 1: Write the migration**
 
@@ -264,20 +289,24 @@ create policy character_spell_slots_owner_read on character_spell_slots for sele
 -- No insert/update/delete policies: mutations only happen through the
 -- SECURITY DEFINER RPC below, which bypasses RLS as the function owner.
 
--- Assign a spell to a slot, clear a slot (p_spell null), or swap two slots
--- (when p_spell already lives in a different slot on the same character).
-create or replace function set_spell_slot(
+-- Replace a character's entire hotbar in one atomic call.
+--
+-- The model is snapshot-authoritative: the client computes the whole
+-- six-slot array and stores it. That makes swapping, clearing, and benching
+-- ordinary array edits on the client rather than three different SQL paths,
+-- and it removes any chance of the optimistic UI and the stored state
+-- disagreeing — what the player sees IS what gets written.
+--
+-- p_slots must have exactly 6 entries, ordered slot 1..6, with NULL for a
+-- deliberately empty slot.
+create or replace function set_spell_slots(
   p_character_id uuid,
-  p_slot smallint,
-  p_spell smallint
+  p_slots smallint[]
 ) returns void
 language plpgsql security definer set search_path = public as $$
-declare
-  v_old_slot  smallint;
-  v_displaced smallint;
 begin
-  if p_slot is null or p_slot < 1 or p_slot > 6 then
-    raise exception 'slot out of range';
+  if p_slots is null or array_length(p_slots, 1) is distinct from 6 then
+    raise exception 'expected exactly 6 slot entries';
   end if;
 
   if not exists (
@@ -286,38 +315,19 @@ begin
     raise exception 'character not found or not owned by caller';
   end if;
 
-  if p_spell is null then
-    delete from character_spell_slots
-    where character_id = p_character_id and slot = p_slot;
-    return;
-  end if;
-
-  -- Where the incoming spell lives now (if anywhere), and what currently
-  -- occupies the target slot. Both are read before any mutation so the swap
-  -- below cannot see its own writes.
-  select slot into v_old_slot from character_spell_slots
-  where character_id = p_character_id and spell = p_spell and slot <> p_slot;
-
-  select spell into v_displaced from character_spell_slots
-  where character_id = p_character_id and slot = p_slot;
-
-  -- Clear both rows first: writing the target directly would collide with the
-  -- primary key while the old row still holds the same spell.
-  delete from character_spell_slots
-  where character_id = p_character_id and (slot = p_slot or slot = v_old_slot);
+  delete from character_spell_slots where character_id = p_character_id;
 
   insert into character_spell_slots (character_id, slot, spell)
-  values (p_character_id, p_slot, p_spell);
-
-  -- Only a genuine swap re-homes the displaced spell; if the incoming spell
-  -- was previously unslotted there is nothing to move back.
-  if v_old_slot is not null and v_displaced is not null then
-    insert into character_spell_slots (character_id, slot, spell)
-    values (p_character_id, v_old_slot, v_displaced);
-  end if;
+  select p_character_id, i::smallint, p_slots[i]
+  from generate_series(1, 6) as i
+  where p_slots[i] is not null;
 end;
 $$;
+
+grant execute on function set_spell_slots(uuid, smallint[]) to authenticated;
 ```
+
+The `grant` is explicit because every other client-facing RPC in this repo states its own (`supabase/migrations/20260731000000_items.sql:138,151,188,255,268`), and the one deliberately-unreachable function uses an explicit `revoke`. Postgres would grant it by default; saying so keeps this file's reachability readable.
 
 - [ ] **Step 2: Write a shape-guard test for the migration**
 
@@ -352,7 +362,7 @@ describe('set_spell_slot migration guardrails', () => {
     // above it also contains `user_id = auth.uid()`, and an unscoped search
     // finds that one — which would keep this test green even if the RPC's
     // own ownership check were deleted outright.
-    const rpcStart = sql.indexOf('create or replace function set_spell_slot');
+    const rpcStart = sql.indexOf('create or replace function set_spell_slots');
     expect(rpcStart).toBeGreaterThan(0);
 
     const ownership = sql.indexOf('user_id = auth.uid()', rpcStart);
@@ -365,9 +375,13 @@ describe('set_spell_slot migration guardrails', () => {
     expect(ownership).toBeLessThan(firstMutation);
   });
 
-  it('bounds the slot range in both the table and the RPC', () => {
+  it('bounds the slot range in the table and the array length in the RPC', () => {
     expect(sql).toMatch(/check \(slot between 1 and 6\)/);
-    expect(sql).toMatch(/p_slot < 1 or p_slot > 6/);
+    expect(sql).toMatch(/array_length\(p_slots, 1\) is distinct from 6/);
+  });
+
+  it('grants execute to authenticated', () => {
+    expect(sql).toMatch(/grant execute on function set_spell_slots\(uuid, smallint\[\]\) to authenticated/);
   });
 });
 ```
@@ -954,27 +968,28 @@ private openPicker(slot: SlotIndex): void {
 private async assignSlot(slot: SlotIndex, spell: SpellId | null): Promise<void> {
   if (!this.characterId) return;
 
-  // Optimistic: mirror the RPC's swap semantics locally so the bar updates
-  // before the round trip, then reload to reconcile.
-  const current = resolveSlots(this.ownedSpells(), this.slotRows);
-  const oldIndex = spell === null ? -1 : current.indexOf(spell);
-  const displaced = current[slot - 1];
-  const next = [...current];
+  // Snapshot-authoritative: compute the whole bar and store the whole bar.
+  // There is no swap to model against the server, so the optimistic view
+  // and what persists cannot drift apart.
+  const next = resolveSlots(this.ownedSpells(), this.slotRows);
+  const existing = spell === null ? -1 : next.indexOf(spell);
+  // Moving a spell that already sits somewhere swaps the two slots; the
+  // vacated one takes whatever the target was holding (possibly nothing).
+  if (existing !== -1) next[existing] = next[slot - 1];
   next[slot - 1] = spell;
-  if (oldIndex !== -1 && displaced !== null) next[oldIndex] = displaced;
-  else if (oldIndex !== -1) next[oldIndex] = null;
+
   this.slotRows = next
     .map((s, i) => ({ slot: i + 1, spell: s }))
-    .filter((r): r is SpellSlotRow => r.spell !== null);
+    .filter((r): r is { slot: number; spell: SpellId } => r.spell !== null);
 
   this.pickingSlot = null;
   this.render();
 
-  await supabase.rpc('set_spell_slot', {
+  const { error } = await supabase.rpc('set_spell_slots', {
     p_character_id: this.characterId,
-    p_slot: slot,
-    p_spell: spell,
+    p_slots: next,
   });
+  if (error) console.error('Slot assignment failed, reverting:', error.message);
   await this.reload();
 }
 ```
@@ -989,12 +1004,14 @@ this.el.querySelectorAll('.st-slot').forEach(el => {
     this.openPicker(Number((el as HTMLElement).dataset.slot) as SlotIndex);
   });
 });
-this.el.querySelectorAll('.st-picker-item').forEach(el => {
-  el.addEventListener('click', () => {
-    if (this.pickingSlot === null) return;
-    const raw = (el as HTMLElement).dataset.spell;
-    this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
-  });
+// Delegate on the container, not the items. `render()` emits #st-picker
+// EMPTY and openPicker fills it later via innerHTML — binding the items
+// here would attach zero listeners and the picker would never respond.
+this.el.querySelector('#st-picker')!.addEventListener('click', e => {
+  const item = (e.target as HTMLElement).closest('.st-picker-item') as HTMLElement | null;
+  if (!item || this.pickingSlot === null) return;
+  const raw = item.dataset.spell;
+  void this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
 });
 ```
 
