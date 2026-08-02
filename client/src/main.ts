@@ -14,7 +14,7 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass, GearVisuals } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -145,7 +145,7 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
-  hud.buildSpellSlots(ownedSpells);
+  hud.buildSpellSlots(resolveSlots(ownedSpells, []));
 }
 
 /** Re-deriving the loadout used to be awaited between hiding one screen and
@@ -719,11 +719,11 @@ function startGame(): void {
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
 
   // Guests have no skill unlocks but the server lets them cast their class's
-  // four bound spells — show those slots rather than an empty bar.
+  // bound spells — show those slots rather than an empty bar.
   const slotSpells = ownedSpells.size > 0
     ? ownedSpells
     : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
-  hud.buildSpellSlots(slotSpells);
+  hud.buildSpellSlots(resolveSlots(slotSpells, []));
   hud.show();
   setScene('arena');
   setDueling(true);
