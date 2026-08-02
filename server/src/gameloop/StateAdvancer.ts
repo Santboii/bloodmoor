@@ -14,6 +14,7 @@ import {
   IMPALER_PIERCE_DAMAGE_BONUS,
   PERMAFROST_LINGER_TICKS,
   CATACLYSMIC_ORB_DAMAGE, CATACLYSMIC_ORB_RADIUS,
+  ABSOLUTE_ZERO_DWELL_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -824,6 +825,35 @@ export function advanceState(
       }
     }
   }
+
+  // 4a. Absolute Zero keystone: per-target dwell tracking lives on the zone
+  // (not the player), so two overlapping blizzards from different casters
+  // never share a timer. The dwell map is rebuilt fresh every tick from who
+  // is currently standing inside — a target who has left the zone is simply
+  // absent from the new map, which is how the dwell resets. Excludes
+  // Permafrost's lingering (`noDamage`) zone — that is leftover chilled
+  // ground, not an active Blizzard to dwell in.
+  fireWalls = fireWalls.map(fw => {
+    if (fw.kind !== 'blizzard' || fw.noDamage || !modifiers[fw.ownerId]?.blizzard.absoluteZero) return fw;
+    const dwell: Record<string, number> = {};
+    for (const [pid, player] of Object.entries(players)) {
+      if (player.hp <= 0) continue;
+      if (!fireWallDamagesPlayer(fw, player.position, pid, 1)) continue;
+      const ticksInside = (fw.dwell?.[pid] ?? 0) + 1;
+      dwell[pid] = ticksInside;
+      const sameTeam = resolvedMode.teamsEnabled &&
+        players[fw.ownerId]?.teamId !== undefined &&
+        players[fw.ownerId].teamId === player.teamId;
+      if (ticksInside >= ABSOLUTE_ZERO_DWELL_TICKS && !sameTeam && (player.freezeRootReadyAt ?? 0) <= tick) {
+        players[pid] = {
+          ...player,
+          rootUntil: tick + DEEP_FREEZE_ROOT_TICKS,
+          freezeRootReadyAt: tick + DEEP_FREEZE_COOLDOWN_TICKS,
+        };
+      }
+    }
+    return { ...fw, dwell };
+  });
 
   // 5. Meteor detonations
   const survivingMeteors = [];

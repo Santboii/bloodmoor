@@ -101,6 +101,11 @@ export type FireWallState = {
   shape?: 'circle';
   center?: Vec2;
   radius?: number;
+  // Absolute Zero keystone: consecutive ticks each target has stood inside
+  // this zone. Lives on the zone (not the player) so two overlapping
+  // blizzards from different casters never share a timer; a target missing
+  // from this map has had their dwell reset by leaving the zone.
+  dwell?: Record<string, number>;
   // Permafrost keystone: the lingering zone an expiring Blizzard leaves
   // behind — same `kind: 'blizzard'` shape so it chills like one, but this
   // flag zeroes its damage in the fire-wall damage loop.
