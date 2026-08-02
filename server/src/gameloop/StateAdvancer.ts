@@ -13,6 +13,7 @@ import {
   FROZEN_ORB_VOLLEY_INTERVAL_TICKS,
   IMPALER_PIERCE_DAMAGE_BONUS,
   PERMAFROST_LINGER_TICKS,
+  CATACLYSMIC_ORB_DAMAGE, CATACLYSMIC_ORB_RADIUS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -731,7 +732,27 @@ export function advanceState(
   const survivingOrbs: FrozenOrbState[] = [];
   for (const orb of frozenOrbs) {
     const advancedOrb = advanceFrozenOrb(orb);
-    if (isFrozenOrbExpired(advancedOrb, tick)) continue;
+    if (isFrozenOrbExpired(advancedOrb, tick)) {
+      // Cataclysmic Orb keystone: detonate exactly once, on the tick the orb
+      // expires (never before — this branch only runs once expiry is true —
+      // and never again, since the orb is dropped this same tick).
+      if (advancedOrb.detonateOnExpiry) {
+        for (const [pid, player] of Object.entries(players)) {
+          if (pid === advancedOrb.ownerId || player.hp <= 0) continue;
+          const dx = player.position.x - advancedOrb.position.x;
+          const dy = player.position.y - advancedOrb.position.y;
+          if (dx * dx + dy * dy > (CATACLYSMIC_ORB_RADIUS + PLAYER_HALF_SIZE) ** 2) continue;
+          const invuln = (player.invulnUntil ?? 0) > tick;
+          if (!invuln) {
+            players[pid] = {
+              ...player,
+              hp: Math.max(0, player.hp - CATACLYSMIC_ORB_DAMAGE * getDamageMultiplier(advancedOrb.ownerId, pid, players, resolvedMode)),
+            };
+          }
+        }
+      }
+      continue;
+    }
     if (orbVolleyDue(advancedOrb, tick)) {
       projectiles = [...projectiles, ...spawnOrbVolley(advancedOrb, tick)];
       survivingOrbs.push({ ...advancedOrb, nextVolleyAt: tick + FROZEN_ORB_VOLLEY_INTERVAL_TICKS });
