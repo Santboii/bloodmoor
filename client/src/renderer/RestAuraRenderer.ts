@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameState, PlayerState } from '@arena/shared';
+import { INTERNAL_HEIGHT, MAX_PIXEL_RATIO } from './pixelation';
 
 const POOL_SIZE = 256;
 const SOFT_CAP = Math.floor(POOL_SIZE * 0.9);
@@ -39,6 +40,15 @@ export class RestAuraRenderer {
   private sizeAttr: THREE.BufferAttribute;
   private geometry: THREE.BufferGeometry;
   private points: THREE.Points;
+  private material!: THREE.ShaderMaterial;
+
+  // gl_PointSize is in device pixels, but particle sizes are authored in the
+  // legacy 360p grid (INTERNAL_HEIGHT). Scale by the drawing-buffer height so
+  // particles keep their intended screen proportion at native resolution.
+  private onResize = () => {
+    this.material.uniforms.uSizeScale.value =
+      (window.innerHeight * Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)) / INTERNAL_HEIGHT;
+  };
 
   constructor(private scene: THREE.Scene) {
     this.geometry = new THREE.BufferGeometry();
@@ -51,12 +61,16 @@ export class RestAuraRenderer {
     this.geometry.setDrawRange(0, 0);
 
     const material = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: AURA_COLOR } },
+      uniforms: {
+        uColor: { value: AURA_COLOR },
+        uSizeScale: { value: 1 },
+      },
       vertexShader: `
+        uniform float uSizeScale;
         attribute float size;
         void main() {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size;
+          gl_PointSize = size * uSizeScale;
         }
       `,
       fragmentShader: `
@@ -73,9 +87,13 @@ export class RestAuraRenderer {
       blending: THREE.AdditiveBlending,
     });
 
+    this.material = material;
     this.points = new THREE.Points(this.geometry, material);
     this.points.frustumCulled = false;
     scene.add(this.points);
+
+    this.onResize();
+    window.addEventListener('resize', this.onResize);
   }
 
   update(state: GameState, delta: number): void {
@@ -181,6 +199,7 @@ export class RestAuraRenderer {
   }
 
   dispose(): void {
+    window.removeEventListener('resize', this.onResize);
     this.scene.remove(this.points);
     this.geometry.dispose();
     (this.points.material as THREE.ShaderMaterial).dispose();
