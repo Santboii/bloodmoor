@@ -79,21 +79,8 @@ function broadcastState(roomId: string, room: Room, state: GameState): void {
   // 'ended' snapshot has NO successor and carries the last death (FFA
   // placement, death visuals) — it must be delivered reliably.
   const reliable = state.phase === 'ended';
-  // Blind Strike meteors must not be visible to opponents — filter per recipient.
-  if (state.meteors.some(m => m.hidden)) {
-    for (const id of room.players.keys()) {
-      const sock = io.sockets.sockets.get(id);
-      if (!sock) continue;
-      const emitter = reliable ? sock : sock.volatile;
-      emitter.emit('game-state', {
-        ...wire,
-        meteors: wire.meteors.filter(m => !m.hidden || m.ownerId === id),
-      });
-    }
-  } else {
-    const emitter = reliable ? io.to(roomId) : io.to(roomId).volatile;
-    emitter.emit('game-state', wire);
-  }
+  const emitter = reliable ? io.to(roomId) : io.to(roomId).volatile;
+  emitter.emit('game-state', wire);
 }
 
 async function settleMatchEnd(roomId: string, room: Room, state: GameState, endedLoop?: GameLoop): Promise<void> {

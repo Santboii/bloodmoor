@@ -81,6 +81,13 @@ export type Projectile = {
   redirectCount?: number;   // guided redirects completed (momentum damage rider)
   relentless?: boolean;     // Guided keystone: unlimited redirects
   predator?: boolean;       // Predator keystone: leads moving targets
+  bounces?: number;         // Ricochet: remaining bounce budget
+  bounceCount?: number;     // completed bounces — +12% damage each
+  perpetual?: boolean;      // Perpetual Flame keystone: ignore the bounce budget
+  wallEmpowered?: boolean;  // Searing Heat: one-shot, already empowered
+  loopback?: boolean;       // Hunter's Ember keystone: one unused return pass
+  emberGen?: number;        // 0 = parent fireball, 1 = ember, 2 = chained ember
+  spawnTick?: number;       // for the hard lifetime ceiling
 };
 
 export type FireWallState = {
@@ -88,19 +95,32 @@ export type FireWallState = {
   ownerId: string;
   segments: Segment[];
   expiresAt: number; // server tick
+  spawnedAt: number; // server tick — age drives ramp, growth, rotation
   shape?: 'circle';
   center?: Vec2;
   radius?: number;
+  ramp?: boolean;        // Enduring Flames: 25→55 dmg/s across life
+  growth?: boolean;      // Inferno Expanse: extends outward over life
+  eternalPyre?: boolean; // duration only ticks down while uncontested
+  // Firestorm rotation — segments are rebuilt from these each tick
+  origin?: Vec2;
+  angle?: number;
+  angularVel?: number;
+  halfLength?: number;
 };
 
 export type MeteorState = {
   id: string;
   ownerId: string;
   target: Vec2;
+  origin: Vec2;          // steer-clamp centre — the original cast point
   strikeAt: number;
   aoeRadius: number;
-  hidden?: boolean;
-  moltenImpact?: boolean;
+  steerRadius?: number;  // Guided Descent
+  fallingStar?: boolean; // self-steers for the last 0.5s
+  chunks?: number;       // Molten Impact
+  ejecta?: boolean;      // chunks leave craters
+  damageRatio?: number;  // 1 = full; shower meteors and chunks scale down
 };
 
 export type RainOfArrowsState = {
@@ -178,6 +198,31 @@ export const FIREWALL_DAMAGE_PER_TICK = 40 / TICK_RATE;
 
 export const METEOR_DELAY_TICKS = Math.round(1.5 * TICK_RATE); // 90
 export const METEOR_AOE_RADIUS = 60; // world units
+
+// ── Fire rework tuning ──────────────────────────────────────────────────────
+export const FIREBALL_MAX_LIFETIME_TICKS = 4 * TICK_RATE; // 240 — Perpetual Flame ceiling
+export const BOUNCE_DAMAGE_BONUS = 0.12;                  // per completed bounce
+export const EMBER_DAMAGE_RATIO = 0.20;
+export const EMBER_CHAIN_DAMAGE_RATIO = 0.10;
+export const EMBER_SPEED_RATIO = 0.75;
+export const EMBER_HOMING = 260;
+export const MAX_LIVE_EMBERS = 12;                        // hard cap per owner
+export const FIREWALL_DAMAGE_START = 25 / TICK_RATE;
+export const FIREWALL_DAMAGE_END = 55 / TICK_RATE;
+export const WALL_GROWTH_RATIO = 0.5;                     // 1.0× → 1.5× over life
+export const FIRESTORM_ANGULAR_VEL = Math.PI / 4;         // rad/s (45°/s)
+export const ETERNAL_PYRE_MAX_TICKS = 10 * TICK_RATE;     // absolute ceiling
+export const SEARING_CROSS_DAMAGE = 0.25;
+export const SEARING_CROSS_BLAST = 0.50;
+export const GUIDED_DESCENT_STEER_RADII = [80, 120, 160]; // by rank
+export const FALLING_STAR_TICKS = 30;                     // last 0.5s
+export const METEOR_CHUNK_DELAY_TICKS = 12;
+export const METEOR_CHUNK_DISTANCE = 100;
+export const METEOR_CHUNK_RADIUS_RATIO = 0.4;
+export const METEOR_CHUNK_DAMAGE_RATIO = 0.35;
+export const SHOWER_RADIUS_RATIO = 0.6;
+export const SHOWER_DAMAGE_RATIO = 0.5;
+export const SHOWER_SPREAD = 140;                         // offset radius for extras
 
 export const ARROW_SPEED = 560;
 export const ARROW_RADIUS = 6;

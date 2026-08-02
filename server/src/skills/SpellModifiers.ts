@@ -1,7 +1,9 @@
 import {
   FIREBALL_SPEED, FIREBALL_RADIUS,
-  effectAtRank, teleportMaxRange,
+  effectAtRank, teleportMaxRange, countAtRank, hasKeystone,
+  GUIDED_DESCENT_STEER_RADII,
   HELLFIRE_RADIUS_RATIO, HELLFIRE_DAMAGE_RATIO, HELLFIRE_SPEED_RATIO,
+  type NodeId,
 } from '@arena/shared';
 
 export type FireballModifiers = {
@@ -11,7 +13,12 @@ export type FireballModifiers = {
   damageMin: number;
   damageMax: number;
   homingStrength: number;
-  split: number;
+  embers: number;
+  chainReaction: boolean;
+  bounces: number;
+  perpetual: boolean;
+  huntersEmber: boolean;
+  rollingDoom: boolean;
 };
 
 export type FirewallModifiers = {
@@ -19,12 +26,21 @@ export type FirewallModifiers = {
   damageMultiplier: number;
   lengthMultiplier: number;
   widthMultiplier: number;
+  ramp: boolean;
+  growth: boolean;
+  eternalPyre: boolean;
+  firestorm: boolean;
+  empowerFireball: boolean;
+  blastfurnace: boolean;
 };
 
 export type MeteorModifiers = {
-  hidden: boolean;
-  moltenImpact: boolean;
-  radiusMultiplier: number;
+  chunks: number;
+  ejecta: boolean;
+  steerRadius: number;
+  fallingStar: boolean;
+  showerCount: number;
+  extinction: boolean;
 };
 
 export type TeleportModifiers = {
@@ -41,9 +57,9 @@ export type SpellModifiers = {
 };
 
 export function buildSpellModifiers(skills: Map<string, number>): SpellModifiers {
-  const rank = (id: string) => skills.get(id) ?? 0;
+  const rank = (id: NodeId) => skills.get(id) ?? 0;
+  const keystone = (id: NodeId) => hasKeystone(id, rank(id));
 
-  const veRank = rank('fire.volatile_ember');
   const hfRank = rank('fire.hellfire');
 
   let fbRadius = FIREBALL_RADIUS;
@@ -60,10 +76,12 @@ export function buildSpellModifiers(skills: Map<string, number>): SpellModifiers
     fbDmgMin *= 1 + HELLFIRE_DAMAGE_RATIO * e;
     fbDmgMax *= 1 + HELLFIRE_DAMAGE_RATIO * e;
   }
-  if (veRank > 0) fbBlastRadius *= 1 + effectAtRank(0.4, veRank);
 
   const sfRank = rank('fire.seeking_flame');
-  const pyRank = rank('fire.pyroclasm');
+  const efRank = rank('fire.enduring_flames');
+  const shRank = rank('fire.searing_heat');
+  const ieRank = rank('fire.inferno_expanse');
+  const gdRank = rank('fire.blind_strike');
 
   return {
     fireball: {
@@ -73,18 +91,32 @@ export function buildSpellModifiers(skills: Map<string, number>): SpellModifiers
       damageMin:      fbDmgMin,
       damageMax:      fbDmgMax,
       homingStrength: sfRank > 0 ? 12 * Math.pow(sfRank, 1.65) : 0,
-      split:          pyRank > 0 ? Math.floor(effectAtRank(1, pyRank)) : 0,
+      embers:         countAtRank('fire.volatile_ember', rank('fire.volatile_ember')),
+      chainReaction:  keystone('fire.volatile_ember'),
+      bounces:        countAtRank('fire.pyroclasm', rank('fire.pyroclasm')),
+      perpetual:      keystone('fire.pyroclasm'),
+      huntersEmber:   keystone('fire.seeking_flame'),
+      rollingDoom:    keystone('fire.hellfire'),
     },
     firewall: {
-      durationMultiplier: rank('fire.enduring_flames') > 0  ? 1 + effectAtRank(0.10, rank('fire.enduring_flames'))  : 1,
-      damageMultiplier:   rank('fire.searing_heat') > 0     ? 1 + effectAtRank(0.08, rank('fire.searing_heat'))     : 1,
-      lengthMultiplier:   rank('fire.inferno_expanse') > 0  ? 1 + effectAtRank(0.25, rank('fire.inferno_expanse'))  : 1,
-      widthMultiplier:    rank('fire.inferno_expanse') > 0  ? 1 + effectAtRank(0.25, rank('fire.inferno_expanse'))  : 1,
+      durationMultiplier: efRank > 0 ? 1 + effectAtRank(0.10, efRank) : 1,
+      damageMultiplier:   shRank > 0 ? 1 + effectAtRank(0.08, shRank) : 1,
+      lengthMultiplier:   ieRank > 0 ? 1 + effectAtRank(0.25, ieRank) : 1,
+      widthMultiplier:    ieRank > 0 ? 1 + effectAtRank(0.25, ieRank) : 1,
+      ramp:            efRank > 0,
+      growth:          ieRank > 0,
+      empowerFireball: shRank > 0,
+      eternalPyre:     keystone('fire.enduring_flames'),
+      firestorm:       keystone('fire.inferno_expanse'),
+      blastfurnace:    keystone('fire.searing_heat'),
     },
     meteor: {
-      hidden:           rank('fire.blind_strike') > 0,
-      moltenImpact:     rank('fire.molten_impact') > 0,
-      radiusMultiplier: rank('fire.cataclysm') > 0 ? 1 + effectAtRank(0.15, rank('fire.cataclysm')) : 1,
+      chunks:      countAtRank('fire.molten_impact', rank('fire.molten_impact')),
+      ejecta:      keystone('fire.molten_impact'),
+      steerRadius: gdRank > 0 ? GUIDED_DESCENT_STEER_RADII[Math.min(gdRank, GUIDED_DESCENT_STEER_RADII.length) - 1] : 0,
+      fallingStar: keystone('fire.blind_strike'),
+      showerCount: countAtRank('fire.cataclysm', rank('fire.cataclysm')),
+      extinction:  keystone('fire.cataclysm'),
     },
     teleport: {
       maxRange:     teleportMaxRange(rank('utility.phase_shift')),

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts';
+import { buildSpellModifiers } from '../src/skills/SpellModifiers.ts';
 import { buildRangerModifiers } from '../src/skills/RangerModifiers.ts';
 import type { NodeId, InputFrame, ItemRow } from '@arena/shared';
 import { MAX_HP, MAX_MANA, computeLoadout, deriveElement } from '@arena/shared';
@@ -100,7 +101,7 @@ describe('statMults consumption in the tick loop', () => {
 });
 
 describe('effective ranks — tree + item talent merge', () => {
-  it('item +2 fire.cataclysm on a mage with tree rank 3 computes Meteor radius at effective rank 5', () => {
+  it('item +2 fire.cataclysm on a mage with tree rank 3 reaches effective rank 5', () => {
     const item = mkItem({ affixes: [{ id: 'talent', value: 2, node: 'fire.cataclysm' as NodeId }] });
     const { talentRanks } = computeLoadout([item], 'mage');
     const treeRanks = new Map<NodeId, number>([['fire.meteor', 1], ['fire.cataclysm', 3]]);
@@ -108,17 +109,11 @@ describe('effective ranks — tree + item talent merge', () => {
     for (const [node, rank] of talentRanks) merged.set(node, (merged.get(node) ?? 0) + rank);
     expect(merged.get('fire.cataclysm')).toBe(5);
 
-    const state = makeInitialState([
-      { id: 'p1', displayName: 'P1', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
-      { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
-    ]);
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 3, aimTarget: { x: 1000, y: 1000 } };
-
-    const treeOnly = advanceState(state, { p1: cast, p2: idle() }, { p1: treeRanks, p2: new Map() });
-    const withItem = advanceState(state, { p1: cast, p2: idle() }, { p1: merged, p2: new Map() });
-
-    expect(withItem.meteors[0].aoeRadius).toBeGreaterThan(treeOnly.meteors[0].aoeRadius);
-    expect(withItem.meteors[0].aoeRadius).toBeCloseTo(60 * (1 + 0.15 * Math.pow(5, 0.7)), 5);
+    // Cataclysm is a shower count now, not a radius multiplier: the merged
+    // rank 5 clamps to the table's last entry, 3 extra meteors.
+    expect(buildSpellModifiers(treeRanks).meteor.showerCount).toBe(3);
+    expect(buildSpellModifiers(merged).meteor.showerCount).toBe(3);
+    expect(buildSpellModifiers(new Map([['fire.cataclysm', 1]])).meteor.showerCount).toBe(1);
   });
 
   it('an item can grant fire.meteor to a mage whose tree has not unlocked it (oskill) — cast gate opens', () => {

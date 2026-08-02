@@ -141,8 +141,9 @@ describe('supercharge keystones', () => {
     }
   });
 
-  it('mage stackables have no keystones yet', () => {
-    expect(hasKeystone('fire.volatile_ember' as NodeId, 99)).toBe(false);
+  it('mage fire stackables now have keystones too', () => {
+    expect(hasKeystone('fire.volatile_ember' as NodeId, 99)).toBe(true);
+    expect(hasKeystone('fire.volatile_ember' as NodeId, 5)).toBe(false);
   });
 
   it('keystone reach costs match the spec', () => {

@@ -81,18 +81,28 @@ export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): bool
 
 export const SKILL_NODES: SkillNode[] = [
   { id: 'fire.fireball',        name: 'Fireball',        tree: 'fire',    tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile. 80–120 damage.' },
-  { id: 'fire.volatile_ember',  name: 'Volatile Ember',  tree: 'fire',    tier: 2, cost: 1, isSpell: false, description: 'Larger fireball per rank.', stackable: { softCap: 5, baseEffect: 0.4 } },
-  { id: 'fire.seeking_flame',   name: 'Seeking Flame',   tree: 'fire',    tier: 2, cost: 1, isSpell: false, description: 'Homing toward enemy. Stronger per rank.', stackable: { softCap: 5, baseEffect: 12 } },
-  { id: 'fire.hellfire',        name: 'Hellfire',        tree: 'fire',    tier: 3, cost: 2, isSpell: false, description: 'Larger, slower, harder-hitting fireball per rank.', stackable: { softCap: 3, baseEffect: 1.0 } },
-  { id: 'fire.pyroclasm',       name: 'Pyroclasm',       tree: 'fire',    tier: 3, cost: 2, isSpell: false, description: 'Fireball splits on impact. More splits per rank.', stackable: { softCap: 3, baseEffect: 1 } },
+  { id: 'fire.volatile_ember',  name: 'Volatile Ember',  tree: 'fire',    tier: 2, cost: 1, isSpell: false, description: 'The blast bursts into homing embers. +1 ember per rank.', stackable: { softCap: 5, baseEffect: 1 },
+    keystone: { name: 'Chain Reaction', description: 'An ember that hits bursts into 2 more.' } },
+  { id: 'fire.seeking_flame',   name: 'Seeking Flame',   tree: 'fire',    tier: 2, cost: 1, isSpell: false, description: 'Homing toward enemy. Stronger per rank.', stackable: { softCap: 5, baseEffect: 12 },
+    keystone: { name: 'Hunter\'s Ember', description: 'A fireball that would die against a wall curls around for one more pass.' } },
+  { id: 'fire.hellfire',        name: 'Hellfire',        tree: 'fire',    tier: 3, cost: 2, isSpell: false, description: 'Larger, slower, harder-hitting fireball per rank.', stackable: { softCap: 3, baseEffect: 1.0 },
+    keystone: { name: 'Rolling Doom', description: 'Too massive to stop — plows through players and detonates at the end of its flight.' } },
+  { id: 'fire.pyroclasm',       name: 'Ricochet',        tree: 'fire',    tier: 3, cost: 2, isSpell: false, description: 'Fireballs bounce off pillars and walls. +1 bounce per rank, +12% damage each.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Perpetual Flame', description: 'Unlimited bounces. Dies only on a player hit or after 4s.' } },
   { id: 'fire.fire_wall',       name: 'Fire Wall',       tree: 'fire',    tier: 4, cost: 2, isSpell: true,  description: 'Persistent fire barrier. 40 dmg/s.' },
-  { id: 'fire.enduring_flames', name: 'Enduring Flames', tree: 'fire',    tier: 5, cost: 1, isSpell: false, description: '+10% Fire Wall duration per rank.', stackable: { softCap: 5, baseEffect: 0.10 } },
-  { id: 'fire.searing_heat',    name: 'Searing Heat',    tree: 'fire',    tier: 5, cost: 2, isSpell: false, description: '+8% Fire Wall damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 } },
-  { id: 'fire.inferno_expanse', name: 'Inferno Expanse', tree: 'fire',    tier: 5, cost: 1, isSpell: false, description: '+25% Fire Wall length and width per rank.', stackable: { softCap: 5, baseEffect: 0.25 } },
+  { id: 'fire.enduring_flames', name: 'Enduring Flames', tree: 'fire',    tier: 5, cost: 1, isSpell: false, description: '+10% Fire Wall duration per rank. The wall burns hotter as it ages, 25→55 dmg/s.', stackable: { softCap: 5, baseEffect: 0.10 },
+    keystone: { name: 'Eternal Pyre', description: 'Duration only ticks down while nobody is touching the wall.' } },
+  { id: 'fire.searing_heat',    name: 'Searing Heat',    tree: 'fire',    tier: 5, cost: 2, isSpell: false, description: '+8% Fire Wall damage per rank. Your fireballs crossing your own wall gain +25% damage and +50% blast.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Blastfurnace', description: 'A fireball crossing your wall also gains a free bounce and a free ember burst.' } },
+  { id: 'fire.inferno_expanse', name: 'Inferno Expanse', tree: 'fire',    tier: 5, cost: 1, isSpell: false, description: '+25% Fire Wall length and width per rank. The wall grows outward over its lifetime.', stackable: { softCap: 5, baseEffect: 0.25 },
+    keystone: { name: 'Firestorm', description: 'The wall rotates around its midpoint, sweeping the area.' } },
   { id: 'fire.meteor',          name: 'Meteor',          tree: 'fire',    tier: 6, cost: 3, isSpell: true,  description: 'Delayed AoE strike. 200–280 damage.' },
-  { id: 'fire.molten_impact',   name: 'Molten Impact',   tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'Meteor leaves a burning crater for 3s.' },
-  { id: 'fire.blind_strike',    name: 'Blind Strike',    tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'Enemy cannot see the Meteor impact indicator.' },
-  { id: 'fire.cataclysm',       name: 'Cataclysm',       tree: 'fire',    tier: 7, cost: 1, isSpell: false, description: '+15% Meteor radius per rank.', stackable: { softCap: 5, baseEffect: 0.15 } },
+  { id: 'fire.molten_impact',   name: 'Molten Impact',   tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'The impact shatters into flaming chunks. +1 chunk per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Ejecta', description: 'Chunks leave burning craters.' } },
+  { id: 'fire.blind_strike',    name: 'Guided Descent',  tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'Steer the Meteor mid-fall. Wider steering radius per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Falling Star', description: 'For its last 0.5s the meteor steers itself toward the nearest enemy.' } },
+  { id: 'fire.cataclysm',       name: 'Cataclysm',       tree: 'fire',    tier: 7, cost: 2, isSpell: false, description: 'The meteor comes as a shower. +1 extra meteor per rank at 60% size.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Extinction', description: 'The shower falls in a converging spiral and the final impact is full-size.' } },
   { id: 'utility.teleport',     name: 'Teleport',        tree: 'utility', tier: 1, cost: 1, isSpell: true,  description: 'Instant displacement.' },
   { id: 'utility.phase_shift',  name: 'Phase Shift',     tree: 'utility', tier: 2, cost: 2, isSpell: false, description: '+8% teleport range per rank.', stackable: { softCap: 5, baseEffect: 0.08 } },
   { id: 'utility.ethereal_form',name: 'Ethereal Form',   tree: 'utility', tier: 2, cost: 2, isSpell: false, description: '0.5s invulnerability after teleporting.' },
@@ -171,6 +181,22 @@ export const DIMINISHING_POWER = 0.7;
 export function effectAtRank(baseEffect: number, rank: number): number {
   if (rank <= 0) return 0;
   return baseEffect * Math.pow(rank, DIMINISHING_POWER);
+}
+
+/** Count-based fire nodes use explicit per-rank tables. `effectAtRank`'s
+ *  rank^0.7 curve floors to 1, 1, 2 across three ranks, making rank 2 a
+ *  no-op — correct for percentages, wrong for small integers. */
+export const FIRE_COUNT_RANKS: Partial<Record<NodeId, number[]>> = {
+  'fire.pyroclasm':      [2, 3, 4],
+  'fire.volatile_ember': [2, 3, 4, 5, 6],
+  'fire.molten_impact':  [3, 4, 5],
+  'fire.cataclysm':      [1, 2, 3],
+};
+
+export function countAtRank(id: NodeId, rank: number): number {
+  const table = FIRE_COUNT_RANKS[id];
+  if (!table || rank <= 0) return 0;
+  return table[Math.min(rank, table.length) - 1];
 }
 
 export type ArrowElement = 'none' | 'burn' | 'freeze' | 'poison';

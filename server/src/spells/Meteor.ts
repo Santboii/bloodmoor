@@ -7,16 +7,16 @@ export function spawnMeteor(
   ownerId: string,
   target: Vec2,
   tick: number,
-  opts: { hidden?: boolean; moltenImpact?: boolean; radiusMultiplier?: number } = {},
+  opts: { moltenImpact?: boolean; radiusMultiplier?: number } = {},
 ): MeteorState {
   return {
     id: nextId(),
     ownerId,
     target: { ...target },
+    origin: { ...target },
     strikeAt: tick + METEOR_DELAY_TICKS,
     aoeRadius: METEOR_AOE_RADIUS * (opts.radiusMultiplier ?? 1),
-    hidden: opts.hidden,
-    moltenImpact: opts.moltenImpact,
+    chunks: opts.moltenImpact ? 1 : undefined,
   };
 }
 

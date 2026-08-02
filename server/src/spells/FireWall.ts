@@ -19,6 +19,7 @@ export function spawnFireWall(
     id: nextId(),
     ownerId,
     segments: buildWallSegments(from, to, FIREWALL_MAX_LENGTH * lengthMultiplier),
+    spawnedAt: currentTick,
     expiresAt: currentTick + Math.round(FIREWALL_DURATION_TICKS * durationMultiplier),
   };
 }
@@ -105,6 +106,7 @@ export function spawnFireCrater(
     id: nextId(),
     ownerId,
     segments: [],
+    spawnedAt: currentTick,
     expiresAt: currentTick + durationTicks,
     shape: 'circle',
     center,

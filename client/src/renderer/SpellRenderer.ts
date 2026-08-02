@@ -395,9 +395,8 @@ export class SpellRenderer {
       }
 
       const entry = this.meteors.get(meteor.id)!;
-      const visible = !meteor.hidden || meteor.ownerId === this.myId;
-      entry.ring.visible = visible;
-      entry.rock.visible = visible;
+      entry.ring.visible = true;
+      entry.rock.visible = true;
       const t = Math.max(0, Math.min(1, 1 - (meteor.strikeAt - state.tick) / METEOR_DELAY_TICKS));
 
       const scale = 1.0 - t * 0.4;
@@ -414,7 +413,7 @@ export class SpellRenderer {
       entry.rock.scale.setScalar(rockScale * entry.sizeScale);
 
       // Emit trail while falling
-      if (this.shouldEmitContinuous && visible) {
+      if (this.shouldEmitContinuous) {
         this.particles.emitMeteorTrail(meteor.target.x, rockY, meteor.target.y);
       }
     }

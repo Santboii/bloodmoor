@@ -271,7 +271,6 @@ export function advanceState(
         damageMin:  mods.fireball.damageMin,
         damageMax:  mods.fireball.damageMax,
         homing:     mods.fireball.homingStrength,
-        split:      mods.fireball.split,
       });
       projectiles = [...projectiles, fb];
     } else if (spell === 2) {
@@ -285,11 +284,7 @@ export function advanceState(
       const to = { x: input.aimTarget.x + perpX * half, y: input.aimTarget.y + perpY * half };
       fireWalls = [...fireWalls, spawnFireWall(id, from, to, tick, mods.firewall.durationMultiplier, mods.firewall.lengthMultiplier)];
     } else if (spell === 3) {
-      meteors = [...meteors, spawnMeteor(id, input.aimTarget, tick, {
-        hidden: mods.meteor.hidden,
-        moltenImpact: mods.meteor.moltenImpact,
-        radiusMultiplier: mods.meteor.radiusMultiplier,
-      })];
+      meteors = [...meteors, spawnMeteor(id, input.aimTarget, tick, {})];
     } else if (spell === 4) {
       const tMods = mods.teleport;
       // Always clamp — a guest (no skill system) must not get unlimited range.
@@ -645,7 +640,7 @@ export function advanceState(
           }
         }
       }
-      if (m.moltenImpact) {
+      if (m.chunks) {
         const crater = spawnFireCrater(m.ownerId, { ...m.target }, m.aoeRadius, tick, 3 * TICK_RATE);
         fireWalls = [...fireWalls, crater];
       }
@@ -664,6 +659,7 @@ export function advanceState(
         id: `rain_zone_${rain.id}`,
         ownerId: rain.ownerId,
         segments: [],
+        spawnedAt: tick,
         expiresAt: tick + Math.round(RAIN_SUSTAINED_TICKS * rainDurMult),
         shape: 'circle' as const,
         center: { ...rain.target },

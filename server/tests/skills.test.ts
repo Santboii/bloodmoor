@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canUnlock, SKILL_NODES, effectAtRank, rankUpCost, totalSpentForRanks, isStackable, DIMINISHING_POWER } from '@arena/shared';
+import { canUnlock, SKILL_NODES, effectAtRank, rankUpCost, totalSpentForRanks, isStackable, DIMINISHING_POWER, countAtRank, hasKeystone } from '@arena/shared';
 
 describe('canUnlock', () => {
   it('allows unlocking a tier-I spell with no prerequisites', () => {
@@ -74,7 +74,7 @@ describe('scaling helpers', () => {
   });
 
   it('rankUpCost for binary node returns cost at rank 0, Infinity at rank 1', () => {
-    const node = SKILL_NODES.find(n => n.id === 'fire.blind_strike')!;
+    const node = SKILL_NODES.find(n => n.id === 'utility.ethereal_form')!;
     expect(rankUpCost(node, 0)).toBe(2);
     expect(rankUpCost(node, 1)).toBe(Infinity);
   });
@@ -90,7 +90,7 @@ describe('scaling helpers', () => {
 
   it('isStackable returns true for stackable nodes, false for binary', () => {
     expect(isStackable(SKILL_NODES.find(n => n.id === 'fire.seeking_flame')!)).toBe(true);
-    expect(isStackable(SKILL_NODES.find(n => n.id === 'fire.blind_strike')!)).toBe(false);
+    expect(isStackable(SKILL_NODES.find(n => n.id === 'utility.ethereal_form')!)).toBe(false);
     expect(isStackable(SKILL_NODES.find(n => n.id === 'fire.fireball')!)).toBe(false);
   });
 });
@@ -106,26 +106,29 @@ describe('buildSpellModifiers', () => {
     expect(m.fireball.damageMin).toBe(80);
     expect(m.fireball.damageMax).toBe(120);
     expect(m.fireball.homingStrength).toBe(0);
-    expect(m.fireball.split).toBe(0);
+    expect(m.fireball.embers).toBe(0);
+    expect(m.fireball.bounces).toBe(0);
     expect(m.firewall.durationMultiplier).toBe(1);
     expect(m.firewall.damageMultiplier).toBe(1);
-    expect(m.meteor.hidden).toBe(false);
-    expect(m.meteor.moltenImpact).toBe(false);
+    expect(m.meteor.chunks).toBe(0);
+    expect(m.meteor.showerCount).toBe(0);
+    expect(m.meteor.steerRadius).toBe(0);
     expect(m.teleport.maxRange).toBe(600);
     expect(m.teleport.etherealForm).toBe(false);
     expect(m.teleport.phantomStep).toBe(false);
   });
 
-  it('applies Volatile Ember rank 1: +40% blast radius (not projectile)', () => {
+  it('applies Volatile Ember rank 1: two embers, no radius change', () => {
     const m = buildSpellModifiers(new Map([['fire.fireball', 1], ['fire.volatile_ember', 1]]));
+    expect(m.fireball.embers).toBe(2);
     expect(m.fireball.radius).toBe(FIREBALL_RADIUS);
-    expect(m.fireball.blastRadius).toBeCloseTo(FIREBALL_RADIUS * (1 + effectAtRank(0.4, 1)), 5);
+    expect(m.fireball.blastRadius).toBe(FIREBALL_RADIUS);
   });
 
-  it('applies Volatile Ember rank 5: stacked blast radius', () => {
+  it('applies Volatile Ember rank 5: six embers', () => {
     const m = buildSpellModifiers(new Map([['fire.fireball', 1], ['fire.volatile_ember', 5]]));
-    expect(m.fireball.radius).toBe(FIREBALL_RADIUS);
-    expect(m.fireball.blastRadius).toBeCloseTo(FIREBALL_RADIUS * (1 + effectAtRank(0.4, 5)), 5);
+    expect(m.fireball.embers).toBe(6);
+    expect(m.fireball.blastRadius).toBe(FIREBALL_RADIUS);
   });
 
   it('applies Hellfire rank 1: +50% radius AND blast radius, +30% damage, -15% speed', () => {
@@ -138,15 +141,14 @@ describe('buildSpellModifiers', () => {
     expect(m.fireball.speed).toBeCloseTo(FIREBALL_SPEED * (1 - 0.15 * e), 5);
   });
 
-  it('stacks Volatile Ember + Hellfire: blast radius gets both, projectile only hellfire', () => {
+  it('Hellfire alone drives radius; Volatile Ember only adds embers', () => {
     const m = buildSpellModifiers(new Map([
       ['fire.fireball', 1], ['fire.volatile_ember', 3], ['fire.hellfire', 2],
     ]));
-    const hfE = effectAtRank(1.0, 2);
-    const hfBonus = 1 + 0.5 * hfE;
-    const veBonus = 1 + effectAtRank(0.4, 3);
+    const hfBonus = 1 + 0.5 * effectAtRank(1.0, 2);
     expect(m.fireball.radius).toBeCloseTo(FIREBALL_RADIUS * hfBonus, 5);
-    expect(m.fireball.blastRadius).toBeCloseTo(FIREBALL_RADIUS * hfBonus * veBonus, 5);
+    expect(m.fireball.blastRadius).toBeCloseTo(FIREBALL_RADIUS * hfBonus, 5);
+    expect(m.fireball.embers).toBe(4);
   });
 
   it('applies Seeking Flame rank 3: accelerating homing strength', () => {
@@ -154,9 +156,14 @@ describe('buildSpellModifiers', () => {
     expect(m.fireball.homingStrength).toBeCloseTo(12 * Math.pow(3, 1.65), 5);
   });
 
-  it('applies Pyroclasm rank 2: split count floored', () => {
-    const m = buildSpellModifiers(new Map([['fire.fireball', 1], ['fire.pyroclasm', 2]]));
-    expect(m.fireball.split).toBe(Math.floor(effectAtRank(1, 2)));
+  it('applies Ricochet rank 2: three bounces, strictly more than rank 1', () => {
+    const r1 = buildSpellModifiers(new Map([['fire.fireball', 1], ['fire.pyroclasm', 1]]));
+    const r2 = buildSpellModifiers(new Map([['fire.fireball', 1], ['fire.pyroclasm', 2]]));
+    expect(r1.fireball.bounces).toBe(2);
+    expect(r2.fireball.bounces).toBe(3);
+    // Regression guard: the old floor(effectAtRank(1, rank)) curve made rank 2
+    // identical to rank 1, so the second point bought nothing.
+    expect(r2.fireball.bounces).toBeGreaterThan(r1.fireball.bounces);
   });
 
   it('applies Enduring Flames rank 4: duration multiplier', () => {
@@ -178,20 +185,22 @@ describe('buildSpellModifiers', () => {
     expect(m.teleport.maxRange).toBeCloseTo(600 * (1 + effectAtRank(0.08, 3)), 5);
   });
 
-  it('binary nodes still work: Blind Strike', () => {
+  it('Guided Descent rank 1 grants the smallest steer radius', () => {
     const m = buildSpellModifiers(new Map([
       ['fire.fireball', 1], ['fire.volatile_ember', 1], ['fire.fire_wall', 1],
       ['fire.enduring_flames', 1], ['fire.meteor', 1], ['fire.blind_strike', 1],
     ]));
-    expect(m.meteor.hidden).toBe(true);
+    expect(m.meteor.steerRadius).toBe(80);
+    expect(m.meteor.fallingStar).toBe(false);
   });
 
-  it('binary nodes still work: Molten Impact', () => {
+  it('Molten Impact rank 1 shatters into three chunks', () => {
     const m = buildSpellModifiers(new Map([
       ['fire.fireball', 1], ['fire.volatile_ember', 1], ['fire.fire_wall', 1],
       ['fire.enduring_flames', 1], ['fire.meteor', 1], ['fire.molten_impact', 1],
     ]));
-    expect(m.meteor.moltenImpact).toBe(true);
+    expect(m.meteor.chunks).toBe(3);
+    expect(m.meteor.ejecta).toBe(false);
   });
 
   it('binary nodes still work: Ethereal Form and Phantom Step', () => {
@@ -200,5 +209,66 @@ describe('buildSpellModifiers', () => {
     ]));
     expect(m.teleport.etherealForm).toBe(true);
     expect(m.teleport.phantomStep).toBe(true);
+  });
+});
+
+// ── Fire rework ─────────────────────────────────────────────────────────────
+
+describe('fire count curves', () => {
+  it('gives every rank a distinct count — no dead ranks', () => {
+    expect(countAtRank('fire.pyroclasm', 1)).toBe(2);
+    expect(countAtRank('fire.pyroclasm', 2)).toBe(3);
+    expect(countAtRank('fire.pyroclasm', 3)).toBe(4);
+    expect(countAtRank('fire.volatile_ember', 1)).toBe(2);
+    expect(countAtRank('fire.volatile_ember', 5)).toBe(6);
+    expect(countAtRank('fire.molten_impact', 1)).toBe(3);
+    expect(countAtRank('fire.cataclysm', 3)).toBe(3);
+  });
+
+  it('returns 0 at rank 0 and clamps supercharged ranks to the last entry', () => {
+    expect(countAtRank('fire.pyroclasm', 0)).toBe(0);
+    expect(countAtRank('fire.pyroclasm', 4)).toBe(4);
+    expect(countAtRank('fire.pyroclasm', 9)).toBe(4);
+  });
+});
+
+describe('fire node data', () => {
+  const byId = (id: string) => SKILL_NODES.find(n => n.id === id)!;
+
+  it('keeps all thirteen fire node ids intact', () => {
+    const ids = SKILL_NODES.filter(n => n.tree === 'fire').map(n => n.id).sort();
+    expect(ids).toEqual([
+      'fire.blind_strike', 'fire.cataclysm', 'fire.enduring_flames', 'fire.fire_wall',
+      'fire.fireball', 'fire.hellfire', 'fire.inferno_expanse', 'fire.meteor',
+      'fire.molten_impact', 'fire.pyroclasm', 'fire.searing_heat', 'fire.seeking_flame',
+      'fire.volatile_ember',
+    ]);
+  });
+
+  it('gives every stackable fire node a keystone', () => {
+    const stackable = SKILL_NODES.filter(n => n.tree === 'fire' && n.stackable);
+    expect(stackable).toHaveLength(10);
+    for (const n of stackable) expect(n.keystone, n.id).toBeDefined();
+  });
+
+  it('makes the two tier-7 behavior nodes stackable', () => {
+    expect(byId('fire.molten_impact').stackable).toEqual({ softCap: 3, baseEffect: 1 });
+    expect(byId('fire.blind_strike').stackable).toEqual({ softCap: 3, baseEffect: 1 });
+  });
+
+  it('prices Cataclysm at 2 points', () => {
+    expect(byId('fire.cataclysm').cost).toBe(2);
+  });
+
+  it('matches the spec keystone reach costs', () => {
+    expect(totalSpentForRanks(byId('fire.volatile_ember'), 6)).toBe(7);
+    expect(totalSpentForRanks(byId('fire.pyroclasm'), 4)).toBe(9);
+    expect(totalSpentForRanks(byId('fire.searing_heat'), 6)).toBe(13);
+    expect(totalSpentForRanks(byId('fire.cataclysm'), 4)).toBe(9);
+  });
+
+  it('triggers keystones only past soft cap', () => {
+    expect(hasKeystone('fire.pyroclasm', 3)).toBe(false);
+    expect(hasKeystone('fire.pyroclasm', 4)).toBe(true);
   });
 });
