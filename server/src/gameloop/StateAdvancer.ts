@@ -585,6 +585,14 @@ export function advanceState(
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const next = { ...player };
+            const ownerIceBolt = modifiers[moved.ownerId]?.iceBolt;
+            // Frostbite: the deeper the target's chill, the harder the bolt lands.
+            //
+            // Read the slow BEFORE this bolt applies its own chill. Otherwise every
+            // bolt pays itself the bonus on first contact and the talent silently
+            // becomes a flat damage increase, which is not what it says it does.
+            const slowBefore = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
+            const frostbiteMult = 1 + (ownerIceBolt?.frostbite ?? 0) * (1 - slowBefore);
             // Chill reuses the ranger's slow fields; the strongest slow wins
             // so a Blizzard tick cannot be downgraded by a passing bolt.
             //
@@ -596,13 +604,12 @@ export function advanceState(
               players[moved.ownerId]?.teamId !== undefined &&
               players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam) {
-              const ownerIceBolt = modifiers[moved.ownerId]?.iceBolt;
               const incoming = ownerIceBolt?.chillFactor ?? ICEBOLT_CHILL_FACTOR;
               const existing = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
               next.slowFactor = Math.min(existing, incoming);
               next.slowUntil = tick + (ownerIceBolt?.chillTicks ?? ICEBOLT_CHILL_TICKS);
             }
-            next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
+            next.hp = Math.max(0, next.hp - iceBoltDamage(moved) * frostbiteMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode));
             players[pid] = next;
           }
           // Pierce budget is checked before decrementing: this hit consumes

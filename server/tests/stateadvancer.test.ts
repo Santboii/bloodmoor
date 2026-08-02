@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { advanceState, makeInitialState } from '../src/gameloop/StateAdvancer.ts';
 import { SPELL_CONFIG, MAX_HP, MAX_MANA, MANA_REGEN_PER_TICK, FIREWALL_DAMAGE_PER_TICK, InputFrame } from '@arena/shared';
+import { ICEBOLT_DAMAGE_MIN, ICEBOLT_DAMAGE_MAX, effectAtRank } from '@arena/shared';
 import { spawnFireWall } from '../src/spells/FireWall.ts';
 
 function twoPlayerState() {
@@ -300,5 +301,73 @@ describe('advanceState — skill modifiers', () => {
     const next = advanceState(state, inputs, skillSets);
     expect(next.projectiles.length).toBe(1);
     expect(next.projectiles[0].homing).toBeGreaterThan(0);
+  });
+});
+
+describe('advanceState — Frostbite (frost.frostbite)', () => {
+  // A stationary ice bolt sitting exactly on p2 hits on the very first tick
+  // regardless of velocity, and Math.random is pinned so both scenarios roll
+  // the identical base damage — isolating the frostbite multiplier as the
+  // only possible source of a difference.
+  function stateWithStationaryBolt(frostbiteRank: number) {
+    const state = makeInitialState([
+      { id: 'p1', displayName: 'P1', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    state.projectiles.push({
+      id: 'ib_test',
+      ownerId: 'p1',
+      type: 'icebolt',
+      position: { ...state.players['p2'].position },
+      velocity: { x: 0, y: 0 },
+    });
+    const skillSets: Record<string, Map<NodeId, number>> = {
+      p1: new Map([['frost.frostbite', frostbiteRank]]),
+    };
+    const inputs: Record<string, InputFrame> = {
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+    };
+    return { state, skillSets, inputs };
+  }
+
+  it('deals base damage against an unchilled target — Frostbite contributes nothing', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { state, skillSets, inputs } = stateWithStationaryBolt(5);
+      const next = advanceState(state, inputs, skillSets);
+      const expectedDamage = Math.floor(ICEBOLT_DAMAGE_MIN + 0.5 * (ICEBOLT_DAMAGE_MAX - ICEBOLT_DAMAGE_MIN + 1));
+      expect(next.players['p2'].hp).toBe(MAX_HP - expectedDamage);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('deals more damage against an already-chilled target than the same bolt/rank against an unchilled one', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const rank = 3;
+      const { state: unchilled, skillSets, inputs } = stateWithStationaryBolt(rank);
+      const unchilledNext = advanceState(unchilled, inputs, skillSets);
+      const unchilledDamage = MAX_HP - unchilledNext.players['p2'].hp;
+
+      const { state: chilled } = stateWithStationaryBolt(rank);
+      chilled.players['p2'].slowUntil = 50;
+      chilled.players['p2'].slowFactor = 0.4; // the chill floor
+      const chilledNext = advanceState(chilled, inputs, skillSets);
+      const chilledDamage = MAX_HP - chilledNext.players['p2'].hp;
+
+      expect(chilledDamage).toBeGreaterThan(unchilledDamage);
+
+      // iceBoltDamage() floors ONLY the base roll — the frostbite multiplier
+      // is applied to that already-floored integer afterward, not folded
+      // into a single floor. Mirror that order exactly.
+      const baseDamage = Math.floor(ICEBOLT_DAMAGE_MIN + 0.5 * (ICEBOLT_DAMAGE_MAX - ICEBOLT_DAMAGE_MIN + 1));
+      const expectedFrostbiteMult = 1 + effectAtRank(0.10, rank) * (1 - 0.4);
+      const expectedChilledDamage = baseDamage * expectedFrostbiteMult;
+      expect(chilledDamage).toBeCloseTo(expectedChilledDamage, 6);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 });
