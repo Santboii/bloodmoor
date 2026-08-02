@@ -179,7 +179,7 @@ export class HUD {
     }
   }
 
-  update(state: GameState, activeSpell: SpellId): void {
+  update(state: GameState, activeSpell: SpellId | null): void {
     const me = state.players[this.myId];
     if (!me) return;
 
