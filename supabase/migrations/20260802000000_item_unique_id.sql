@@ -74,3 +74,5 @@ begin
   return v_item_id;
 end;
 $$;
+
+grant execute on function admin_grant_item(uuid, text, text, jsonb, integer, text, text, text) to authenticated;
