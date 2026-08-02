@@ -1,4 +1,4 @@
-import type { SpellId, CharacterClass } from './types.js';
+import type { SpellId, CharacterClass, SlotIndex } from './types.js';
 import { TELEPORT_MAX_RANGE, MAX_SPELL_SLOTS } from './types.js';
 
 export type NodeId =
@@ -134,17 +134,26 @@ const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [
 // Consumed by the server cast gate, the client HUD, input handling, and the
 // skill-unlock → owned-spells derivation. Add new classes/spells here only.
 
-export type SpellBinding = { spell: SpellId; node: NodeId; key: 1 | 2 | 3 | 4; charClass: CharacterClass };
+/** Maps a spell to the node that unlocks it and the class that can cast it.
+ *  `defaultSlot` is the hotbar slot the spell takes when the character has
+ *  not assigned one — it preserves the pre-slots keybind layout. A spell
+ *  without one falls to the lowest empty slot. */
+export type SpellBinding = {
+  spell: SpellId;
+  node: NodeId;
+  charClass: CharacterClass;
+  defaultSlot?: SlotIndex;
+};
 
 export const SPELL_BINDINGS: SpellBinding[] = [
-  { spell: 1, node: 'fire.fireball',          key: 1, charClass: 'mage' },
-  { spell: 2, node: 'fire.fire_wall',         key: 2, charClass: 'mage' },
-  { spell: 3, node: 'fire.meteor',            key: 3, charClass: 'mage' },
-  { spell: 4, node: 'utility.teleport',       key: 4, charClass: 'mage' },
-  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'ranger' },
-  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'ranger' },
-  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'ranger' },
-  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'ranger' },
+  { spell: 1, node: 'fire.fireball',          defaultSlot: 1, charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         defaultSlot: 2, charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            defaultSlot: 3, charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       defaultSlot: 4, charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
 ];
 
 export type SpellSlotRow = { slot: number; spell: number };
@@ -192,9 +201,8 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
 
   for (const binding of SPELL_BINDINGS) {
     if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
-    // `key` is today's fixed keybind. Task 6 renames it to `defaultSlot`,
-    // which is what it actually means once slots are assignable.
-    const index = binding.key - 1;
+    if (binding.defaultSlot === undefined) continue;
+    const index = binding.defaultSlot - 1;
     if (slots[index] === null) claim(index, binding.spell);
   }
 

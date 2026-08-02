@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveSlots, MAX_SPELL_SLOTS, MOBILITY_SPELLS } from '@arena/shared';
+import { resolveSlots, MAX_SPELL_SLOTS, MOBILITY_SPELLS, SPELL_BINDINGS } from '@arena/shared';
 import type { SpellId } from '@arena/shared';
 
 const owned = (...ids: number[]) => new Set(ids as SpellId[]);
@@ -107,5 +107,26 @@ describe('set_spell_slot migration guardrails', () => {
   it('bounds the slot range in both the table and the RPC', () => {
     expect(sql).toMatch(/check \(slot between 1 and 6\)/);
     expect(sql).toMatch(/p_slot < 1 or p_slot > 6/);
+  });
+});
+
+describe('default slots', () => {
+  it('keeps every existing spell on the key it uses today', () => {
+    const slotOf = (s: number) => SPELL_BINDINGS.find(b => b.spell === s)?.defaultSlot;
+    expect(slotOf(1)).toBe(1);  // Fireball
+    expect(slotOf(2)).toBe(2);  // Fire Wall
+    expect(slotOf(3)).toBe(3);  // Meteor
+    expect(slotOf(4)).toBe(4);  // Teleport
+    expect(slotOf(5)).toBe(1);  // Power Shot
+    expect(slotOf(8)).toBe(4);  // Evade
+  });
+
+  it('gives every current spell an explicit default slot', () => {
+    // `defaultSlot` is optional so Phase B's frost spells can omit it, but
+    // no spell that exists today may rely on that — omitting one here would
+    // silently move it to the lowest empty slot and change a live hotbar.
+    for (const b of SPELL_BINDINGS) {
+      expect(b.defaultSlot).toBeDefined();
+    }
   });
 });
