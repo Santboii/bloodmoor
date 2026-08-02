@@ -192,24 +192,29 @@ describe('fireball blast line of sight and split grace', () => {
     expect(next.players['p2'].hp).toBeLessThan(MAX_HP);
   });
 
-  it('split children get a spawn grace instead of instantly re-detonating', () => {
+  it('ember children get a spawn grace instead of instantly re-detonating', () => {
     const state = makeInitialState([
       { id: 'p1', displayName: 'A', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'B', charClass: 'mage', spawnPos: { x: 950, y: 290 } },
     ]);
+    // Volatile Ember rank 1 => 2 embers on detonation.
+    const skills = {
+      p1: new Map<NodeId, number>([['fire.fireball', 1], ['fire.volatile_ember', 1]]),
+      p2: new Map<NodeId, number>(),
+    };
     state.projectiles.push({
       id: 'fb_test', ownerId: 'p1', type: 'fireball',
-      position: { x: 965, y: 250 }, velocity: { x: 400, y: 0 }, split: 1,
+      position: { x: 965, y: 250 }, velocity: { x: 400, y: 0 },
     });
-    let next = advanceState(state, { p1: idle(), p2: idle() });
-    // Parent detonated against the pillar; children survive under grace
-    // rather than detonating on the same obstacle.
-    expect(next.projectiles.length).toBe(3);
+    let next = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    // Parent detonated against the pillar; embers survive under grace rather
+    // than detonating on the same obstacle.
+    expect(next.projectiles.length).toBe(2);
     const hpAfterParentBlast = next.players['p2'].hp;
     expect(hpAfterParentBlast).toBeLessThan(MAX_HP);
 
-    // No stacked blasts hit p2 while the children fly out / die in the pillar.
-    for (let i = 0; i < 12; i++) next = advanceState(next, { p1: idle(), p2: idle() });
+    // No stacked blasts hit p2 while the embers fly out / die in the pillar.
+    for (let i = 0; i < 5; i++) next = advanceState(next, { p1: idle(), p2: idle() }, skills);
     expect(next.players['p2'].hp).toBe(hpAfterParentBlast);
   });
 });

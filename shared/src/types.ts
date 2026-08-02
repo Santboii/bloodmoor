@@ -73,8 +73,7 @@ export type Projectile = {
   homing?: number;
   homingRedirects?: number;
   homingInterval?: number;
-  split?: number;
-  // Split children ignore pillar overlap and player hits until this tick so
+  // Ember children ignore pillar overlap and player hits until this tick so
   // they fly clear of the obstacle/target they spawned on instead of
   // detonating immediately and stacking blasts.
   noHitUntil?: number;
@@ -205,7 +204,12 @@ export const BOUNCE_DAMAGE_BONUS = 0.12;                  // per completed bounc
 export const EMBER_DAMAGE_RATIO = 0.20;
 export const EMBER_CHAIN_DAMAGE_RATIO = 0.10;
 export const EMBER_SPEED_RATIO = 0.75;
-export const EMBER_HOMING = 260;
+// Homing is a turn-rate model (accelerate laterally, renormalize speed), so
+// the turn radius is v^2/a. At speed 300 an accel of 260 gives r≈346 — wider
+// than a player, so embers orbit forever instead of converging. 1400 gives
+// r≈64, tight enough to actually land.
+export const EMBER_HOMING = 1400;
+export const EMBER_LIFETIME_TICKS = 90; // 1.5s — embers are a burst, not a swarm
 export const MAX_LIVE_EMBERS = 12;                        // hard cap per owner
 export const FIREWALL_DAMAGE_START = 25 / TICK_RATE;
 export const FIREWALL_DAMAGE_END = 55 / TICK_RATE;

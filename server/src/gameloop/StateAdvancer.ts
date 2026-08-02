@@ -9,6 +9,7 @@ import {
   STORMCALL_DRIFT_SPEED, DELTA, TWIN_STORM_RADIUS_RATIO,
   DEEP_FREEZE_ROOT_TICKS, DEEP_FREEZE_COOLDOWN_TICKS,
   FIREBALL_MAX_LIFETIME_TICKS, BOUNCE_DAMAGE_BONUS,
+  MAX_LIVE_EMBERS, EMBER_DAMAGE_RATIO, EMBER_CHAIN_DAMAGE_RATIO, EMBER_SPEED_RATIO, EMBER_HOMING, EMBER_LIFETIME_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -551,7 +552,8 @@ export function advanceState(
       // Ricochet: bounce off pillars and arena walls instead of detonating.
       // `normal` is null once the fireball is too old, so the hard lifetime
       // ceiling wins over an unlimited Perpetual Flame budget.
-      const tooOld = (moved.spawnTick ?? tick) + FIREBALL_MAX_LIFETIME_TICKS <= tick;
+      const lifetime = (moved.emberGen ?? 0) >= 1 ? EMBER_LIFETIME_TICKS : FIREBALL_MAX_LIFETIME_TICKS;
+      const tooOld = (moved.spawnTick ?? tick) + lifetime <= tick;
       const normal = tooOld ? null : surfaceNormal(moved, tick);
       const canBounce = moved.perpetual || (moved.bounces ?? 0) > 0;
       if (normal && canBounce) {
@@ -591,23 +593,37 @@ export function advanceState(
             players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
           }
         }
-        if ((moved.split ?? 0) > 0) {
-          const angles = [-0.4, 0, 0.4];
-          for (const offset of angles) {
-            const baseAngle = Math.atan2(moved.velocity.y, moved.velocity.x) + offset;
-            const spd = Math.sqrt(moved.velocity.x ** 2 + moved.velocity.y ** 2);
-            const child = spawnFireball(moved.ownerId, moved.position, {
-              x: moved.position.x + Math.cos(baseAngle) * 100,
-              y: moved.position.y + Math.sin(baseAngle) * 100,
-            }, {
-              speed: spd, radius: moved.radius, damageMin: moved.damageMin, damageMax: moved.damageMax,
-              // Grace: fly clear of the obstacle/target the parent detonated
-              // on instead of instantly re-detonating (stacked ~4x damage).
-              noHitUntil: tick + 6,
-            });
-            // Children born out of bounds are dropped, not detonated.
-            if (!isFireballExpired(child, tick)) newProjectiles.push(child);
-          }
+        // Volatile Ember: the blast bursts into homing embers. Chain Reaction
+        // lets a first-generation ember burst once more on a direct hit —
+        // `emberGen === 1` is what bounds it to a single extra generation.
+        const emberGen = moved.emberGen ?? 0;
+        const ownerMods = modifiers[moved.ownerId];
+        const emberCount = emberGen === 0
+          ? (ownerMods?.fireball.embers ?? 0)
+          : (emberGen === 1 && ownerMods?.fireball.chainReaction && directHit ? 2 : 0);
+        const liveEmbers = [...survivingProjectiles, ...newProjectiles]
+          .filter(p => p.ownerId === moved.ownerId && (p.emberGen ?? 0) >= 1).length;
+
+        for (let i = 0; i < emberCount && liveEmbers + i < MAX_LIVE_EMBERS; i++) {
+          const angle = (i / emberCount) * Math.PI * 2;
+          const spd = Math.sqrt(moved.velocity.x ** 2 + moved.velocity.y ** 2) * EMBER_SPEED_RATIO;
+          const ratio = emberGen === 0 ? EMBER_DAMAGE_RATIO : EMBER_CHAIN_DAMAGE_RATIO;
+          const child = spawnFireball(moved.ownerId, moved.position, {
+            x: moved.position.x + Math.cos(angle) * 100,
+            y: moved.position.y + Math.sin(angle) * 100,
+          }, {
+            speed: spd,
+            radius: (moved.radius ?? FIREBALL_RADIUS) * 0.5,
+            damageMin: (moved.damageMin ?? 80) * ratio,
+            damageMax: (moved.damageMax ?? 120) * ratio,
+            homing: EMBER_HOMING,
+            // Grace: fly clear of the obstacle/target the parent detonated
+            // on instead of instantly re-detonating (stacked ~4x damage).
+            noHitUntil: tick + 6,
+          });
+          const ember = { ...child, emberGen: emberGen + 1, spawnTick: tick };
+          // Children born out of bounds are dropped, not detonated.
+          if (!isFireballExpired(ember, tick)) newProjectiles.push(ember);
         }
       } else {
         survivingProjectiles.push(moved);

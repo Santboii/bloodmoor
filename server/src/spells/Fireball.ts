@@ -12,7 +12,6 @@ type FireballConfig = {
   damageMin?: number;
   damageMax?: number;
   homing?: number;
-  split?: number;
   noHitUntil?: number;
 };
 
@@ -37,7 +36,6 @@ export function spawnFireball(
     damageMin: cfg.damageMin,
     damageMax: cfg.damageMax,
     homing: cfg.homing,
-    split: cfg.split,
     noHitUntil: cfg.noHitUntil,
   };
 }
@@ -103,7 +101,7 @@ export function surfaceNormal(p: Projectile, tick = Infinity): Vec2 | null {
 /**
  * Mirror velocity about the normal, spend a bounce, and push clear of the
  * surface so the next tick does not immediately re-collide. `noHitUntil` is
- * the same grace mechanism split children already use.
+ * the same grace mechanism ember children already use.
  */
 export function reflect(p: Projectile, normal: Vec2, tick: number): Projectile {
   const dot = p.velocity.x * normal.x + p.velocity.y * normal.y;
@@ -124,7 +122,7 @@ export function reflect(p: Projectile, normal: Vec2, tick: number): Projectile {
  *  arena, or touches a pillar with no bounce left. */
 export function isFireballExpired(p: Projectile, tick = Infinity): boolean {
   if (isOutOfBounds(p)) return true;
-  // Freshly split children ignore pillar overlap until their grace elapses so
+  // Freshly spawned embers ignore pillar overlap until their grace elapses so
   // they can fly clear of the obstacle their parent detonated on.
   if ((p.noHitUntil ?? 0) > tick) return false;
   return PILLARS.some(pillar => circleHitsAABB(p.position, p.radius ?? FIREBALL_RADIUS, pillar));
