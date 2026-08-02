@@ -70,21 +70,64 @@ describe('manifests', () => {
       expect(base.lpc, `${u.id} on ${u.baseId}`).toBeDefined();
     }
   });
-  // Drift guard: a unique is rare-tier numbers plus a talent payload, not a
-  // stat item that outclasses its own rarity. Upside is held to 1.5x the top
-  // of its band's rare range. Drawbacks get a looser 2.5x bound on purpose —
-  // a unique buys its power with an outsized cost, and a drawback capped at
-  // the same multiple as the upside would not be felt.
-  it('unique upside stays within 1.5x its band top, drawbacks within 2.5x', () => {
+  it('a talent affix on a non-stackable node never rolls', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) {
+        if (a.id !== 'talent') continue;
+        const node = SKILL_NODES.find(n => n.id === a.node)!;
+        if (node.stackable) continue;
+        expect(a.min, `${u.id} -> ${a.node}`).toBe(a.max);
+      }
+    }
+  });
+
+  // The set's rule is that an item shortens the tree investment a keystone
+  // needs, never replaces it. A max roll above the soft cap would hand the
+  // keystone over for free.
+  it('no talent max roll exceeds its node soft cap', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) {
+        if (a.id !== 'talent') continue;
+        const node = SKILL_NODES.find(n => n.id === a.node)!;
+        if (!node.stackable) continue;
+        expect(a.max, `${u.id} -> ${a.node}`).toBeLessThanOrEqual(node.stackable.softCap);
+      }
+    }
+  });
+
+  it('every affix range is ordered min <= max', () => {
+    for (const u of UNIQUE_ITEMS) {
+      for (const a of u.affixes) {
+        expect(a.min, `${u.id} ${a.id}`).toBeLessThanOrEqual(a.max);
+      }
+    }
+  });
+
+  it('every unique has at least one rolling affix', () => {
+    for (const u of UNIQUE_ITEMS) {
+      expect(u.affixes.some(a => a.max > a.min), u.id).toBe(true);
+    }
+  });
+
+  // Drift guard. With ranges, guarding the max is the wrong test: Widow's Vow
+  // already sits AT the old 1.5x ceiling, so centring a range on it puts the
+  // max above. Guard the midpoint (what an average copy is worth) and give the
+  // extreme its own, looser stop — a lucky roll beating the normal ceiling is
+  // the point of the feature. Drawbacks carry a looser midpoint bound already,
+  // so their hard stop is widened by the same proportion; a stop tighter than
+  // the bound it backstops would reject rolls the bound permits.
+  it('unique midpoints and extremes stay inside their band bounds', () => {
     for (const u of UNIQUE_ITEMS) {
       const bandIndex = ITEM_LEVEL_BANDS.indexOf(u.levelReq as (typeof ITEM_LEVEL_BANDS)[number]);
       expect(bandIndex, u.id).toBeGreaterThanOrEqual(0);
       for (const a of u.affixes) {
         if (a.id === 'talent') continue;
         const [, hi] = AFFIX_TIERS[a.id][bandIndex];
-        const magnitude = Math.max(Math.abs(a.min), Math.abs(a.max));
-        const ceiling = hi * (a.max < 0 ? 2.5 : 1.5);
-        expect(magnitude, `${u.id} ${a.id}`).toBeLessThanOrEqual(ceiling);
+        const isDrawbackSpec = a.max < 0;
+        const midpoint = Math.abs((a.min + a.max) / 2);
+        const extreme = Math.max(Math.abs(a.min), Math.abs(a.max));
+        expect(midpoint, `${u.id} ${a.id} midpoint`).toBeLessThanOrEqual(hi * (isDrawbackSpec ? 2.5 : 1.5));
+        expect(extreme, `${u.id} ${a.id} extreme`).toBeLessThanOrEqual(hi * (isDrawbackSpec ? 3.5 : 2));
       }
     }
   });
