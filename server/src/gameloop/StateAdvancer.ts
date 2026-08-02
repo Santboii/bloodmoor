@@ -732,11 +732,21 @@ export function advanceState(
         }
         const invuln = (players[pid].invulnUntil ?? 0) > tick;
         if (!invuln) {
+          // Rimeheart: extends Frostbite's damage-scales-with-slow bonus from
+          // Ice Bolt alone to Blizzard too. Read the slow BEFORE this zone's
+          // own chill refresh below, for the same reason the Ice Bolt branch
+          // reads it pre-chill: otherwise the zone would pay itself the bonus
+          // every tick regardless of any pre-existing chill.
+          const ownerIceBolt = modifiers[fw.ownerId]?.iceBolt;
+          const blizzardSlowBefore = (players[pid].slowUntil ?? 0) > tick ? (players[pid].slowFactor ?? 1) : 1;
+          const rimeheartMult = (isBlizzard && ownerIceBolt?.rimeheart)
+            ? 1 + ownerIceBolt.frostbite * (1 - blizzardSlowBefore)
+            : 1;
           const dmg = isRainZone
             ? RAIN_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.rain.damageMultiplier ?? 1)
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : isBlizzard
-            ? BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1)
+            ? BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1) * rimeheartMult
             : FIREWALL_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {
