@@ -118,6 +118,32 @@ describe('computeLoadout', () => {
     const { statBlock } = computeLoadout(items, 'mage');
     expect(statBlock.moveSpeedMult).toBe(1.15);
   });
+  it('floors maxHp and maxMana when drawback affixes would drive them under', () => {
+    const items = [mk({ affixes: [{ id: 'max_health', value: -900 }, { id: 'max_mana', value: -900 }] })];
+    const { statBlock } = computeLoadout(items, 'mage');
+    expect(statBlock.maxHp).toBe(100);
+    expect(statBlock.maxMana).toBe(50);
+  });
+  it('floors moveSpeedMult at 0.75 under stacked negative move_speed_pct', () => {
+    const items = [
+      mk({ base_id: 'mail_leggings', slot: 'leggings', equipped_slot: 'leggings', affixes: [{ id: 'move_speed_pct', value: -20 }] }),
+      mk({ base_id: 'iron_helm', slot: 'helmet', equipped_slot: 'helmet', affixes: [{ id: 'move_speed_pct', value: -20 }] }),
+      mk({ base_id: 'scale_mail', slot: 'armor', equipped_slot: 'armor', affixes: [{ id: 'move_speed_pct', value: -20 }] }),
+    ];
+    const { statBlock } = computeLoadout(items, 'mage');
+    expect(statBlock.moveSpeedMult).toBe(0.75);
+  });
+  it('floors manaRegenMult at 0 rather than letting it go negative', () => {
+    const items = [mk({ affixes: [{ id: 'mana_regen_pct', value: -150 }] })];
+    const { statBlock } = computeLoadout(items, 'mage');
+    expect(statBlock.manaRegenMult).toBe(0);
+  });
+  it('leaves an ordinary positive loadout untouched by the floors', () => {
+    const items = [mk({ affixes: [{ id: 'max_health', value: 40 }] })];
+    const { statBlock } = computeLoadout(items, 'mage');
+    expect(statBlock.maxHp).toBeGreaterThan(700);
+    expect(statBlock.moveSpeedMult).toBe(1);
+  });
 
   it('classOwnsTree maps both classes correctly', () => {
     expect(classOwnsTree('mage', 'fire.meteor')).toBe(true);

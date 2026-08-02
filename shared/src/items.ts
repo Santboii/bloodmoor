@@ -307,6 +307,16 @@ export function classOwnsTree(cls: CharacterClass, node: NodeId): boolean {
   return CLASS_TREES[cls].includes(tree);
 }
 
+/** Floors for a folded StatBlock. Unique items carry negative affix values
+ * (drawbacks) and nothing else bounds the result — these guarantee no
+ * combination produces a character who cannot move, cast, or survive a hit.
+ * Same posture as the moveSpeedMult cap below: a hard cap, not a taste
+ * guideline. The shipped catalog's worst stack is ~-430 HP against a 750
+ * base, well clear of these; they exist for future items. */
+export const STAT_FLOORS = {
+  maxHp: 100, maxMana: 50, moveSpeedMult: 0.75, manaRegenMult: 0,
+} as const;
+
 /** Fold implicits + affixes of every equipped item into a StatBlock, and sum
  * talent ranks for nodes owned by the character's class. Off-class talent
  * affixes are inert (per spec) — they're skipped here entirely. */
@@ -343,7 +353,9 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
 
   return {
     statBlock: {
-      maxHp, maxMana, damageMult,
+      maxHp: Math.max(STAT_FLOORS.maxHp, maxHp),
+      maxMana: Math.max(STAT_FLOORS.maxMana, maxMana),
+      damageMult,
       cooldownMult: Math.max(0.5, cooldownMult),
       // Spec's affix-system taste rules cap total move-speed intent at
       // "~+15% across a full loadout, enforced by range design" — but the
@@ -352,9 +364,9 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
       // Runtime-clamp here, mirroring the cooldownMult floor above: in an
       // arena PvP game, uncapped move speed is the single most
       // balance-decisive stat, so this is a hard cap, not just a taste
-      // guideline.
-      moveSpeedMult: Math.min(1.15, moveSpeedMult),
-      manaRegenMult,
+      // guideline. The floor is the drawback-item mirror of it.
+      moveSpeedMult: Math.min(1.15, Math.max(STAT_FLOORS.moveSpeedMult, moveSpeedMult)),
+      manaRegenMult: Math.max(STAT_FLOORS.manaRegenMult, manaRegenMult),
     },
     talentRanks,
   };
