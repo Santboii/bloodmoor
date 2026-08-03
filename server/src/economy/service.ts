@@ -50,6 +50,17 @@ export function vendorClockNow(nowMs: number = Date.now()): VendorClock {
 
 const ITEM_ROW_COLUMNS = 'id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, unique_id';
 
+/** Postgres unique_violation. https://www.postgresql.org/docs/current/errcodes-appendix.html */
+const UNIQUE_VIOLATION = '23505';
+
+/** Name of the migration's (user_id, utc_day, daily_seq) unique constraint —
+ * the DB-level backstop for the 6-buys-per-day cap. Matched against the
+ * reserve-insert error's message below to tell "a concurrent buyer won the
+ * same daily_seq" (expected, cap doing its job) apart from any other unique
+ * violation (e.g. the (user_id, instance_key) primary key, a different and
+ * genuinely unexpected race). */
+const DAILY_SEQ_UNIQUE_CONSTRAINT = 'vendor_purchases_user_day_seq_key';
+
 export type AccountCharSummary = { maxLevel: number; ownedClasses: Set<CharacterClass> };
 
 /** "Account's max character level" = max(level) over the account's
@@ -106,7 +117,7 @@ export type VendorSlotView = VendorSlot & {
   crossClass: boolean;
 };
 
-export type VendorViewResult = { slots: VendorSlotView[]; purchasesRemaining: number };
+export type VendorViewResult = { slots: VendorSlotView[]; purchasesRemaining: number | null };
 
 /** Deferred Task 1 finding: an unfiltered vendor slot can show a weapon
  * restricted to a class the account doesn't currently have (e.g. a bow for
@@ -145,8 +156,15 @@ export async function getVendorView(
     .select('instance_key')
     .eq('user_id', userId)
     .eq('utc_day', clock.utcDay);
+  // A failed read must not report a false-good allowance (undercounting
+  // today's purchases would otherwise read as "more buys available" than
+  // actually remain) — null signals "unknown" rather than defaulting to 0
+  // rows read. buyVendorSlot is the real enforcement point and separately
+  // 500s on this same failure; this value is display-only.
   if (todayErr) console.error('getVendorView: daily allowance read failed:', todayErr.message);
-  const purchasesRemaining = Math.max(0, VENDOR_DAILY_PURCHASE_LIMIT - (todayRows?.length ?? 0));
+  const purchasesRemaining = todayErr
+    ? null
+    : Math.max(0, VENDOR_DAILY_PURCHASE_LIMIT - (todayRows?.length ?? 0));
 
   return {
     slots: stock.map(slot => ({
@@ -163,8 +181,13 @@ export type VendorBuyResult = { ok: true; item: ItemRow } | { ok: false; status:
 /** Buy one vendor offer. Order: validate -> confirm the offer is still the
  * one the client saw -> daily allowance -> not already bought -> debit gold
  * (buyer's own JWT, so spend_gold's auth.uid() is the buyer) -> reserve the
- * offer -> grant the item. Everything that can reject does so BEFORE the
- * debit, so the only compensation path is the item insert failing.
+ * offer -> grant the item. Everything that can be VALIDATED (bad input,
+ * stale offer, allowance already spent, already bought) rejects BEFORE the
+ * debit. Two things can still fail AFTER it, both compensated by refunding
+ * the gold: the reserve insert (a concurrent buyer wins the same daily_seq
+ * — the DB's unique constraint enforcing the cap under a race, see
+ * DAILY_SEQ_UNIQUE_CONSTRAINT below — or any other insert error) and the
+ * item insert.
  *
  * The slot is reserved BEFORE the item is granted (rather than after) so a
  * mid-flight failure has only one failure mode to compensate: if the item
@@ -229,10 +252,30 @@ export async function buyVendorSlot(
   const { error: debitErr } = await buyer.rpc('spend_gold', { p_amount: slot.price });
   if (debitErr) return { ok: false, status: 402, error: debitErr.message };
 
+  // The row's position among today's purchases, independent of
+  // instance_key — what the migration's (user_id, utc_day, daily_seq)
+  // unique constraint enforces the cap on. todayRows was already read above
+  // for the allowance check, so this is free.
+  const dailySeq = todayRows?.length ?? 0;
   const { error: reserveErr } = await service
     .from('vendor_purchases')
-    .insert({ user_id: userId, utc_day: clock.utcDay, slot_index: slotIndex, instance_key: instanceKey });
+    .insert({ user_id: userId, utc_day: clock.utcDay, slot_index: slotIndex, instance_key: instanceKey, daily_seq: dailySeq });
   if (reserveErr) {
+    // A concurrent buyer can win the same daily_seq in the window between
+    // our allowance read above and this insert; Postgres then rejects this
+    // insert with a unique_violation on DAILY_SEQ_UNIQUE_CONSTRAINT. That's
+    // the DB-level cap doing its job (see this function's docstring), not
+    // an infrastructure failure, so it gets the same 429 the cheap
+    // read-then-check above already returns — the client sees one
+    // consistent outcome regardless of which path caught it. Any other
+    // insert error (including a unique_violation on the (user_id,
+    // instance_key) primary key, which is a different race — the same
+    // offer double-bought — not this one) falls through to the generic 500.
+    if (reserveErr.code === UNIQUE_VIOLATION && reserveErr.message.includes(DAILY_SEQ_UNIQUE_CONSTRAINT)) {
+      console.error('buyVendorSlot: concurrent daily_seq race lost after debit — refunding:', reserveErr.message);
+      await refundGold(service, userId, slot.price);
+      return { ok: false, status: 429, error: 'daily purchase limit reached' };
+    }
     console.error('buyVendorSlot: vendor_purchases insert failed after debit — refunding:', reserveErr.message);
     await refundGold(service, userId, slot.price);
     return { ok: false, status: 500, error: 'purchase failed, gold refunded' };

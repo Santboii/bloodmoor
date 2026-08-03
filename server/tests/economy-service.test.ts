@@ -20,12 +20,20 @@ import {
 // Real supabase-js builders (`.from().select().eq()...`) are awaitable at
 // any point in the chain, not just after a terminal call — mirror that so
 // service.ts's exact call shape doesn't matter to the mock.
-type ChainResult = { data: unknown; error: { message: string } | null };
+type ChainResult = { data: unknown; error: { message: string; code?: string } | null };
 
-function makeChain(result: ChainResult) {
+/** One method call recorded against a single `.from(table)` chain, e.g.
+ * `{ method: 'eq', args: ['user_id', 'u1'] }` — lets a test pin the exact
+ * filters/payload a query used, not just which table it hit. */
+type ChainCall = { method: string; args: unknown[] };
+
+function makeChain(result: ChainResult, log: ChainCall[]) {
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'in', 'order', 'insert', 'update', 'delete', 'maybeSingle', 'single']) {
-    chain[m] = vi.fn(() => chain);
+    chain[m] = vi.fn((...args: unknown[]) => {
+      log.push({ method: m, args });
+      return chain;
+    });
   }
   chain.then = (resolve: (r: ChainResult) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve(result).then(resolve, reject);
@@ -35,18 +43,26 @@ function makeChain(result: ChainResult) {
 /** Builds a fake SupabaseClient whose `.from(table)` hands out the next
  * queued ChainResult for that table (in call order) — lets a test configure
  * exactly what each successive `.from('items')` / `.from('vendor_purchases')`
- * / etc. call in a service function resolves to. */
-function mockServiceClient(results: Record<string, ChainResult[]>): { client: SupabaseClient; fromCalls: string[] } {
+ * / etc. call in a service function resolves to. `callLog` parallels
+ * `fromCalls` one-to-one and records every chained method call (with args)
+ * made against that particular `.from()` invocation — e.g. to assert an
+ * insert's payload or a delete's exact `.eq()` filters. */
+function mockServiceClient(
+  results: Record<string, ChainResult[]>,
+): { client: SupabaseClient; fromCalls: string[]; callLog: { table: string; calls: ChainCall[] }[] } {
   const counts: Record<string, number> = {};
   const fromCalls: string[] = [];
+  const callLog: { table: string; calls: ChainCall[] }[] = [];
   const from = vi.fn((table: string) => {
     fromCalls.push(table);
     const idx = counts[table] ?? 0;
     counts[table] = idx + 1;
     const list = results[table] ?? [];
-    return makeChain(list[idx] ?? { data: null, error: null });
+    const calls: ChainCall[] = [];
+    callLog.push({ table, calls });
+    return makeChain(list[idx] ?? { data: null, error: null }, calls);
   });
-  return { client: { from } as unknown as SupabaseClient, fromCalls };
+  return { client: { from } as unknown as SupabaseClient, fromCalls, callLog };
 }
 
 function mockBuyerClient(rpcResult: ChainResult): { client: SupabaseClient; rpc: ReturnType<typeof vi.fn> } {
@@ -55,7 +71,7 @@ function mockBuyerClient(rpcResult: ChainResult): { client: SupabaseClient; rpc:
 }
 
 const ok = (data: unknown = null): ChainResult => ({ data, error: null });
-const fail = (message: string): ChainResult => ({ data: null, error: { message } });
+const fail = (message: string, code?: string): ChainResult => ({ data: null, error: { message, code } });
 
 // A fixed vendor clock. 2026-08-02T12:00Z is an arbitrary but stable
 // instant; tests derive expected instance keys from it via vendorStockFor
@@ -161,6 +177,23 @@ describe('getVendorView', () => {
 
     expect(view.purchasesRemaining).toBe(0);
   });
+
+  // Contract: purchasesRemaining is `number | null`, not a number that
+  // silently defaults to "full allowance" when the read fails. Reporting 6
+  // (the un-degraded default) on an infrastructure fault would tell a player
+  // they have every buy available when the true count is simply unknown.
+  it('reports a null allowance (not a false-good number) when the daily-allowance read fails', async () => {
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [ok([]), fail('read failed')],
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const view = await getVendorView(service, 'u1', CLOCK);
+
+    expect(view.purchasesRemaining).toBeNull();
+    errorSpy.mockRestore();
+  });
 });
 
 describe('buyVendorSlot', () => {
@@ -220,6 +253,30 @@ describe('buyVendorSlot', () => {
     expect(fromCalls).not.toContain('items');
   });
 
+  // Pins the permissive side of the cap boundary: with exactly
+  // LIMIT - 1 rows already purchased today, the 6th buy must still succeed.
+  // An off-by-one toward blocking (e.g. `>= LIMIT - 1`) would pass every
+  // other test in this file (all of which use either 0 or LIMIT rows) while
+  // cutting every account to 5 buys a day.
+  it('allows the 6th purchase of the day when exactly LIMIT - 1 rows already exist', async () => {
+    const rows = Array.from(
+      { length: VENDOR_DAILY_PURCHASE_LIMIT - 1 },
+      (_, i) => ({ instance_key: `k${i}` }),
+    );
+    const insertedItem = { id: 'item-6', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [ok(rows), ok(null), ok(null)], // allowance (5 rows), existing check, reserve insert
+      items: [ok(insertedItem)],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledOnce();
+  });
+
   it('rejects an already-purchased offer before debiting gold', async () => {
     const key = keyFor('u1', 5, 0);
     const { client: service } = mockServiceClient({
@@ -249,9 +306,10 @@ describe('buyVendorSlot', () => {
     expect(fromCalls).not.toContain('items');
   });
 
-  it('debits gold BEFORE granting the item, on the happy path', async () => {
+  it('debits gold BEFORE granting the item, on the happy path, and reserves the exact offer row', async () => {
     const insertedItem = { id: 'item-1', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
-    const { client: service, fromCalls } = mockServiceClient({
+    const key = keyFor('u1', 5, 0);
+    const { client: service, fromCalls, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
       vendor_purchases: [ok([]), ok(null), ok(null)], // allowance, existing check, reserve insert
       items: [ok(insertedItem)],
@@ -265,16 +323,33 @@ describe('buyVendorSlot', () => {
       return originalFrom(table);
     });
 
-    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, key);
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.item).toEqual(insertedItem);
     expect(fromCalls).toContain('vendor_purchases');
     expect(callOrder).toEqual(['spend_gold', 'items-insert']);
+
+    // Pins the reserve insert's exact written row — without this, a
+    // regression that dropped instance_key, wrote utcDayString() instead of
+    // clock.utcDay, or omitted daily_seq would still pass every other
+    // assertion in this test, since the mock's insert() otherwise discards
+    // its argument.
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    const reserveCall = vpCalls[2]; // allowance (0), existing check (1), reserve (2)
+    const insertArgs = reserveCall.calls.find(c => c.method === 'insert')?.args[0];
+    expect(insertArgs).toEqual({
+      user_id: 'u1',
+      utc_day: CLOCK.utcDay,
+      slot_index: 0,
+      instance_key: key,
+      daily_seq: 0, // 0 rows read on the allowance check above
+    });
   });
 
   it('refunds gold and releases the slot when the item insert fails after debit', async () => {
-    const { client: service, fromCalls } = mockServiceClient({
+    const key = keyFor('u1', 5, 0);
+    const { client: service, fromCalls, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
       vendor_purchases: [ok([]), ok(null), ok(null), ok(null)], // allowance, check, reserve, release
       items: [fail('insert failed')],
@@ -283,12 +358,75 @@ describe('buyVendorSlot', () => {
     const { client: buyer, rpc } = mockBuyerClient(ok());
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, key);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(500);
     expect(rpc).toHaveBeenCalledOnce();
     expect(fromCalls).toContain('profiles');
+
+    // Exact vendor_purchases call count: allowance + existing-check +
+    // reserve + release. Without this, deleting the release call entirely
+    // (leaving the slot marked sold forever after a refunded failure) would
+    // still pass every other assertion here.
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    expect(vpCalls.length).toBe(4);
+    const releaseCall = vpCalls[3];
+    expect(releaseCall.calls.some(c => c.method === 'delete')).toBe(true);
+    const releaseFilters = releaseCall.calls.filter(c => c.method === 'eq').map(c => c.args[0]);
+    expect(releaseFilters).toEqual(['user_id', 'instance_key']);
+
+    errorSpy.mockRestore();
+  });
+
+  it('treats a concurrent daily_seq unique-violation on the reserve insert as the cap doing its job, not a 500', async () => {
+    const { client: service, fromCalls } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        ok([]), // allowance read: this request's own view still shows room
+        ok(null), // existing check: not already purchased
+        fail(
+          'duplicate key value violates unique constraint "vendor_purchases_user_day_seq_key"',
+          '23505',
+        ), // reserve insert: a concurrent buyer won this daily_seq first
+      ],
+      profiles: [ok({ gold: 100 }), ok(null)], // refund read, then update
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result).toEqual({ ok: false, status: 429, error: 'daily purchase limit reached' });
+    expect(rpc).toHaveBeenCalledOnce(); // debited once, refunded via profiles below, never re-debited
+    expect(fromCalls).toContain('profiles');
+    errorSpy.mockRestore();
+  });
+
+  it('falls through to a generic 500 for a reserve-insert unique-violation on a different constraint', async () => {
+    // Same offer double-bought concurrently — a violation of the (user_id,
+    // instance_key) primary key, not the daily_seq cap constraint. This is
+    // a different race and must not be reported as "daily limit reached".
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        ok([]),
+        ok(null),
+        fail('duplicate key value violates unique constraint "vendor_purchases_pkey"', '23505'),
+      ],
+      profiles: [ok({ gold: 100 }), ok(null)],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).not.toMatch(/daily purchase limit/);
+    }
+    expect(rpc).toHaveBeenCalledOnce();
     errorSpy.mockRestore();
   });
 });

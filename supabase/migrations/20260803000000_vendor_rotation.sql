@@ -34,3 +34,32 @@ alter table vendor_purchases add constraint vendor_purchases_pkey
 -- Backs the daily-allowance count, which the PK no longer serves.
 create index if not exists vendor_purchases_user_day_idx
   on vendor_purchases (user_id, utc_day);
+
+-- Before this migration, the PK (user_id, utc_day, slot_index) plus
+-- slot_index's 0-5 range check made a 7th same-day row for one user
+-- physically impossible. Re-keying the PK to (user_id, instance_key) above
+-- removed that guarantee — instance_key admits ~24 distinct values per day
+-- (one per hour per slot), not 6. daily_seq restores the invariant: it's
+-- "which of today's (at most 6) purchases this is," independent of
+-- instance_key, so a unique constraint on (user_id, utc_day, daily_seq)
+-- once again makes a 7th row impossible, with the same 0-5 check
+-- slot_index used to carry.
+alter table vendor_purchases add column if not exists daily_seq int;
+
+-- Pre-rotation rows had exactly one purchase per (user_id, utc_day,
+-- slot_index) under the old PK, so slot_index was already unique per user
+-- per day and already constrained to 0-5 — it is a valid daily_seq value
+-- as-is.
+update vendor_purchases
+   set daily_seq = slot_index
+ where daily_seq is null;
+
+alter table vendor_purchases alter column daily_seq set not null;
+
+alter table vendor_purchases drop constraint if exists vendor_purchases_daily_seq_check;
+alter table vendor_purchases add constraint vendor_purchases_daily_seq_check
+  check (daily_seq between 0 and 5);
+
+alter table vendor_purchases drop constraint if exists vendor_purchases_user_day_seq_key;
+alter table vendor_purchases add constraint vendor_purchases_user_day_seq_key
+  unique (user_id, utc_day, daily_seq);
