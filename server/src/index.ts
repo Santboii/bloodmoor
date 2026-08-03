@@ -341,9 +341,10 @@ io.on('connection', socket => {
       rematchVotes.delete(roomId);
 
       await refreshRoomLoadouts(room);
-      // The room can be torn down while the refresh awaits (last player
-      // disconnecting deletes it) — don't start a match on a dead room.
-      if (roomManager.getRoom(roomId) !== room || room.players.size === 0) return;
+      // The room can be torn down, or lose a player below the match
+      // minimum, while the refresh awaits — don't start a match on a dead
+      // or under-filled room.
+      if (roomManager.getRoom(roomId) !== room || room.players.size < room.mode.minPlayers) return;
 
       loops.get(roomId)?.stop();
       loops.delete(roomId);
