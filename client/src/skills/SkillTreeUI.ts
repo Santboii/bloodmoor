@@ -44,6 +44,7 @@ const NODE_ICONS: Record<NodeId, string> = {
   'frost.ice_bolt':         'fa-icicles',
   'frost.bitter_chill':     'fa-temperature-low',
   'frost.ice_lance':        'fa-arrow-right-long',
+  'frost.ice_ray':          'fa-bolt',
   'frost.frostbite':        'fa-tooth',
   'frost.splintering_ice':  'fa-shapes',
   'frost.blizzard':         'fa-snowflake',
@@ -114,8 +115,9 @@ const FIRE_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 
 const FROST_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'frost.ice_bolt':         { x: 50, y: 0 },
-  'frost.bitter_chill':     { x: 30, y: ROW },
-  'frost.ice_lance':        { x: 70, y: ROW },
+  'frost.bitter_chill':     { x: 20, y: ROW },
+  'frost.ice_ray':          { x: 50, y: ROW },
+  'frost.ice_lance':        { x: 80, y: ROW },
   'frost.frostbite':        { x: 30, y: ROW * 2 },
   'frost.splintering_ice':  { x: 70, y: ROW * 2 },
   'frost.blizzard':         { x: 50, y: ROW * 3 },

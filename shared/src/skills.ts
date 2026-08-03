@@ -14,7 +14,7 @@ export type NodeId =
   | 'archer.burn' | 'archer.freeze' | 'archer.poison'
   | 'archer_utility.evade' | 'archer_utility.combat_roll'
   | 'archer_utility.shadowstep' | 'archer_utility.acrobatics'
-  | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance'
+  | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance' | 'frost.ice_ray'
   | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
   | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
   | 'frost.frozen_orb' | 'frost.shard_storm' | 'frost.glacial_drift'
@@ -76,9 +76,10 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   // Frost tree — mirrors the fire tree's gate shape exactly.
   'frost.bitter_chill':     { requiresAll: ['frost.ice_bolt'] },
   'frost.ice_lance':        { requiresAll: ['frost.ice_bolt'] },
+  'frost.ice_ray':          { requiresAll: ['frost.ice_bolt'] },
   'frost.frostbite':        { requiresAll: ['frost.ice_bolt'] },
   'frost.splintering_ice':  { requiresAll: ['frost.ice_bolt'] },
-  'frost.blizzard':         { requiresAll: ['frost.ice_bolt'], requiresAny: ['frost.bitter_chill', 'frost.ice_lance'] },
+  'frost.blizzard':         { requiresAll: ['frost.ice_bolt'], requiresAny: ['frost.bitter_chill', 'frost.ice_lance', 'frost.ice_ray'] },
   'frost.lingering_winter': { requiresAll: ['frost.blizzard'] },
   'frost.deepening_cold':   { requiresAll: ['frost.blizzard'] },
   'frost.whiteout':         { requiresAll: ['frost.blizzard'] },
@@ -149,6 +150,7 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Flash Freeze', description: 'An Ice Bolt hitting an unchilled target roots them for 0.4s (once per 6s per target).' } },
   { id: 'frost.ice_lance',        name: 'Ice Lance',        tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt pierces one additional enemy per rank.', stackable: { softCap: 3, baseEffect: 1 },
     keystone: { name: 'Impaler', description: 'Pierce is unlimited, and each enemy pierced adds +8% damage to later hits.' } },
+  { id: 'frost.ice_ray',          name: 'Ice Ray',          tree: 'frost', tier: 2, cost: 2, isSpell: true,  description: 'Hold to channel a beam. Damage, mana cost and width all grow the longer you hold. You move at 35% speed while channelling.' },
   { id: 'frost.frostbite',        name: 'Frostbite',        tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt deals more damage the more slowed the target is.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Rimeheart', description: 'The bonus applies to all your frost damage against that target, not just Ice Bolt.' } },
   { id: 'frost.splintering_ice',  name: 'Splintering Ice',  tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt shatters into shards on impact. One more shard per rank.', stackable: { softCap: 3, baseEffect: 1 },
@@ -194,6 +196,7 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 9,  node: 'frost.ice_bolt',   charClass: 'mage' },
   { spell: 10, node: 'frost.blizzard',   charClass: 'mage' },
   { spell: 11, node: 'frost.frozen_orb', charClass: 'mage' },
+  { spell: 12, node: 'frost.ice_ray',  charClass: 'mage' },
   { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
   { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
   { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },

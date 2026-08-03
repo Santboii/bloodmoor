@@ -6,10 +6,10 @@ const frost = () => SKILL_NODES.filter(n => n.tree === 'frost');
 const node = (id: NodeId) => SKILL_NODES.find(n => n.id === id)!;
 
 describe('frost tree shape', () => {
-  it('has thirteen nodes, three of them spells', () => {
-    expect(frost().length).toBe(13);
+  it('has fourteen nodes, four of them spells', () => {
+    expect(frost().length).toBe(14);
     expect(frost().filter(n => n.isSpell).map(n => n.id)).toEqual([
-      'frost.ice_bolt', 'frost.blizzard', 'frost.frozen_orb',
+      'frost.ice_bolt', 'frost.ice_ray', 'frost.blizzard', 'frost.frozen_orb',
     ]);
   });
 
@@ -50,12 +50,12 @@ describe('frost gates', () => {
 });
 
 describe('frost cost budget', () => {
-  it('costs 67 points to soft-cap the whole tree', () => {
+  it('costs 69 points to soft-cap the whole tree', () => {
     const total = frost().reduce(
       (sum, n) => sum + totalSpentForRanks(n, n.stackable ? n.stackable.softCap : 1),
       0,
     );
-    expect(total).toBe(67);
+    expect(total).toBe(69);
   });
 
   it('gives every stackable node except Glacial Drift a keystone', () => {
@@ -92,5 +92,42 @@ describe('frost spell wiring', () => {
   it('prices the capstone like Meteor', () => {
     expect(SPELL_CONFIG[11].manaCost).toBe(SPELL_CONFIG[3].manaCost);
     expect(SPELL_CONFIG[11].cooldownTicks).toBe(SPELL_CONFIG[3].cooldownTicks);
+  });
+});
+
+describe('Ice Ray node', () => {
+  it('is a tier-2 frost spell costing 2', () => {
+    const n = node('frost.ice_ray');
+    expect(n.tree).toBe('frost');
+    expect(n.tier).toBe(2);
+    expect(n.cost).toBe(2);
+    expect(n.isSpell).toBe(true);
+    expect(n.stackable).toBeUndefined();
+    expect(n.keystone).toBeUndefined();
+  });
+
+  it('takes the frost tree to fourteen nodes and 69 points', () => {
+    expect(frost().length).toBe(14);
+    const total = frost().reduce(
+      (sum, n) => sum + totalSpentForRanks(n, n.stackable ? n.stackable.softCap : 1),
+      0,
+    );
+    expect(total).toBe(69);
+  });
+
+  it('requires Ice Bolt and nothing else', () => {
+    expect(canUnlock('frost.ice_ray', new Set())).toBe(false);
+    expect(canUnlock('frost.ice_ray', new Set(['frost.ice_bolt']))).toBe(true);
+  });
+
+  it('satisfies Blizzard as a tier-2 prerequisite', () => {
+    expect(canUnlock('frost.blizzard', new Set(['frost.ice_bolt', 'frost.ice_ray']))).toBe(true);
+  });
+
+  it('binds to spell 12 on the mage with no default slot', () => {
+    const b = SPELL_BINDINGS.find(x => x.spell === 12);
+    expect(b?.node).toBe('frost.ice_ray');
+    expect(b?.charClass).toBe('mage');
+    expect(b?.defaultSlot).toBeUndefined();
   });
 });
