@@ -76,10 +76,11 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** Deterministic rng for a user+day pair — same inputs always produce the
- * same rng sequence, so byte-identical downstream output. */
-export function seededRng(userId: string, utcDay: string): () => number {
-  return mulberry32(fnv1aHash(`${userId}:${utcDay}`));
+/** Deterministic rng for a user + arbitrary discriminator (today: a vendor
+ * instance key) — same inputs always produce the same sequence, so
+ * byte-identical downstream output. */
+export function seededRng(userId: string, discriminator: string): () => number {
+  return mulberry32(fnv1aHash(`${userId}:${discriminator}`));
 }
 
 export const VENDOR_SLOT_COUNT = 6;
@@ -92,7 +93,7 @@ export const VENDOR_SLOT_LIFETIME_HOURS = 6;
  * one-buy-per-slot-per-day budget. */
 export const VENDOR_DAILY_PURCHASE_LIMIT = 6;
 
-const MS_PER_HOUR = 3_600_000;
+export const MS_PER_HOUR = 3_600_000;
 
 /** Whole UTC hours since the epoch — the vendor's clock. Takes `nowMs` as a
  * parameter rather than reading the clock so this module stays pure (see
@@ -121,15 +122,32 @@ export function vendorInstanceKey(slotIndex: number, generation: number, band: n
   return `${slotIndex}:${generation}:${band}`;
 }
 
-export type VendorSlot = { base: ItemBase; rarity: 'basic' | 'magic'; affixes: RolledAffix[]; price: number };
+export type VendorSlot = {
+  slotIndex: number;
+  /** See vendorInstanceKey — identifies this exact offer. */
+  instanceKey: string;
+  /** Epoch ms at which this slot rotates. Derived from the caller-supplied
+   * hour via slotExpiryHour, so no clock is read here. */
+  expiresAt: number;
+  base: ItemBase;
+  rarity: 'basic' | 'magic';
+  affixes: RolledAffix[];
+  price: number;
+};
 
-/** Deterministic daily vendor stock: 6 slots, each basic or magic (~50/50),
- * bases drawn from bands within ±1 band-step of the account's max character
- * level's band. Same (userId, utcDay, maxCharLevel) ⇒ byte-identical output;
- * a different utcDay reseeds the rng and (almost certainly) changes it. */
-export function vendorStockFor(userId: string, utcDay: string, maxCharLevel: number): VendorSlot[] {
-  const rng = seededRng(userId, utcDay);
-  const centerIdx = ITEM_LEVEL_BANDS.indexOf(levelToBand(maxCharLevel));
+/** Deterministic vendor stock at a given UTC hour: 6 slots, each basic or
+ * magic (~50/50), bases drawn from bands within ±1 band-step of the
+ * account's max character level's band.
+ *
+ * Each slot has its OWN rng stream keyed by its own generation, which is
+ * what lets the six rotate independently on staggered 6-hour lives (one
+ * turning over each hour) rather than all swapping together. Same
+ * (userId, hour, maxCharLevel) ⇒ byte-identical output; the seed is
+ * `${userId}:${instanceKey}` so a slot's advertised identity and its rolled
+ * contents can never drift apart. */
+export function vendorStockFor(userId: string, hour: number, maxCharLevel: number): VendorSlot[] {
+  const band = levelToBand(maxCharLevel);
+  const centerIdx = ITEM_LEVEL_BANDS.indexOf(band);
   const eligibleBands = new Set(
     [centerIdx - 1, centerIdx, centerIdx + 1]
       .filter(i => i >= 0 && i < ITEM_LEVEL_BANDS.length)
@@ -138,11 +156,22 @@ export function vendorStockFor(userId: string, utcDay: string, maxCharLevel: num
   const eligibleBases = ITEM_BASES.filter(b => eligibleBands.has(b.itemLevel));
 
   const slots: VendorSlot[] = [];
-  for (let i = 0; i < 6; i++) {
+  for (let slotIndex = 0; slotIndex < VENDOR_SLOT_COUNT; slotIndex++) {
+    const generation = slotGeneration(slotIndex, hour);
+    const instanceKey = vendorInstanceKey(slotIndex, generation, band);
+    const rng = seededRng(userId, instanceKey);
     const rarity: 'basic' | 'magic' = rng() < 0.5 ? 'basic' : 'magic';
     const base = eligibleBases[Math.floor(rng() * eligibleBases.length)];
     const affixes = rarity === 'magic' ? rollItem(base, 'magic', rng) : [];
-    slots.push({ base, rarity, affixes, price: vendorBuyPrice(rarity, base.itemLevel) });
+    slots.push({
+      slotIndex,
+      instanceKey,
+      expiresAt: slotExpiryHour(slotIndex, generation) * MS_PER_HOUR,
+      base,
+      rarity,
+      affixes,
+      price: vendorBuyPrice(rarity, base.itemLevel),
+    });
   }
   return slots;
 }
