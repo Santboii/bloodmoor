@@ -15,7 +15,7 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -118,6 +118,7 @@ function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
 }
 
 let phaseShiftRank = 0;
+let blockMoveMult = BLOCK_MOVE_MULT;
 
 /** Re-derive owned spells, arrow element, and modifier ranks from the DB —
  * merging talent-tree ranks with equipped-item talent affixes so the client
@@ -156,6 +157,10 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
+  const mobileGuardRank = effRanks.get('bulwark.mobile_guard' as NodeId) ?? 0;
+  blockMoveMult = charClass === 'gladiator'
+    ? Math.min(0.85, BLOCK_MOVE_MULT * (1 + effectAtRank(0.08, mobileGuardRank)))
+    : BLOCK_MOVE_MULT;
   activeSlots = resolveSlots(ownedSpells, slotRows);
   hud.buildSpellSlots(activeSlots);
   inputHandler?.setSlots(activeSlots);
@@ -245,6 +250,7 @@ async function handleLogout(): Promise<void> {
     currentMode = '1v1';
     myTeamId = undefined;
     ownedSpells = new Set();
+    blockMoveMult = BLOCK_MOVE_MULT;
     pendingRejoin = null;
     // Gear and Shop cache their last read to make the tab switch instant;
     // both are account-scoped, so the cache dies with the session.
@@ -371,6 +377,7 @@ const charSelect = new CharacterSelectUI(uiOverlay, {
     currentMode = '1v1';
     myTeamId = undefined;
     ownedSpells = new Set();
+    blockMoveMult = BLOCK_MOVE_MULT;
     pendingRejoin = null;
     // Keep in step with handleLogout above — this path duplicates it.
     gearScreen.reset();
@@ -815,8 +822,17 @@ scene.startRenderLoop(() => {
         // the gear multiplier here made every player wearing move-speed
         // affixes mispredict every tick and rubber-band continuously on
         // reconcile.
-        const slowMult = (me.rootUntil ?? 0) > latest.tick ? 0 : ((me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1);
-        opts.speedMult = slowMult * (me.statMults?.moveSpeed ?? 1);
+        const stunned = (me.stunUntil ?? 0) > latest.tick;
+        const slowMult = stunned || (me.rootUntil ?? 0) > latest.tick ? 0
+          : ((me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1);
+        // Block prediction mirrors the server's §1 resolution: held + gladiator
+        // + re-raise gate elapsed + not stunned. Uses the local button state so
+        // the slow starts the same frame the shield goes up.
+        const predictedBlocking = inputHandler.isBlockHeld()
+          && me.charClass === 'gladiator'
+          && !stunned
+          && (me.blockCooldownUntil ?? 0) <= latest.tick;
+        opts.speedMult = slowMult * (predictedBlocking ? blockMoveMult : 1) * (me.statMults?.moveSpeed ?? 1);
         // Predict teleport locally so it feels instant instead of arriving a
         // round-trip later as a slide. Only when the latest snapshot says the
         // server will actually accept the cast — a mispredicted teleport

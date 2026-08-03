@@ -15,12 +15,13 @@ export class InputHandler {
   private mouseWorld = { x: 1000, y: 1000 }; // center of new arena
   private pendingCast: { spell: SpellId; aimTarget: { x: number; y: number } } | null = null;
   private pendingRest = false;
+  private blockHeld = false;
 
   constructor(private scene: Scene, private canvas: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
-    window.addEventListener('contextmenu', this.onBlur);
+    window.addEventListener('contextmenu', this.onContextMenu);
     canvas.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mousedown', this.onMouseDown);
     canvas.addEventListener('mouseup', this.onMouseUp);
@@ -51,16 +52,21 @@ export class InputHandler {
 
   private onKeyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
 
-  private onBlur = () => { this.keys.clear(); };
+  private onBlur = () => { this.keys.clear(); this.blockHeld = false; };
+
+  private onContextMenu = (e: Event) => { e.preventDefault(); };
 
   private onMouseMove = (e: MouseEvent) => {
     this.mouseScreen = { x: e.clientX, y: e.clientY };
     this.mouseWorld = this.scene.screenToWorld(e.clientX, e.clientY);
   };
 
-  private onMouseDown = (_e: MouseEvent) => {};
+  private onMouseDown = (e: MouseEvent) => {
+    if (e.button === 2) { e.preventDefault(); this.blockHeld = true; }
+  };
 
   private onMouseUp = (e: MouseEvent) => {
+    if (e.button === 2) { this.blockHeld = false; return; }
     if (e.button !== 0) return;
     if (this.activeSpell === null) return;
     this.pendingCast = { spell: this.activeSpell, aimTarget: this.mouseWorld };
@@ -92,6 +98,10 @@ export class InputHandler {
       this.pendingRest = false;
     }
 
+    if (this.blockHeld && this.charClass === 'gladiator') {
+      frame.blocking = true;
+    }
+
     return frame;
   }
 
@@ -109,17 +119,18 @@ export class InputHandler {
   }
 
   setCharacterClass(cls: string): void {
-    this.charClass = cls === 'ranger' ? 'ranger' : 'mage';
+    this.charClass = cls === 'ranger' || cls === 'gladiator' ? cls : 'mage';
   }
 
   getActiveSpell(): SpellId | null { return this.activeSpell; }
   getCurrentMouseWorld(): { x: number; y: number } { return this.mouseWorld; }
+  isBlockHeld(): boolean { return this.blockHeld; }
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
-    window.removeEventListener('contextmenu', this.onBlur);
+    window.removeEventListener('contextmenu', this.onContextMenu);
     this.canvas.removeEventListener('mousemove', this.onMouseMove);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
     this.canvas.removeEventListener('mouseup', this.onMouseUp);
