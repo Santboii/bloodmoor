@@ -3,7 +3,7 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard';
 
@@ -58,6 +58,9 @@ export type PlayerState = {
   appearance?: Appearance;
   gear?: GearVisuals;
   evadeCharges?: number; // Second Wind keystone: remaining evade charges (max 2)
+  channelSpell?: SpellId;   // active channel, if any
+  channelTicks?: number;    // ticks held; drives the ramp
+  channelEnd?: Vec2;        // server-computed beam terminus, for rendering
 };
 
 export type Projectile = {
@@ -177,6 +180,10 @@ export type InputFrame = {
   castSpell: SpellId | null;
   aimTarget: Vec2;
   aimTarget2?: Vec2; // drag end for Fire Wall
+  /** Sustained while a channelled spell's button is held. Unlike castSpell,
+   *  this is NOT cleared each tick by Room.tick — that is what makes a channel
+   *  a channel. */
+  channel: SpellId | null;
 };
 
 export type Pillar = { x: number; y: number; halfSize: number };
@@ -272,6 +279,22 @@ export const CATACLYSMIC_ORB_DAMAGE = 120;
 export const CATACLYSMIC_ORB_RADIUS = 100;
 export const IMPALER_PIERCE_DAMAGE_BONUS = 0.08;
 
+// ── Ice Ray (channelled) ───────────────────────────────────────────────────
+export const ICE_RAY_MAX_RANGE = 700;
+export const ICE_RAY_RAMP_TICKS = 2 * TICK_RATE;   // 120
+export const ICE_RAY_DAMAGE_MIN_PER_SEC = 45;
+export const ICE_RAY_DAMAGE_MAX_PER_SEC = 130;
+export const ICE_RAY_MANA_MIN_PER_SEC = 18;
+export const ICE_RAY_MANA_MAX_PER_SEC = 55;
+export const ICE_RAY_HALF_WIDTH_MIN = 6;
+export const ICE_RAY_HALF_WIDTH_MAX = 20;
+/** Flat while channelling — deliberately not ramped, so the commitment reads
+ *  as one decision rather than two variables moving at once. */
+export const ICE_RAY_MOVE_MULT = 0.35;
+/** Pillar sampling step along the beam. Half a pillar's halfSize (28), so a
+ *  step can never straddle a pillar without landing inside it. */
+export const ICE_RAY_MARCH_STEP = 8;
+
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },
   2: { manaCost: 60,  cooldownTicks: 180 },
@@ -284,6 +307,10 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   9:  { manaCost: 20,  cooldownTicks: 24  },
   10: { manaCost: 65,  cooldownTicks: 180 },
   11: { manaCost: 100, cooldownTicks: 300 },
+  // Channelled: mana is drained per tick by the ramp, not charged on cast, and
+  // the ramp reset is the limiter rather than a cooldown. This entry exists
+  // because SPELL_CONFIG is exhaustive over SpellId.
+  12: { manaCost: 0,   cooldownTicks: 0   },
 };
 
 export const TELEPORT_MAX_RANGE = 600;

@@ -16,7 +16,7 @@ function fourPlayerState(mode: GameModeConfig, teams?: Record<string, string[]>)
   );
 }
 
-const idleInput = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+const idleInput = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null };
 
 describe('FFA win condition in advanceState', () => {
   it('does not end when 1 of 4 players dies', () => {

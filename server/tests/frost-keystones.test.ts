@@ -6,7 +6,7 @@ import {
   PERMAFROST_LINGER_TICKS, CATACLYSMIC_ORB_RADIUS, BLIZZARD_DURATION_TICKS,
 } from '@arena/shared';
 
-const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim });
+const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim, channel: null });
 
 function frostSkills(extra: [string, number][]): Map<NodeId, number> {
   return new Map<NodeId, number>([

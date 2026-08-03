@@ -141,7 +141,7 @@ describe('Room.remapPlayer', () => {
     room.userIds.set('s1', 'user-1');
     room.userIds.set('s2', 'user-2');
     room.startMatch();
-    const input = { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const input = { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
     room.queueInput('s1', input);
 
     room.remapPlayer('s1', 's1-new');

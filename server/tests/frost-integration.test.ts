@@ -3,8 +3,8 @@ import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts
 import type { NodeId, InputFrame, GameState, SpellId } from '@arena/shared';
 import { SPELL_CONFIG, ICEBOLT_CHILL_TICKS, TEAM_DUEL_MODE } from '@arena/shared';
 
-const idle = (): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } });
-const cast = (spell: SpellId): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: spell, aimTarget: { x: 1600, y: 1000 } });
+const idle = (): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null });
+const cast = (spell: SpellId): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: spell, aimTarget: { x: 1600, y: 1000 }, channel: null });
 
 function baseState(): GameState {
   return makeInitialState([

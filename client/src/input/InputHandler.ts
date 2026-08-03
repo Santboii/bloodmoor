@@ -77,7 +77,7 @@ export class InputHandler {
     move.x = rx;
     move.y = ry;
 
-    const frame: InputFrame = { move, castSpell: null, aimTarget: this.mouseWorld };
+    const frame: InputFrame = { move, castSpell: null, aimTarget: this.mouseWorld, channel: null };
 
     if (this.pendingCast) {
       frame.castSpell = this.pendingCast.spell;

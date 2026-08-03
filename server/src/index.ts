@@ -54,6 +54,7 @@ function sanitizeInput(raw: unknown): InputFrame | null {
     // A cast without a valid aim point cannot be resolved — drop the cast.
     castSpell: castValid ? (r.castSpell as InputFrame['castSpell']) : null,
     aimTarget: { x: rawAim!.x as number, y: rawAim!.y as number },
+    channel: null,
   };
   if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
   return input;

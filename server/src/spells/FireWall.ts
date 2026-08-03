@@ -1,6 +1,7 @@
 import {
   Vec2, FireWallState, Segment, Pillar, PILLARS,
   FIREWALL_MAX_LENGTH, FIREWALL_DURATION_TICKS, PLAYER_HALF_SIZE,
+  pointToSegmentDist,
 } from '@arena/shared';
 import { segmentIntersectsAABB } from '../physics/LineOfSight.ts';
 
@@ -123,15 +124,4 @@ export function fireWallDamagesPlayer(fw: FireWallState, playerPos: Vec2, player
   }
   const threshold = PLAYER_HALF_SIZE + 8 * widthMultiplier;
   return fw.segments.some(seg => pointToSegmentDist(playerPos, seg) < threshold);
-}
-
-function pointToSegmentDist(p: Vec2, seg: Segment): number {
-  const dx = seg.x2 - seg.x1;
-  const dy = seg.y2 - seg.y1;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.sqrt((p.x - seg.x1) ** 2 + (p.y - seg.y1) ** 2);
-  const t = Math.max(0, Math.min(1, ((p.x - seg.x1) * dx + (p.y - seg.y1) * dy) / lenSq));
-  const cx = seg.x1 + t * dx;
-  const cy = seg.y1 + t * dy;
-  return Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
 }
