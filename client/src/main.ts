@@ -163,6 +163,7 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
     : BLOCK_MOVE_MULT;
   activeSlots = resolveSlots(ownedSpells, slotRows);
   hud.buildSpellSlots(activeSlots);
+  hud.setBlockSlotVisible(charClass === 'gladiator');
   inputHandler?.setSlots(activeSlots);
 }
 
@@ -749,6 +750,7 @@ function startGame(): void {
         [],
       );
   hud.buildSpellSlots(slots);
+  hud.setBlockSlotVisible(activeCharacter?.class === 'gladiator');
   inputHandler.setSlots(slots);
   hud.show();
   setScene('arena');

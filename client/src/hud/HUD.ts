@@ -1,4 +1,4 @@
-import { GameState, PlayerState, SpellId, SPELL_CONFIG, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, MAX_SPELL_SLOTS, REST_CAST_TICKS, REST_COOLDOWN_TICKS } from '@arena/shared';
+import { GameState, PlayerState, SpellId, SPELL_CONFIG, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, MAX_SPELL_SLOTS, REST_CAST_TICKS, REST_COOLDOWN_TICKS, BLOCK_RERAISE_TICKS } from '@arena/shared';
 import { Minimap } from './Minimap';
 import * as sfx from '../audio/sfx';
 
@@ -6,12 +6,14 @@ import * as sfx from '../audio/sfx';
 const SPELL_ICONS: Record<number, string> = {
   1: 'fa-fire', 2: 'fa-fire-flame-simple', 3: 'fa-meteor', 4: 'fa-wand-magic',
   5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
+  12: 'fa-hand-fist', 13: 'fa-location-arrow', 14: 'fa-shield-halved', 15: 'fa-shoe-prints',
 };
 
-// Spell-school tint for slot icons: fire / utility (mobility) / ranger.
+// Spell-school tint for slot icons: fire / utility (mobility) / ranger / melee.
 const SPELL_TINTS: Record<number, string> = {
   1: '#ff8c42', 2: '#ff8c42', 3: '#ff8c42', 4: '#b48cff',
   5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
+  12: '#d9a45b', 13: '#d9a45b', 14: '#8ca9ff', 15: '#b48cff',
 };
 
 // Chunky 20-gon staircase — a circle drawn at pixel-art resolution.
@@ -61,6 +63,12 @@ export class HUD {
   private lastRestPct = -1;
   private lastRestState = '';
   private lastRestCdText = '';
+  private blockSlot: HTMLElement;
+  private blockCd: HTMLElement;
+  private blockCdTime: HTMLElement;
+  private lastBlockPct = -1;
+  private lastBlockState = '';
+  private lastBlockCdText = '';
 
   constructor(container: HTMLElement) {
     this.minimap = new Minimap(container);
@@ -131,6 +139,12 @@ export class HUD {
             <div class="cd-overlay" style="height:0%"></div>
             <span class="cd-time"></span>
           </div>
+          <div class="spell-slot" id="hud-block" style="display:none">
+            <i class="fa fa-shield-halved fa-fw slot-icon" style="color:#8ca9ff"></i>
+            <span class="slot-key">RMB</span>
+            <div class="cd-overlay" style="height:0%"></div>
+            <span class="cd-time"></span>
+          </div>
         </div>
         <div class="orb-wrap">
           <div class="orb orb-mp">
@@ -153,6 +167,9 @@ export class HUD {
     this.restSlot = this.el.querySelector('#hud-rest') as HTMLElement;
     this.restCd = this.restSlot.querySelector('.cd-overlay') as HTMLElement;
     this.restCdTime = this.restSlot.querySelector('.cd-time') as HTMLElement;
+    this.blockSlot = this.el.querySelector('#hud-block') as HTMLElement;
+    this.blockCd = this.blockSlot.querySelector('.cd-overlay') as HTMLElement;
+    this.blockCdTime = this.blockSlot.querySelector('.cd-time') as HTMLElement;
   }
 
   init(myId: string): void {
@@ -310,6 +327,25 @@ export class HUD {
       this.lastRestCdText = restCdText;
     }
 
+    // Block slot: active glow while blocking, cooldown sweep from blockCooldownUntil.
+    const blockCdRemaining = Math.max(0, (me.blockCooldownUntil ?? 0) - tick);
+    const blockState = me.blocking ? 'resting' : blockCdRemaining > 0 ? 'cooling' : '';
+    const blockPct = blockState === 'cooling' ? Math.round((blockCdRemaining / BLOCK_RERAISE_TICKS) * 1000) / 10 : 0;
+    if (blockPct !== this.lastBlockPct) {
+      this.blockCd.style.height = `${blockPct}%`;
+      this.lastBlockPct = blockPct;
+    }
+    if (blockState !== this.lastBlockState) {
+      this.blockSlot.classList.toggle('resting', blockState === 'resting');
+      this.blockSlot.classList.toggle('cooling', blockState === 'cooling');
+      this.lastBlockState = blockState;
+    }
+    const blockCdText = blockState === 'cooling' ? (blockCdRemaining / 60).toFixed(1) : '';
+    if (blockCdText !== this.lastBlockCdText) {
+      this.blockCdTime.textContent = blockCdText;
+      this.lastBlockCdText = blockCdText;
+    }
+
     // Enemy HP bars — persistent rows, mutated only on change. Names come
     // from other players and must never hit innerHTML (XSS); textContent only.
     const otherStates: PlayerState[] = [];
@@ -373,6 +409,10 @@ export class HUD {
     this.prevHp = newPrevHp;
 
     this.minimap.update(me, otherStates);
+  }
+
+  setBlockSlotVisible(visible: boolean): void {
+    this.blockSlot.style.display = visible ? '' : 'none';
   }
 
   showElimination(name: string): void {

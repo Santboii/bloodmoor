@@ -56,6 +56,10 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   6: 'cast_bow',
   7: 'cast_rain',
   8: 'evade',
+  12: 'cast_bow',   // sharp jab whip — placeholder until a melee sample is auditioned
+  13: 'cast_bow',
+  14: 'teleport',
+  15: 'evade',
 };
 
 export function playCast(spell: SpellId): void {
