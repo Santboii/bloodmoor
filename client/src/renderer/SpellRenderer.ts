@@ -14,7 +14,8 @@ type FrozenOrbEntry = { mesh: THREE.Mesh };
 // spinAngle accumulates every frame so the beam's rotation about its own
 // length axis is continuous even though its base orientation (rotation.set)
 // is recomputed from scratch each frame to track the caster's current aim.
-type IceRayEntry = { mesh: THREE.Mesh; spinAngle: number };
+// `glow` is a child of `mesh` (the hot core) — see syncIceRays for why.
+type IceRayEntry = { mesh: THREE.Mesh; glow: THREE.Mesh; spinAngle: number };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
   arrowMaterial: THREE.MeshBasicMaterial;
@@ -77,14 +78,32 @@ const FROZEN_ORB_VISUAL_RADIUS = 16;
 // (perpendicular to travel) ramps with iceRayRamp's halfWidth.
 const ICE_RAY_THICKNESS = 10;
 const ICE_RAY_COLOR = 0x6fd3f2;
-// At full charge the beam bleaches toward white — a cheap stand-in for
-// heat-death intensity that reads as "hotter" without a soft glow/bloom pass.
+// At full charge the outer glow bleaches toward white — a cheap stand-in for
+// heat-death intensity that reads as "more powerful" without a soft glow/
+// bloom pass.
 const ICE_RAY_COLOR_BASE = new THREE.Color(ICE_RAY_COLOR);
 const ICE_RAY_COLOR_HOT = new THREE.Color(0xffffff);
-// Spin speed (rad/s) about the beam's own length axis — a fresh, wide beam
-// drifts lazily; a fully charged lance whips around fast enough to blur.
+// Pale icy white for the hot inner core — brighter than the frost-blue glow
+// around it so the beam reads as a bright lance wrapped in cold haze rather
+// than one flat-colored slab.
+const ICE_RAY_CORE_COLOR = 0xeaffff;
+// The core is a thin bright band; the glow is a wider, softer haze around it
+// — both are fractions of the same ramped halfWidth/thickness so the two-
+// layer look holds at every charge level.
+const ICE_RAY_CORE_WIDTH_FRAC = 0.4;
+const ICE_RAY_CORE_THICKNESS_FRAC = 0.55;
+const ICE_RAY_GLOW_WIDTH_FRAC = 1.7;
+const ICE_RAY_GLOW_THICKNESS_FRAC = 1.6;
+// The glow mesh is parented to the core mesh, so its scale is relative to
+// the core's — these ratios (not the raw FRAC constants above) are what
+// actually size it. Constant across every charge level, so set once at
+// creation rather than recomputed per frame.
+const ICE_RAY_GLOW_REL_SCALE_Y = ICE_RAY_GLOW_WIDTH_FRAC / ICE_RAY_CORE_WIDTH_FRAC;
+const ICE_RAY_GLOW_REL_SCALE_Z = ICE_RAY_GLOW_THICKNESS_FRAC / ICE_RAY_CORE_THICKNESS_FRAC;
+// Spin speed (rad/s) about the beam's own length axis — a fresh, narrow beam
+// drifts lazily; a fully charged one whips around fast enough to blur.
 const ICE_RAY_SPIN_MIN = 1.5;
-const ICE_RAY_SPIN_MAX = 12;
+const ICE_RAY_SPIN_MAX = 9;
 
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
@@ -630,21 +649,36 @@ export class SpellRenderer {
       if (player.channelSpell !== 12 || !player.channelEnd) continue;
 
       if (!this.iceRays.has(id)) {
-        // Per-instance material so opacity/color can animate independently
-        // per beam; disposeObject3D frees it automatically since it's never
-        // added to sharedMaterials.
-        const material = new THREE.MeshBasicMaterial({
+        // Per-instance materials so opacity/color can animate independently
+        // per beam; disposeObject3D frees both automatically (it traverses
+        // into children) since neither is added to sharedMaterials.
+        const coreMaterial = new THREE.MeshBasicMaterial({
+          color: ICE_RAY_CORE_COLOR,
+          transparent: true,
+          opacity: 0.45,
+        });
+        const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, coreMaterial);
+
+        // Outer glow: same box geometry (shared, already registered), scaled
+        // wider/thicker than the core and parented to it so it inherits the
+        // core's position/rotation/spin for free.
+        const glowMaterial = new THREE.MeshBasicMaterial({
           color: ICE_RAY_COLOR,
           transparent: true,
-          opacity: 0.35,
+          opacity: 0.18,
+          depthWrite: false,
         });
-        const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, material);
+        const glow = new THREE.Mesh(ICE_RAY_BEAM_GEO, glowMaterial);
+        glow.scale.set(1, ICE_RAY_GLOW_REL_SCALE_Y, ICE_RAY_GLOW_REL_SCALE_Z);
+        mesh.add(glow);
+
         this.scene.add(mesh);
-        this.iceRays.set(id, { mesh, spinAngle: 0 });
+        this.iceRays.set(id, { mesh, glow, spinAngle: 0 });
       }
 
       const entry = this.iceRays.get(id)!;
       const mesh = entry.mesh;
+      const glow = entry.glow;
       const ramp = iceRayRamp(player.channelTicks ?? 0);
 
       const dx = player.channelEnd.x - player.position.x;
@@ -660,51 +694,68 @@ export class SpellRenderer {
       );
 
       // Charge fraction derived from the already-ramped halfWidth (not a
-      // re-derivation of the ramp curve itself). Width SHRINKS from START to
-      // FULL as charge builds, so both the numerator and denominator here are
-      // negative and t still runs 0 → 1 as the beam narrows.
+      // re-derivation of the ramp curve itself). Width GROWS from START to
+      // FULL as charge builds, so t still runs 0 → 1 as the beam widens.
       const t = (ramp.halfWidth - ICE_RAY_HALF_WIDTH_START) / (ICE_RAY_HALF_WIDTH_FULL - ICE_RAY_HALF_WIDTH_START);
 
       // Same base orientation convention as the arrow shaft/ice bolt: local X
       // (the length axis after scaling) ends up pointing from caster to
       // channelEnd. Reset to that base every frame (aim can move), then spin
       // about the same local X axis so the beam visibly twists along its
-      // length — faster as it tightens and intensifies.
+      // length — faster as it charges up. The glow (child of mesh) inherits
+      // this rotation for free.
       mesh.rotation.set(-Math.PI / 2, 0, -angle);
       const spinSpeed = ICE_RAY_SPIN_MIN + t * (ICE_RAY_SPIN_MAX - ICE_RAY_SPIN_MIN);
       entry.spinAngle += delta * spinSpeed;
       mesh.rotateX(entry.spinAngle);
-      mesh.scale.set(Math.max(length, 0.001), fullWidth, ICE_RAY_THICKNESS);
+      mesh.scale.set(
+        Math.max(length, 0.001),
+        fullWidth * ICE_RAY_CORE_WIDTH_FRAC,
+        ICE_RAY_THICKNESS * ICE_RAY_CORE_THICKNESS_FRAC,
+      );
 
-      // Brighten and bleach toward white at full charge. t=1 is full charge
-      // (the narrow end), so this maps small half-width to bright/white —
-      // the inverse would make the beam dim as it powers up.
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      material.opacity = 0.35 + t * 0.5;
-      material.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, t);
+      // Hot core brightens toward full opacity as charge builds; the outer
+      // glow stays translucent throughout but bleaches from frost blue toward
+      // white the same way, so the whole beam reads as a bright lance
+      // wrapped in a cold haze rather than one flat-colored slab. t=1 is full
+      // charge (the wide end).
+      const coreMaterial = mesh.material as THREE.MeshBasicMaterial;
+      coreMaterial.opacity = 0.45 + t * 0.5;
+      const glowMaterial = glow.material as THREE.MeshBasicMaterial;
+      glowMaterial.opacity = 0.18 + t * 0.32;
+      glowMaterial.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, t);
 
       if (this.shouldEmitContinuous && length > 0) {
         const ux = dx / length;
         const uz = dz / length;
-        // More sample points along the beam as charge builds — rate rises
-        // with intensity even though each individual burst (sized off the
-        // shrinking halfWidth) gets smaller.
-        const sampleCount = 2 + Math.round(t * 8);
-        for (let i = 1; i <= sampleCount; i++) {
-          const frac = i / (sampleCount + 1);
-          this.particles.emitTrail(
-            player.position.x + dx * frac,
-            30,
-            player.position.y + dz * frac,
+        // Perpendicular unit vector in the XZ plane, for jittering particles
+        // off the centerline.
+        const px = -uz;
+        const pz = ux;
+        // Stratified sampling: one random point per length-slice, so frost
+        // sheds off the whole beam instead of bunching at a single spot,
+        // while still covering it evenly tip-to-tip. Sample count and
+        // brightness both rise with charge.
+        const sampleCount = 3 + Math.round(t * 7);
+        for (let i = 0; i < sampleCount; i++) {
+          const frac = (i + Math.random()) / sampleCount;
+          const jitter = (Math.random() - 0.5) * ramp.halfWidth * 1.6;
+          this.particles.emitIceRayTrail(
+            player.position.x + dx * frac + px * jitter,
+            28 + Math.random() * 6,
+            player.position.y + dz * frac + pz * jitter,
             ux, uz,
-            ramp.halfWidth,
+            ramp.halfWidth * 0.6,
+            t,
           );
         }
-        // Impact sparks kicked back off the target, denser at full charge.
-        this.particles.emitTrail(
-          player.channelEnd.x, 30, player.channelEnd.y,
+        // Impact spray kicked back off the target where the beam terminates,
+        // denser and brighter at full charge.
+        this.particles.emitIceRayTrail(
+          player.channelEnd.x, 28, player.channelEnd.y,
           -ux, -uz,
-          ramp.halfWidth * (1.5 + t),
+          ramp.halfWidth * (1.2 + t * 0.8),
+          t,
         );
       }
     }
