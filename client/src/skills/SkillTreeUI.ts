@@ -1,5 +1,5 @@
-import { supabase } from '../supabase';
-import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
+import { supabase, fetchItems } from '../supabase';
+import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, computeLoadout, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
 import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -41,10 +41,40 @@ const NODE_ICONS: Record<NodeId, string> = {
   'archer_utility.combat_roll': 'fa-person-falling',
   'archer_utility.shadowstep':  'fa-ghost',
   'archer_utility.acrobatics':  'fa-tornado',
+  'frost.ice_bolt':         'fa-icicles',
+  'frost.bitter_chill':     'fa-temperature-low',
+  'frost.ice_lance':        'fa-arrow-right-long',
+  'frost.ice_ray':          'fa-bolt',
+  'frost.frostbite':        'fa-tooth',
+  'frost.splintering_ice':  'fa-shapes',
+  'frost.blizzard':         'fa-snowflake',
+  'frost.lingering_winter': 'fa-hourglass-half',
+  'frost.deepening_cold':   'fa-temperature-arrow-down',
+  'frost.whiteout':         'fa-expand',
+  'frost.frozen_orb':       'fa-circle-nodes',
+  'frost.shard_storm':      'fa-burst',
+  'frost.glacial_drift':    'fa-gauge-simple-low',
+  'frost.cold_mastery':     'fa-award',
 };
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * `#ui-overlay` (this screen's mount point) applies `zoom: var(--ui-zoom)`
+ * to scale the whole UI (see pixelTheme.ts). That scaling reaches
+ * position:fixed descendants too — the same reason `.bm-ui`/`.cs-ui` divide
+ * `100vh` by this value to get their true on-screen height. The cursor
+ * tooltip positions itself with raw `left`/`top` px, so it needs the same
+ * compensation: divide real viewport coordinates by this factor right
+ * before writing them into style, or the tooltip drifts from the cursor by
+ * the zoom factor the farther it sits from the viewport's top-left corner.
+ */
+function uiZoom(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom');
+  const z = parseFloat(raw);
+  return Number.isFinite(z) && z > 0 ? z : 1;
 }
 
 function nodeForSpell(spell: SpellId): NodeId {
@@ -57,75 +87,137 @@ function fmtEffect(base: number, v: number): string {
   return base < 1 ? `${Math.round(v * 100)}%` : v.toFixed(1).replace(/\.0$/, '');
 }
 
-type NodePos = { x: number; y: number };
-
-/**
- * Vertical pitch between tree rows. It has to clear the tallest node block
- * (see NODE_BLOCK) plus the 5px the next row's corner badge pokes above its
- * circle; 74 does that and still lets the deepest tree — fire, 7 rows — fit a
- * 720px viewport without the page scrolling. Positions below are multiples.
- */
-const ROW = 74;
+/** `x` is a percentage of the tree's width; `row` is a row index, turned into
+ *  pixels at render time by whichever Scale the viewport can afford. */
+type NodePos = { x: number; row: number };
 
 const FIRE_POSITIONS: Partial<Record<NodeId, NodePos>> = {
-  'fire.fireball':        { x: 50, y: 0 },
-  'fire.volatile_ember':  { x: 30, y: ROW },
-  'fire.seeking_flame':   { x: 70, y: ROW },
-  'fire.hellfire':        { x: 30, y: ROW * 2 },
-  'fire.pyroclasm':       { x: 70, y: ROW * 2 },
-  'fire.fire_wall':       { x: 50, y: ROW * 3 },
-  'fire.enduring_flames': { x: 20, y: ROW * 4 },
-  'fire.searing_heat':    { x: 50, y: ROW * 4 },
-  'fire.inferno_expanse': { x: 80, y: ROW * 4 },
-  'fire.meteor':          { x: 50, y: ROW * 5 },
-  'fire.molten_impact':   { x: 20, y: ROW * 6 },
-  'fire.blind_strike':    { x: 50, y: ROW * 6 },
-  'fire.cataclysm':       { x: 80, y: ROW * 6 },
+  'fire.fireball':        { x: 50, row: 0 },
+  'fire.volatile_ember':  { x: 30, row: 1 },
+  'fire.seeking_flame':   { x: 70, row: 1 },
+  'fire.hellfire':        { x: 30, row: 2 },
+  'fire.pyroclasm':       { x: 70, row: 2 },
+  'fire.fire_wall':       { x: 50, row: 3 },
+  'fire.enduring_flames': { x: 20, row: 4 },
+  'fire.searing_heat':    { x: 50, row: 4 },
+  'fire.inferno_expanse': { x: 80, row: 4 },
+  'fire.meteor':          { x: 50, row: 5 },
+  'fire.molten_impact':   { x: 20, row: 6 },
+  'fire.blind_strike':    { x: 50, row: 6 },
+  'fire.cataclysm':       { x: 80, row: 6 },
+};
+
+const FROST_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'frost.ice_bolt':         { x: 50, row: 0 },
+  'frost.bitter_chill':     { x: 20, row: 1 },
+  'frost.ice_ray':          { x: 50, row: 1 },
+  'frost.ice_lance':        { x: 80, row: 1 },
+  'frost.frostbite':        { x: 30, row: 2 },
+  'frost.splintering_ice':  { x: 70, row: 2 },
+  'frost.blizzard':         { x: 50, row: 3 },
+  'frost.lingering_winter': { x: 20, row: 4 },
+  'frost.deepening_cold':   { x: 50, row: 4 },
+  'frost.whiteout':         { x: 80, row: 4 },
+  'frost.frozen_orb':       { x: 50, row: 5 },
+  'frost.shard_storm':      { x: 20, row: 6 },
+  'frost.glacial_drift':    { x: 50, row: 6 },
+  'frost.cold_mastery':     { x: 80, row: 6 },
 };
 
 const UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
-  'utility.teleport':      { x: 50, y: 0 },
-  'utility.phase_shift':   { x: 28, y: ROW },
-  'utility.ethereal_form': { x: 72, y: ROW },
-  'utility.phantom_step':  { x: 50, y: ROW * 2 },
+  'utility.teleport':      { x: 50, row: 0 },
+  'utility.phase_shift':   { x: 28, row: 1 },
+  'utility.ethereal_form': { x: 72, row: 1 },
+  'utility.phantom_step':  { x: 50, row: 2 },
 };
 
 const ARCHER_POSITIONS: Partial<Record<NodeId, NodePos>> = {
-  'archer.power_shot':      { x: 50, y: 0 },
-  'archer.guided':          { x: 30, y: ROW },
-  'archer.multishot':       { x: 70, y: ROW },
-  'archer.homing':          { x: 30, y: ROW * 2 },
-  'archer.barrage':         { x: 70, y: ROW * 2 },
-  'archer.rain_of_arrows':  { x: 50, y: ROW * 3 },
-  'archer.sustained_rain':  { x: 20, y: ROW * 4 },
-  'archer.piercing_rain':   { x: 50, y: ROW * 4 },
-  'archer.wide_rain':       { x: 80, y: ROW * 4 },
-  'archer.burn':            { x: 25, y: ROW * 5 },
-  'archer.freeze':          { x: 50, y: ROW * 5 },
-  'archer.poison':          { x: 75, y: ROW * 5 },
+  'archer.power_shot':      { x: 50, row: 0 },
+  'archer.guided':          { x: 30, row: 1 },
+  'archer.multishot':       { x: 70, row: 1 },
+  'archer.homing':          { x: 30, row: 2 },
+  'archer.barrage':         { x: 70, row: 2 },
+  'archer.rain_of_arrows':  { x: 50, row: 3 },
+  'archer.sustained_rain':  { x: 20, row: 4 },
+  'archer.piercing_rain':   { x: 50, row: 4 },
+  'archer.wide_rain':       { x: 80, row: 4 },
+  'archer.burn':            { x: 25, row: 5 },
+  'archer.freeze':          { x: 50, row: 5 },
+  'archer.poison':          { x: 75, row: 5 },
 };
 
 const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
-  'archer_utility.evade':        { x: 50, y: 0 },
-  'archer_utility.combat_roll':  { x: 28, y: ROW },
-  'archer_utility.shadowstep':   { x: 72, y: ROW },
-  'archer_utility.acrobatics':   { x: 50, y: ROW * 2 },
+  'archer_utility.evade':        { x: 50, row: 0 },
+  'archer_utility.combat_roll':  { x: 28, row: 1 },
+  'archer_utility.shadowstep':   { x: 72, row: 1 },
+  'archer_utility.acrobatics':   { x: 50, row: 2 },
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3;
-/** Tallest node block: a spell circle (52) + gap + one-line name, which just
- *  edges out a mod circle (38) + gap + two-line name. */
-const NODE_BLOCK = 66;
-const treeHeight = (rows: number) => (rows - 1) * ROW + NODE_BLOCK;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7;
 
-/** Height both columns are pinned to — the deepest tree plus its label, so the
- *  page is exactly as tall for a ranger as for a mage. */
-const WORKSPACE_H = treeHeight(FIRE_ROWS) + 24;
+/**
+ * The tree used to be drawn at one fixed size tuned to survive a 720px
+ * viewport, which left roughly a third of a 900px one as bare wall. These are
+ * discrete steps rather than a CSS transform: everything here is pixel art and
+ * a 7px bitmap font, and a fractional scale would blur both.
+ *
+ * `row` is the vertical pitch between rows — it has to clear `block` plus the
+ * few pixels a corner badge pokes above the next circle. `block` is the
+ * tallest node: a spell circle + gap + one-line name, which just edges out a
+ * mod circle + gap + two-line name.
+ */
+type Scale = { row: number; spell: number; mod: number; name: number; block: number; icon: number; modIcon: number };
+const SCALES: Scale[] = [
+  { row: 74,  spell: 52, mod: 38, name: 7, block: 66,  icon: 1.25, modIcon: 1.05 },
+  { row: 88,  spell: 62, mod: 46, name: 8, block: 79,  icon: 1.5,  modIcon: 1.25 },
+  { row: 102, spell: 72, mod: 54, name: 9, block: 92,  icon: 1.75, modIcon: 1.45 },
+];
+
+const treeHeight = (rows: number, s: Scale) => (rows - 1) * s.row + s.block;
+
+/** Header band + body padding inside `.st-tree-panel`. Measured in-browser:
+ *  header 30px (7px+7px padding + a 16px VT323 line) + body padding 26px
+ *  (16px top, 10px bottom) = 56. Independent of Scale — the panel header
+ *  keeps a fixed VT323 size regardless of node-circle scale. */
+const PANEL_CHROME_H = 56;
+
+/** Height every column is pinned to — the deepest tree plus its panel chrome,
+ *  so the page is exactly as tall for a ranger as for a mage. */
+const workspaceHeight = (s: Scale) => treeHeight(FIRE_ROWS, s) + PANEL_CHROME_H;
+
+/** Everything above the workspace (nav, subhead) plus the legend, selection
+ *  bar, hotbar and picker rows below it, and padding. Approximate — measured
+ *  from the pre-tooltip layout and padded for the rows the tooltip/hotbar
+ *  rework added since; worth eyeballing at common viewport heights. */
+const CHROME_H = 360;
+
+/** The largest step whose 7-row tree still fits the viewport without the page
+ *  scrolling, smallest step otherwise. */
+function pickScale(viewportH: number): Scale {
+  const budget = viewportH - CHROME_H;
+  for (let i = SCALES.length - 1; i > 0; i--) {
+    if (workspaceHeight(SCALES[i]) <= budget) return SCALES[i];
+  }
+  return SCALES[0];
+}
+
+/** Per-tree accent colour — used for the tree panel's border/header band and
+ *  threaded through to the tooltip border when a node from that tree is
+ *  hovered. Mirrors the accents already used for spell-slot colouring in
+ *  HUD.ts (fire/archer orange, frost cyan, utility/archer_utility violet). */
+const TREE_ACCENT: Record<SkillNode['tree'], string> = {
+  fire: '#e86020',
+  lightning: '#e86020',
+  archer: '#e86020',
+  frost: '#6fd3f2',
+  utility: '#b48cff',
+  archer_utility: '#b48cff',
+};
 
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
+.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px 16px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 /* ── header bar ─────────────────────────────────────────────────────── */
 .st-title{font-size:11px;letter-spacing:0.05em;}
 .st-points-pill{display:flex;align-items:center;gap:10px;background:#101117;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
@@ -133,27 +225,33 @@ const STYLES = `
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
-/* ── two-column workspace ───────────────────────────────────────────── */
-.st-columns{display:flex;gap:24px;width:100%;max-width:1060px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
-.st-col-main{flex:1 1 560px;min-width:480px;max-width:640px;}
-/* Both columns are pinned to the same workspace height (set inline) so the
-   page height never depends on which class is open or how much the details
-   panel has to say — the panel absorbs the difference by scrolling itself. */
-.st-col-side{flex:0 0 340px;display:flex;flex-direction:column;gap:16px;}
-.st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;}
-.st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:var(--px-border-light);text-transform:uppercase;text-align:center;margin-bottom:8px;}
+/* ── three-column workspace ─────────────────────────────────────────── */
+.st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+.st-col-main{flex:1 1 480px;min-width:380px;max-width:560px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;max-width:480px;}
+.st-col-side{flex:1 1 340px;min-width:340px;max-width:400px;}
+.st-col-frost{flex:1 1 380px;min-width:380px;max-width:480px;}
+/* Every column is pinned to the same workspace height (set inline) so the
+   panels line up in a clean row regardless of how many rows the tree inside
+   actually uses. */
+.st-tree-panel{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:#15161b;box-shadow:inset 0 2px 0 0 var(--px-border-dark),inset 0 -2px 0 0 var(--px-border-light),0 0 0 2px var(--st-tree-accent,var(--px-accent));}
+.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));text-align:center;}
+.st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;}
 .st-tree-container{position:relative;width:100%;}
-.st-util-block{flex:0 0 auto;}
 .st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
 /* ── nodes ──────────────────────────────────────────────────────────── */
 .st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
 .st-node-circle{border-radius:0;display:flex;align-items:center;justify-content:center;transition:filter 0.14s,transform 0.14s;position:relative;}
 .st-node-circle:hover{transform:scale(1.08);}
+/* The hover tooltip already shows a locked node's requirements the instant
+   the cursor lands on it — there is nothing left for a click to reveal, so
+   unlike the old pinned-panel layout this stays not-allowed. */
 .st-node[data-state="locked"] .st-node-circle{cursor:not-allowed;}
 .st-node[data-state="locked"] .st-node-circle:hover{transform:none;}
-.st-node-spell{width:52px;height:52px;}
-.st-node-mod{width:38px;height:38px;}
+/* Sizes come from the picked Scale, set as custom properties on .st-ui. */
+.st-node-spell{width:var(--st-spell);height:var(--st-spell);}
+.st-node-mod{width:var(--st-mod);height:var(--st-mod);}
 .st-node-owned .st-node-circle{box-shadow:0 0 0 3px #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
 .st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 0 3px #e86020,0 0 12px rgba(232,96,32,0.25);}
 .st-node-owned .st-node-icon{color:#e87040;}
@@ -162,9 +260,27 @@ const STYLES = `
 .st-node-purchasable .st-node-icon{color:var(--px-accent);}
 .st-node-purchasable .st-node-name{color:var(--px-accent);}
 @keyframes st-pulse{0%,100%{box-shadow:0 0 0 2px var(--px-accent);}50%{box-shadow:0 0 0 2px var(--px-accent),0 0 14px rgba(255,179,71,0.55);}}
-.st-node-locked .st-node-circle{box-shadow:0 0 0 1.5px #444;background:#151515;}
-.st-node-locked .st-node-icon{color:#555;}
-.st-node-locked .st-node-name{color:#555;}
+/* Locked is dim, not invisible: the unbought half of the tree is what the
+   player plans against, and #555 on the lit brick backdrop read as empty
+   space. Kept clearly below owned/purchasable in weight, still legible. */
+.st-node-locked .st-node-circle{box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;}
+.st-node-locked .st-node-icon{color:#8d94a4;}
+.st-node-locked .st-node-name{color:#98a0b0;}
+/* Excluded by a mutually-exclusive sibling — locked by a choice already made,
+   not by a missing requirement, so it reads red rather than grey. */
+.st-node-excluded .st-node-circle{box-shadow:0 0 0 1.5px #6b3a3a;background:#150c0c;}
+.st-node-excluded .st-node-icon{color:#9a6a6a;}
+.st-node-excluded .st-node-name{color:#a87878;}
+/* Gear-granted ranks. Deliberately cool: owned, purchasable and supercharged
+   are three warm hues on a torchlit backdrop already, and "this came from your
+   gear, not your points" is the one distinction that must never be mistaken
+   for one of them. Declared before the gold rules so a gear node pushed past
+   its cap still reads as supercharged — the keystone matters more than where
+   the ranks came from, and the cyan badge still says. */
+.st-node-gear .st-node-circle{box-shadow:0 0 0 3px #3f9fbd;background:radial-gradient(circle at 38% 38%,#04222c,#020c10);}
+.st-node-gear .st-node-icon{color:#6fc9e4;}
+.st-node-gear .st-node-name{color:#79cfe8;}
+.st-badge-gear,.st-badge-gearonly{color:#6fc9e4;}
 /* supercharged: ranks pushed past the soft cap — gold treatment */
 .st-node-supercharged .st-node-circle{box-shadow:0 0 0 3px #ddb84a,0 0 14px rgba(221,184,74,0.45);background:radial-gradient(circle at 38% 38%,#2a2000,#0e0a00);}
 .st-node-supercharged .st-node-icon{color:#ddb84a;}
@@ -174,19 +290,37 @@ const STYLES = `
 .st-keystone-active{background:rgba(221,184,74,0.14)}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
 /* Wide enough that the longest name ("Rain of Arrows") stays on one line —
-   a wrapped spell name is what used to collide with the badge below it. */
-.st-node-name{font-family:'Press Start 2P',monospace;font-size:7px;text-align:center;max-width:120px;margin-top:4px;line-height:1.35;}
+   a wrapped spell name is what used to collide with the badge below it.
+   --st-namew is set from JS against the measured tree width (see
+   syncNameWidth). The 4-way black outline is what keeps names readable over
+   the torchlit masonry behind the tree — without it dim states dissolve into
+   the bricks. */
+.st-node-name{font-family:'Press Start 2P',monospace;font-size:var(--st-name);text-align:center;max-width:var(--st-namew);margin-top:4px;line-height:1.35;
+  text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
 /* corner badges replace the old cost/rank text rows */
 .st-badge{position:absolute;right:-10px;top:-5px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
 .st-badge-cost{color:var(--px-accent);}
 .st-badge-rank{color:#e87040;}
 .st-badge-rank.st-past-cap{color:#ddb84a;}
-.st-badge-lock{color:#666;}
+/* Locked nodes still name their price — planning a route to a deep node is
+   impossible if the costs along it are hidden behind a padlock. */
+.st-badge-lock{color:#98a0b0;}
+.st-badge-lock .fa{margin-right:2px;opacity:0.75;}
+.st-badge-excl{color:#c06a6a;}
+/* Keystone marker, opposite corner from the cost/rank badge: dim while the
+   keystone is dormant, lit gold once ranks pass the soft cap. Deliberately
+   plateless — on a 38px mod circle a second badge box crowds the cost badge
+   across from it, so this is a bare glyph with a black outline instead. */
+.st-keymark{position:absolute;left:-6px;top:-6px;font-size:9px;line-height:1;color:#8a7838;pointer-events:none;z-index:3;
+  text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
+.st-keymark.st-keymark-on{color:#ffd75e;text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a,0 0 7px rgba(255,215,94,0.9);}
+.st-node-locked .st-keymark{color:#6b6242;}
 .st-flash .st-node-circle{animation:st-buy-flash 0.45s ease-out;}
 @keyframes st-buy-flash{0%{filter:brightness(3) saturate(2);}100%{filter:none;}}
-/* ── details panel ──────────────────────────────────────────────────── */
-.st-details{padding:12px 16px;flex:1 1 auto;min-height:0;overflow-y:auto;box-sizing:border-box;}
-.st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:12px;}
+/* ── hover tooltip (WoW-style: cursor-anchored, instant, never intercepts
+   clicks) — content markup mirrors the old pinned details panel exactly,
+   gear/exclusion info included. ── */
+.st-tooltip{position:fixed;display:none;z-index:200;max-width:320px;padding:10px 14px;box-sizing:border-box;background:var(--px-panel);box-shadow:inset 0 0 0 2px var(--px-border-dark),0 0 0 2px var(--st-tt-accent,var(--px-accent)),0 6px 16px rgba(0,0,0,0.55);pointer-events:none;font-family:'VT323',monospace;color:var(--px-text);}
 .st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
 .st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .st-details-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);line-height:1.5;}
@@ -196,6 +330,9 @@ const STYLES = `
 .st-rank-seg{height:8px;flex:1;background:#1a1b21;box-shadow:inset 0 0 0 1px var(--px-border-dark);}
 .st-rank-seg.filled{background:#e86020;}
 .st-rank-seg.past-cap{background:#ddb84a;}
+.st-rank-seg.from-gear{background:#3f9fbd;}
+.st-gear-line{font-size:15px;line-height:1.5;color:#6fc9e4;margin:4px 0;}
+.st-gear-line .fa{margin-right:5px;font-size:12px;}
 .st-rank-line{font-size:15px;color:var(--px-border-light);margin-bottom:4px;}
 .st-details-row{font-size:16px;line-height:1.5;}
 .st-req{font-size:15px;line-height:1.6;}
@@ -209,9 +346,21 @@ const STYLES = `
 .st-super-note b{color:#f0d060;}
 .st-refund-hint{margin-top:6px;font-size:14px;color:var(--px-border-light);}
 .st-refund-hint.st-refund-blocked{color:var(--px-danger);opacity:0.85;}
-.st-legend{margin-top:12px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-direction:column;gap:5px;font-size:14px;color:var(--px-border-light);}
-.st-legend-row{display:flex;align-items:center;gap:8px;}
-.st-legend-swatch{width:12px;height:12px;flex:0 0 12px;}
+/* Slim horizontal strip beneath the tree row — quiet, not a second focal
+   point, so it wraps on narrow widths rather than forcing a scrollbar. */
+.st-legend{margin-top:14px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-wrap:wrap;justify-content:center;gap:8px 20px;font-size:13px;color:var(--px-border-light);width:100%;max-width:1400px;box-sizing:border-box;}
+.st-legend-row{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.st-legend-swatch{width:11px;height:11px;flex:0 0 11px;}
+.st-legend-mark{flex:0 0 auto;font-size:11px;color:#ffd75e;}
+/* ── selected-node action bar ──────────────────────────────────────────
+   The details panel used to host a visible refund button; it can't live in
+   the tooltip above (pointer-events:none, and it tracks the cursor rather
+   than staying put), so it's rehomed here, anchored to whichever node was
+   last clicked (selectedId) rather than last hovered. Empty/hidden unless
+   the selected node is owned. */
+.st-selection-bar{display:none;align-items:center;gap:14px;margin-top:14px;padding:10px 16px;background:#15161b;box-shadow:inset 0 0 0 2px var(--px-border-dark);width:100%;max-width:1400px;box-sizing:border-box;font-family:'VT323',monospace;font-size:15px;color:var(--px-border-light);}
+.st-selection-name{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-accent);flex:0 0 auto;}
+.st-refund-btn{padding:8px 12px;font-size:7px;letter-spacing:0.05em;}
 /* ── confirm modal (kept for reset + past-cap ranks) ─────────────────── */
 .st-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
 .st-confirm-panel{padding:28px 32px;max-width:340px;text-align:center;}
@@ -233,6 +382,11 @@ const STYLES = `
 export class SkillTreeUI {
   private el: HTMLElement;
   private ranks = new Map<NodeId, number>();
+  /** Talent ranks granted by equipped gear, per `computeLoadout` — the same
+   *  merge the match uses (`Room.ts` effectiveSkillSets, `main.ts` spell bar).
+   *  They change what a talent DOES, never what it costs or what it unlocks,
+   *  so they stay out of `ranks` and out of every gate/price calculation. */
+  private gearRanks = new Map<NodeId, number>();
   private slotRows: SpellSlotRow[] = [];
   private characterId: string | null = null;
   private skillPoints = 0;
@@ -241,6 +395,53 @@ export class SkillTreeUI {
   private selectedId: NodeId | null = null;
   private flashId: NodeId | null = null;
   private pickingSlot: SlotIndex | null = null;
+  private scale: Scale = SCALES[0];
+  private hasRendered = false;
+  private resizeTimer: number | null = null;
+  // Cursor tooltip. Lives outside `this.el`'s innerHTML churn (render()
+  // rewrites that wholesale on every purchase/refund/slot change) so it isn't
+  // torn down and rebuilt every time; `hoveredId`/`lastPointer` let render()
+  // refresh its content in place when the point count or ranks change under
+  // an already-hovered node.
+  private tooltipEl: HTMLElement;
+  private hoveredId: NodeId | null = null;
+  private lastPointer: { x: number; y: number } = { x: 0, y: 0 };
+
+  /** Row index → pixels at the current scale. */
+  private yOf(pos: NodePos): number {
+    return pos.row * this.scale.row;
+  }
+
+  /** The scale only ever changes across a viewport-height threshold, so this
+   *  re-renders on the step change rather than on every resize event. Width
+   *  changes never need a re-render, only a fresh name cap. */
+  private onResize = (): void => {
+    if (this.resizeTimer !== null) window.clearTimeout(this.resizeTimer);
+    this.resizeTimer = window.setTimeout(() => {
+      this.resizeTimer = null;
+      if (!this.hasRendered) return;
+      if (pickScale(window.innerHeight) !== this.scale) this.render();
+      else this.syncNameWidth();
+    }, 150);
+  };
+
+  /**
+   * Caps node names at 28% of the main tree's measured width — under the 30%
+   * gap between neighbouring columns, so two names can never collide however
+   * narrow the window gets — or at the scale's natural width, whichever is
+   * smaller. Has to be measured: the cap is relative to the tree, and no
+   * ancestor of the name is the tree. Applied as one shared CSS variable
+   * across all three tree columns (main/frost/util); the frost and util
+   * containers are usually narrower than main, so this is an approximation,
+   * not an exact per-column measurement.
+   */
+  private syncNameWidth(): void {
+    const ui = this.el.querySelector('.st-ui') as HTMLElement | null;
+    const tree = this.el.querySelector('.st-tree-container') as HTMLElement | null;
+    if (!ui || !tree) return;
+    const natural = Math.round(120 * this.scale.name / 7);
+    ui.style.setProperty('--st-namew', `${Math.min(natural, Math.round(tree.clientWidth * 0.28))}px`);
+  }
 
   constructor(
     container: HTMLElement,
@@ -256,6 +457,10 @@ export class SkillTreeUI {
     this.el = document.createElement('div');
     this.el.className = 'st-overlay';
     container.appendChild(this.el);
+
+    this.tooltipEl = document.createElement('div');
+    this.tooltipEl.className = 'st-tooltip';
+    container.appendChild(this.tooltipEl);
   }
 
   private closeResolver: ((next: NavKey) => void) | null = null;
@@ -265,6 +470,7 @@ export class SkillTreeUI {
     this.characterId = characterId ?? null;
     this.selectedId = null;
     this.el.style.display = 'block';
+    window.addEventListener('resize', this.onResize);
     this.renderLoading();
     await this.reload();
     // Resolve only when the user closes the tree — callers refresh the
@@ -276,6 +482,10 @@ export class SkillTreeUI {
   /** `next` is where the user asked to go — 'arena' for the lobby. */
   hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
+    this.hideTooltip();
+    window.removeEventListener('resize', this.onResize);
+    if (this.resizeTimer !== null) { window.clearTimeout(this.resizeTimer); this.resizeTimer = null; }
+    this.hasRendered = false;
     this.navTeardown?.();
     this.navTeardown = null;
     const resolve = this.closeResolver;
@@ -288,7 +498,7 @@ export class SkillTreeUI {
    * load — previously that gap was a blank screen, because show() only set
    * display:block on a still-empty element and then awaited the network.
    * Kept separate from render() rather than folded in behind a flag: render()
-   * binds the respec button and both tree <svg>s by id with non-null
+   * binds the respec button and all tree <svg>s by id with non-null
    * assertions, and none of that markup exists yet.
    */
   private renderLoading(): void {
@@ -314,9 +524,9 @@ export class SkillTreeUI {
   private async reload(): Promise<void> {
     if (!this.characterId) return;
 
-    // All three fetches are independent — run them in parallel, the tree
-    // opens in one round trip instead of two or three.
-    const [{ data: charData }, { data }, { data: slotData }] = await Promise.all([
+    // All four fetches are independent — run them in parallel, the tree opens
+    // in one round trip instead of four.
+    const [{ data: charData }, { data }, items, { data: slotData }] = await Promise.all([
       supabase
         .from('characters')
         .select('skill_points_available, name, class')
@@ -326,6 +536,7 @@ export class SkillTreeUI {
         .from('skill_unlocks')
         .select('node_id, rank')
         .eq('character_id', this.characterId),
+      fetchItems(),
       supabase
         .from('character_spell_slots')
         .select('slot, spell')
@@ -338,6 +549,12 @@ export class SkillTreeUI {
     this.ranks = new Map(
       (data ?? []).map((r: { node_id: string; rank: number }) => [r.node_id as NodeId, r.rank ?? 1])
     );
+    // `fetchItems` is account-wide; only what this character has equipped
+    // counts, and off-class talent affixes are dropped by computeLoadout.
+    this.gearRanks = computeLoadout(
+      items.filter(i => i.equipped_by === this.characterId),
+      this.charClass as CharacterClass,
+    ).talentRanks;
 
     if (this.charClass === 'ranger') {
       if (!this.ranks.has('archer.power_shot' as NodeId)) {
@@ -364,8 +581,15 @@ export class SkillTreeUI {
     this.render();
   }
 
+  /** Spells the character can currently slot: bought via `ranks`, or granted
+   *  purely by equipped gear via `gearRanks` — mirrors `refreshLoadout` in
+   *  main.ts, which folds gear talent ranks into `ownedSpells` the same way.
+   *  A gear-only spell (e.g. a Meteor talent affix) is live in combat, so it
+   *  must be assignable here too, not just visible in the tree. */
   private ownedSpells(): Set<SpellId> {
-    return new Set(SPELL_BINDINGS.filter(b => this.ranks.has(b.node)).map(b => b.spell));
+    return new Set(
+      SPELL_BINDINGS.filter(b => this.ranks.has(b.node) || this.gearRanks.has(b.node)).map(b => b.spell)
+    );
   }
 
   /** The resolved six-slot bar for the character right now. `renderSlotBar`
@@ -384,12 +608,29 @@ export class SkillTreeUI {
     const mainPositions = isRanger ? ARCHER_POSITIONS : FIRE_POSITIONS;
     const utilPositions = isRanger ? ARCHER_UTIL_POSITIONS : UTIL_POSITIONS;
     const mainLabel = isRanger ? 'Archer' : 'Fire';
-    const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS)}px`;
-    const utilContainerHeight = `${treeHeight(UTIL_ROWS)}px`;
+    const mainTree = isRanger ? 'archer' : 'fire';
+    const utilTree = isRanger ? 'archer_utility' : 'utility';
+    const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
+
+    this.scale = pickScale(window.innerHeight);
+    const s = this.scale;
+    const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS, s)}px`;
+    const utilContainerHeight = `${treeHeight(UTIL_ROWS, s)}px`;
+    const frostContainerHeight = `${treeHeight(FROST_ROWS, s)}px`;
+    const workspaceH = workspaceHeight(s);
+    const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px;--st-name:${s.name}px`;
+
+    // Keystones and "choose one" groups aren't universal across every tree,
+    // and a legend entry for a marker the open class never draws is just
+    // noise. Mages draw fire + frost + utility; rangers draw archer + evasion.
+    const shown = isRanger ? [...mainNodes, ...utilNodes] : [...mainNodes, ...frostNodes, ...utilNodes];
+    const hasKeystones = shown.some(n => n.keystone);
+    const hasExclusive = shown.some(n => GATES[n.id]?.mutuallyExclusive?.length);
+    const hasGear = this.gearRanks.size > 0;
 
     this.el.innerHTML = `
       <div class="st-backdrop" style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0">${buildHallScene('st')}</div>
-      <div class="st-ui">
+      <div class="st-ui" style="${scaleVars}">
         ${buildNavBar({ active: 'skills', ...this.navCtx() })}
         <div class="bm-subhead">
           <div class="st-title px-title">${esc(this.charName)} — ${esc(this.charClass)} Skills</div>
@@ -403,25 +644,55 @@ export class SkillTreeUI {
           </div>
         </div>
 
-        <div class="st-columns">
-          <div class="st-col-main" style="height:${WORKSPACE_H}px">
-            <div class="st-tree-label">${mainLabel}</div>
-            <div class="st-tree-container" style="height:${mainContainerHeight}">
-              <svg id="st-main-svg" class="st-tree-svg"></svg>
-              ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+        <div class="st-columns${!isRanger ? ' has-frost' : ''}">
+          <div class="st-col-main" style="height:${workspaceH}px">
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[mainTree]}">
+              <div class="st-tree-panel-header">${mainLabel}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${mainContainerHeight}">
+                  <svg id="st-main-svg" class="st-tree-svg"></svg>
+                  ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+                </div>
+              </div>
             </div>
           </div>
-          <div class="st-col-side" style="height:${WORKSPACE_H}px">
-            <div id="st-details" class="st-details px-panel"></div>
-            <div class="st-util-block">
-              <div class="st-util-label">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
-              <div class="st-util-container" style="height:${utilContainerHeight}">
-                <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
-                ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+          ${!isRanger ? `
+          <div class="st-col-frost" style="height:${workspaceH}px">
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT.frost}">
+              <div class="st-tree-panel-header">Frost</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${frostContainerHeight}">
+                  <svg id="st-frost-svg" class="st-tree-svg"></svg>
+                  ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+                </div>
+              </div>
+            </div>
+          </div>` : ''}
+          <div class="st-col-side" style="height:${workspaceH}px">
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[utilTree]}">
+              <div class="st-tree-panel-header">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-util-container" style="height:${utilContainerHeight}">
+                  <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
+                  ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        <div class="st-legend">
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked (cost shown)</div>
+          ${hasGear ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #3f9fbd;background:#04222c;"></span>Rank from gear</div>` : ''}
+          ${hasKeystones ? `<div class="st-legend-row"><span class="st-legend-mark"><i class="fa fa-bolt"></i></span>Keystone (past cap)</div>` : ''}
+          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
+          ${hasExclusive ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 2px 0 0 var(--px-accent);"></span>Choose one</div>` : ''}
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
+        </div>
+
+        <div class="st-selection-bar" id="st-selection-bar"></div>
 
         <div class="st-slots" id="st-slots">${this.renderSlotBar()}</div>
         <div class="st-picker" id="st-picker"></div>
@@ -451,53 +722,144 @@ export class SkillTreeUI {
       void this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
     });
 
+    this.syncNameWidth();
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
+    this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
     this.attachNodeListeners(pts);
-    this.renderDetails(this.selectedId, pts);
+    this.renderSelectionBar();
+    // A purchase/refund/slot-change re-renders the whole tree (new node
+    // elements), which would otherwise leave the tooltip showing stale ranks
+    // and costs while the mouse hasn't moved off the node it was over.
+    if (this.hoveredId) this.showTooltipFor(this.hoveredId, pts);
 
     if (this.flashId) {
       this.el.querySelector(`.st-node[data-id="${this.flashId}"]`)?.classList.add('st-flash');
       this.flashId = null;
     }
+    this.hasRendered = true;
+  }
+
+  /** Ranks from equipped gear for a node (0 when none). */
+  private gearRank(id: NodeId): number {
+    return this.gearRanks.get(id) ?? 0;
+  }
+
+  /** What the node is actually worth in a match: bought ranks plus gear. */
+  private effRank(id: NodeId): number {
+    return (this.ranks.get(id) ?? 0) + this.gearRank(id);
   }
 
   private renderNode(node: SkillNode, pts: number, pos: NodePos | undefined): string {
     if (!pos) return '';
     const currentRank = this.ranks.get(node.id) ?? 0;
+    const gear = this.gearRank(node.id);
+    const eff = currentRank + gear;
     const isOwned = currentRank > 0;
+    // Gear alone can carry a node the character never bought — including whole
+    // spells (a Meteor talent affix ships today). It is live in combat, so it
+    // cannot render as dead grey.
+    const gearOnly = !isOwned && gear > 0;
     const canBuyFirst = !isOwned && canUnlock(node.id, this.ranks) && pts >= node.cost;
-    const supercharged = isOwned && isStackable(node) && currentRank > node.stackable!.softCap;
+    const supercharged = isStackable(node) && eff > node.stackable!.softCap;
+    const excluded = !isOwned && this.exclusionOwner(node.id) !== null;
+    const lockedClass = excluded ? 'st-node-locked st-node-excluded' : 'st-node-locked';
     const stateClass = supercharged
-      ? 'st-node-owned st-node-supercharged'
-      : (isOwned ? 'st-node-owned' : (canBuyFirst ? 'st-node-purchasable' : 'st-node-locked'));
+      ? `${gearOnly ? 'st-node-gear' : 'st-node-owned'} st-node-supercharged`
+      : (isOwned ? 'st-node-owned'
+        : (gearOnly ? 'st-node-gear' : (canBuyFirst ? 'st-node-purchasable' : lockedClass)));
     const spellClass = node.isSpell ? 'st-node-is-spell' : '';
     const sizeClass = node.isSpell ? 'st-node-spell' : 'st-node-mod';
     const selectedClass = node.id === this.selectedId ? 'st-node-selected' : '';
     const icon = NODE_ICONS[node.id] ?? 'fa-star';
-    const state = isOwned ? 'owned' : (canBuyFirst ? 'purchasable' : 'locked');
+    const state = (isOwned || gearOnly) ? 'owned' : (canBuyFirst ? 'purchasable' : 'locked');
 
     // One compact corner badge carries the node's key number: rank progress
-    // for owned stackables, cost for anything still buyable, a lock otherwise.
+    // for owned stackables, otherwise the price — locked included, so a route
+    // to a deep node can be costed without buying anything on the way. The
+    // exception is an excluded node, whose price is unreachable until respec.
     let badge = '';
     if (isOwned && isStackable(node)) {
       const cap = node.stackable!.softCap;
-      const pastCap = currentRank > cap ? ' st-past-cap' : '';
-      badge = `<span class="st-badge st-badge-rank${pastCap}">${currentRank}/${cap}</span>`;
+      const pastCap = eff > cap ? ' st-past-cap' : '';
+      // "3+2/5" — bought ranks and gear ranks stay separable, because only the
+      // bought half is refundable and only it costs points.
+      const gearPart = gear > 0 ? `<span class="st-badge-gear">+${gear}</span>` : '';
+      badge = `<span class="st-badge st-badge-rank${pastCap}">${currentRank}${gearPart}/${cap}</span>`;
+    } else if (gearOnly) {
+      badge = `<span class="st-badge st-badge-gearonly">+${gear}</span>`;
+    } else if (excluded) {
+      badge = `<span class="st-badge st-badge-excl"><i class="fa fa-ban"></i></span>`;
     } else if (!isOwned && canBuyFirst) {
       badge = `<span class="st-badge st-badge-cost">${node.cost}pt</span>`;
     } else if (!isOwned) {
-      badge = `<span class="st-badge st-badge-lock"><i class="fa fa-lock"></i></span>`;
+      badge = `<span class="st-badge st-badge-lock"><i class="fa fa-lock"></i>${node.cost}pt</span>`;
     }
 
+    // Keystones are the biggest payoff in the tree and used to be visible only
+    // by hovering the right node; the marker advertises them from the tree.
+    const keymark = node.keystone
+      ? `<span class="st-keymark${supercharged ? ' st-keymark-on' : ''}"><i class="fa fa-bolt"></i></span>`
+      : '';
+
     return `<div class="st-node ${stateClass} ${spellClass} ${selectedClass}" data-id="${node.id}" data-state="${state}"
-      style="left:${pos.x}%;top:${pos.y}px;">
+      style="left:${pos.x}%;top:${this.yOf(pos)}px;">
       <div class="st-node-circle ${sizeClass}">
-        <i class="fa ${icon} fa-fw st-node-icon" style="font-size:${node.isSpell ? '1.25rem' : '1.05rem'}"></i>
+        <i class="fa ${icon} fa-fw st-node-icon" style="font-size:${node.isSpell ? this.scale.icon : this.scale.modIcon}rem"></i>
         ${badge}
+        ${keymark}
       </div>
       <div class="st-node-name">${esc(node.name)}</div>
     </div>`;
+  }
+
+  /** The owned node that has locked this one out of its "choose one" group,
+   *  or null when the choice is still open. */
+  private exclusionOwner(id: NodeId): NodeId | null {
+    return GATES[id]?.mutuallyExclusive?.find(other => this.ranks.has(other)) ?? null;
+  }
+
+  /**
+   * Brackets under each set of mutually exclusive siblings — without one, a
+   * one-of-three choice like Burn/Freeze/Poison looks like three ordinary
+   * locked nodes right up until taking one kills the other two.
+   *
+   * Only groups whose members all sit on the same row get a bracket; that is
+   * every group today, and a group spread across rows would need a different
+   * shape than a horizontal rule anyway.
+   */
+  private exclusiveBrackets(positions: Partial<Record<NodeId, NodePos>>, nodes: SkillNode[]): string {
+    const drawn = new Set<NodeId>();
+    let out = '';
+
+    for (const node of nodes) {
+      if (drawn.has(node.id)) continue;
+      const excl = GATES[node.id]?.mutuallyExclusive;
+      if (!excl?.length) continue;
+
+      const group = [node.id, ...excl].filter(id => positions[id]);
+      if (group.length < 2) continue;
+      group.forEach(id => drawn.add(id));
+
+      const rowIdx = positions[group[0]]!.row;
+      if (group.some(id => positions[id]!.row !== rowIdx)) continue;
+      const row = this.yOf(positions[group[0]]!);
+
+      const xs = group.map(id => positions[id]!.x).sort((a, b) => a - b);
+      const [minX, maxX] = [xs[0], xs[xs.length - 1]];
+      // Below the row's names, where there is always clear space — above them
+      // is the 8px gap between rows.
+      const y = row + this.scale.block + 8;
+      const chosen = group.some(id => this.ranks.has(id));
+      const color = chosen ? '#5b6270' : 'var(--px-accent)';
+      const opacity = chosen ? 0.5 : 0.7;
+
+      const ticks = xs.map(x => `<line x1="${x}%" y1="${y}" x2="${x}%" y2="${y - 5}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1.5"/>`).join('');
+      out += `<line x1="${minX}%" y1="${y}" x2="${maxX}%" y2="${y}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1.5"/>${ticks}`
+        + `<text x="${(minX + maxX) / 2}%" y="${y + 15}" text-anchor="middle" fill="${color}" fill-opacity="${opacity}"`
+        + ` font-family="'Press Start 2P',monospace" font-size="7" letter-spacing="1">CHOOSE ONE</text>`;
+    }
+    return out;
   }
 
   private renderSlotBar(): string {
@@ -535,53 +897,44 @@ export class SkillTreeUI {
         for (const parentId of gate.requiresAll) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + STEM}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}"/>`;
         }
       }
       if (gate.requiresAny) {
         for (const parentId of gate.requiresAny) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${parentPos.y + STEM}" x2="${childPos.x}%" y2="${childPos.y}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3"/>`;
         }
       }
     }
-    svg.innerHTML = lines;
+    svg.innerHTML = lines + this.exclusiveBrackets(positions, nodes);
   }
 
-  /** The pinned side panel: full description, rank track, requirements, and
-   *  what happens on click — replaces the old cursor-chasing tooltip. */
-  private renderDetails(id: NodeId | null, pts: number): void {
-    const panel = this.el.querySelector('#st-details') as HTMLElement | null;
-    if (!panel) return;
-
-    if (!id) {
-      panel.innerHTML = `
-        <div class="st-details-empty">
-          Hover a skill to inspect it.<br>Click to learn or rank up.
-        </div>
-        <div class="st-legend">
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #444;background:#151515;"></span>Locked</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
-        </div>
-      `;
-      return;
-    }
-
+  /** Builds the tooltip's inner HTML for a hovered node: full description,
+   *  gear-rank line, rank track (bought + gear segments), requirements
+   *  (including any exclusion conflict), and what happens on click — same
+   *  markup and order the old pinned details panel used. */
+  private buildTooltipContent(id: NodeId, pts: number): string {
     const node = SKILL_NODES.find(n => n.id === id)!;
     const gate = GATES[id];
     const currentRank = this.ranks.get(id) ?? 0;
+    const gear = this.gearRank(id);
+    const eff = currentRank + gear;
     const isOwned = currentRank > 0;
     const icon = NODE_ICONS[id] ?? 'fa-star';
     const kind = node.isSpell ? 'Active Spell' : 'Passive';
 
+    // Everything below that describes what the talent DOES reads `eff`;
+    // everything that prices or gates a purchase reads `currentRank`.
+    const gearLine = gear > 0
+      ? `<div class="st-gear-line"><i class="fa fa-shield-halved"></i> +${gear} rank${gear > 1 ? 's' : ''} from equipped gear${isOwned ? '' : ' — active without buying it'}</div>`
+      : '';
+
     let keystoneHtml = '';
     if (node.keystone && isStackable(node)) {
       const cap = node.stackable!.softCap;
-      const active = currentRank > cap;
+      const active = eff > cap;
       keystoneHtml = `
         <div class="st-keystone${active ? ' st-keystone-active' : ''}">
           <div class="st-keystone-name">⚡ ${esc(node.keystone.name)}${active ? ' — ACTIVE' : ` — unlocks at rank ${cap + 1}`}</div>
@@ -589,32 +942,37 @@ export class SkillTreeUI {
         </div>`;
     }
 
-    // Rank track for stackables: filled segments up to the soft cap; ranks
-    // beyond it render as extra gold segments so "past cap" stays visible.
+    // Rank track for stackables: bought ranks fill first, gear ranks stack on
+    // top in cyan, and anything past the soft cap goes gold — so a track can
+    // legitimately read "3 bought + 2 gear, 5 of them past the cap".
     let rankTrack = '';
     let superBlock = '';
     if (isStackable(node)) {
       const cap = node.stackable!.softCap;
       const base = node.stackable!.baseEffect;
-      const total = Math.max(cap, currentRank);
+      const total = Math.max(cap, eff);
       const segs = Array.from({ length: total }, (_, i) => {
-        const cls = i < currentRank ? (i < cap ? 'filled' : 'filled past-cap') : '';
+        if (i >= eff) return `<div class="st-rank-seg"></div>`;
+        const cls = i < currentRank
+          ? (i < cap ? 'filled' : 'filled past-cap')
+          : 'filled from-gear';
         return `<div class="st-rank-seg ${cls}"></div>`;
       }).join('');
-      const capNote = currentRank > cap ? ` <span style="color:#ddb84a">⚡ Supercharged</span>` : '';
+      const capNote = eff > cap ? ` <span style="color:#ddb84a">⚡ Supercharged</span>` : '';
+      const rankNote = gear > 0 ? `Rank ${currentRank} +${gear} gear = ${eff} / ${cap}` : `Rank ${currentRank} / ${cap}`;
       rankTrack = `
-        <div class="st-rank-line">Rank ${currentRank} / ${cap}${capNote}</div>
+        <div class="st-rank-line">${rankNote}${capNote}</div>
         <div class="st-rank-track">${segs}</div>
       `;
 
       // "Full" (at or past the soft cap): explain what supercharging gives in
       // real numbers. Purely informational — the buy happens on the node
       // click, which routes through a confirm.
-      if (currentRank >= cap) {
+      if (eff >= cap) {
         const fmt = (v: number) => fmtEffect(base, v);
-        const now = effectAtRank(base, currentRank);
-        const next = effectAtRank(base, currentRank + 1);
-        const state = currentRank > cap
+        const now = effectAtRank(base, eff);
+        const next = effectAtRank(base, eff + 1);
+        const state = eff > cap
           ? `Supercharging is boosting this talent's total effect to <b>${fmt(now)}</b> (base cap is ${fmt(effectAtRank(base, cap))}).`
           : `This talent is at its cap: total effect <b>${fmt(now)}</b>.`;
         superBlock = `
@@ -626,7 +984,9 @@ export class SkillTreeUI {
       }
     }
 
-    // Requirements with met/unmet marks.
+    // Requirements with met/unmet marks, including a mutually-exclusive
+    // conflict (the same information that drives the excluded/red node state
+    // and the "CHOOSE ONE" bracket).
     let reqHtml = '';
     if (gate && !isOwned) {
       const rows: string[] = [];
@@ -650,14 +1010,16 @@ export class SkillTreeUI {
       if (rows.length) reqHtml = `<div class="st-req">${rows.join('')}</div>`;
     }
 
-    // Refund hint for owned nodes: right-click gives one rank back, unless
-    // a dependent or the class-starter rule blocks it.
+    // Refund hint for owned nodes: right-click gives one rank back, or click
+    // the node (below, in the tree) to bring up the refund button under the
+    // legend — this tooltip can't host a clickable button, it's
+    // pointer-events:none so it never steals a click from the node beneath.
     let refundLine = '';
     if (isOwned) {
       const reason = this.refundBlockReason(id);
       const refund = rankUpCost(node, currentRank - 1);
       refundLine = reason === null
-        ? `<div class="st-refund-hint">Right-click: refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''})</div>`
+        ? `<div class="st-refund-hint">Right-click: refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''}) — or click to select it for the refund button below the tree.</div>`
         : `<div class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</div>`;
     }
 
@@ -665,8 +1027,10 @@ export class SkillTreeUI {
     // ever states the price — past the cap it just changes what it's called.
     let status = '';
     if (isOwned && isStackable(node)) {
+      // Price comes off bought ranks, but whether the next one is a
+      // "supercharge" is about the cap, which gear counts toward.
       const cost = rankUpCost(node, currentRank);
-      const label = currentRank >= node.stackable!.softCap ? 'Supercharge' : 'Next rank';
+      const label = eff >= node.stackable!.softCap ? 'Supercharge' : 'Next rank';
       status = pts >= cost
         ? `<span class="st-status-warn">${label} costs ${cost} pt${cost > 1 ? 's' : ''} — click to buy</span>`
         : `<span class="st-status-bad">${label} costs ${cost} pt${cost > 1 ? 's' : ''} — not enough points</span>`;
@@ -680,7 +1044,7 @@ export class SkillTreeUI {
       status = `<span class="st-status-bad">Locked — requirements not met</span>`;
     }
 
-    panel.innerHTML = `
+    return `
       <div class="st-details-head">
         <div class="st-details-icon"><i class="fa ${icon}" style="color:var(--px-accent)"></i></div>
         <div>
@@ -689,6 +1053,7 @@ export class SkillTreeUI {
         </div>
       </div>
       <div class="st-details-desc">${esc(node.description)}</div>
+      ${gearLine}
       ${keystoneHtml}
       ${rankTrack}
       ${reqHtml}
@@ -698,15 +1063,93 @@ export class SkillTreeUI {
     `;
   }
 
+  /** Shows (or refreshes) the tooltip for `id`, colouring its border with
+   *  that node's tree accent, then repositions it at the last known cursor
+   *  spot. Content and position are separate steps because a re-render can
+   *  refresh content without any new mouse movement to reposition from. */
+  private showTooltipFor(id: NodeId, pts: number): void {
+    const node = SKILL_NODES.find(n => n.id === id);
+    if (!node) return;
+    this.hoveredId = id;
+    this.tooltipEl.style.setProperty('--st-tt-accent', TREE_ACCENT[node.tree]);
+    this.tooltipEl.innerHTML = this.buildTooltipContent(id, pts);
+    this.tooltipEl.style.display = 'block';
+    this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+  }
+
+  /** Cursor + 18px right/down; flips to the left/above the cursor rather
+   *  than letting either edge clip off-screen. Must run after the tooltip's
+   *  content and display are set — its measured size depends on both.
+   *  `clientX`/`clientY`, `window.innerWidth/Height` and the measured rect
+   *  are all real viewport pixels (getBoundingClientRect always reports the
+   *  rendered box, zoom included); only the final left/top written to style
+   *  need the /uiZoom() compensation described on that function. */
+  private positionTooltip(clientX: number, clientY: number): void {
+    const OFFSET = 18;
+    const rect = this.tooltipEl.getBoundingClientRect();
+    let x = clientX + OFFSET;
+    let y = clientY + OFFSET;
+    if (x + rect.width > window.innerWidth) x = clientX - OFFSET - rect.width;
+    if (y + rect.height > window.innerHeight) y = clientY - OFFSET - rect.height;
+    x = Math.max(4, x);
+    y = Math.max(4, y);
+    const zoom = uiZoom();
+    this.tooltipEl.style.left = `${x / zoom}px`;
+    this.tooltipEl.style.top = `${y / zoom}px`;
+  }
+
+  private hideTooltip(): void {
+    this.hoveredId = null;
+    this.tooltipEl.style.display = 'none';
+  }
+
+  /** Refund control for the last-clicked node (`selectedId`), rehomed here
+   *  because the old details panel is gone and the button can't live inside
+   *  the pointer-events:none cursor tooltip. Hidden unless the selection is
+   *  an owned node. Re-run after every render() and every click-to-select. */
+  private renderSelectionBar(): void {
+    const bar = this.el.querySelector('#st-selection-bar') as HTMLElement | null;
+    if (!bar) return;
+    const id = this.selectedId;
+    const node = id ? SKILL_NODES.find(n => n.id === id) : undefined;
+    const currentRank = id ? (this.ranks.get(id) ?? 0) : 0;
+    if (!id || !node || currentRank === 0) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+
+    const reason = this.refundBlockReason(id);
+    const refund = rankUpCost(node, currentRank - 1);
+    bar.style.display = 'flex';
+    bar.innerHTML = reason === null
+      ? `<span class="st-selection-name">${esc(node.name)}</span>
+         <button id="st-refund-btn" class="px-btn st-refund-btn">− Refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''})</button>
+         <span class="st-refund-hint">…or right-click the skill</span>`
+      : `<span class="st-selection-name">${esc(node.name)}</span>
+         <span class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</span>`;
+
+    // Acts on the node the bar is showing, which is the node its label
+    // names — so a stale selection can't refund something else.
+    bar.querySelector('#st-refund-btn')?.addEventListener('click', () => this.refundNode(id, node));
+  }
+
   private attachNodeListeners(pts: number): void {
     this.el.querySelectorAll('.st-node').forEach(el => {
       const id = el.getAttribute('data-id') as NodeId;
       const node = SKILL_NODES.find(n => n.id === id)!;
 
-      // Sticky inspect: the panel keeps showing the last-hovered node (no
-      // mouseleave revert). Nothing in the panel is clickable, so what the
-      // pointer crosses on the way out of the tree doesn't matter.
-      el.addEventListener('mouseenter', () => this.renderDetails(id, pts));
+      // WoW-style cursor tooltip: appears instantly on enter (no fade delay),
+      // tracks the cursor while over the node, and disappears on leave.
+      el.addEventListener('mouseenter', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.showTooltipFor(id, pts);
+      });
+      el.addEventListener('mousemove', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+      });
+      el.addEventListener('mouseleave', () => this.hideTooltip());
 
       el.addEventListener('click', () => {
         this.selectedId = id;
@@ -722,16 +1165,21 @@ export class SkillTreeUI {
           // rather than spending points on a stray click.
           const cost = rankUpCost(node, currentRank);
           if (pts >= cost) {
-            if (currentRank >= node.stackable!.softCap) this.confirmSupercharge(id, node, currentRank, cost);
+            // Gear ranks count toward the cap, so gear alone can put the next
+            // bought rank into supercharge territory — and behind the confirm.
+            const eff = this.effRank(id);
+            if (eff >= node.stackable!.softCap) this.confirmSupercharge(id, node, currentRank, eff, cost);
             else this.buyNode(id, cost, currentRank + 1);
             return;
           }
           sfx.playDenied();
         }
-        // Not buyable from the node: select it so the panel pins its details.
+        // Not buyable from the node: select it. The tooltip already shows its
+        // details from the hover that preceded this click; the selection bar
+        // below the tree picks up the refund control when it's owned.
         this.el.querySelectorAll('.st-node-selected').forEach(n => n.classList.remove('st-node-selected'));
         el.classList.add('st-node-selected');
-        this.renderDetails(id, pts);
+        this.renderSelectionBar();
       });
 
       // Right-click: refund one rank.
@@ -744,16 +1192,17 @@ export class SkillTreeUI {
 
   /** Past-cap ranks cost 1 pt more each time and give diminishing returns, so
    *  they name their price before spending anything. */
-  private confirmSupercharge(id: NodeId, node: SkillNode, currentRank: number, cost: number): void {
+  private confirmSupercharge(id: NodeId, node: SkillNode, currentRank: number, eff: number, cost: number): void {
     const base = node.stackable!.baseEffect;
-    const now = effectAtRank(base, currentRank);
-    const next = effectAtRank(base, currentRank + 1);
+    const now = effectAtRank(base, eff);
+    const next = effectAtRank(base, eff + 1);
+    const gear = eff - currentRank;
     const text = [
-      `${node.name} — rank ${currentRank + 1}`,
+      `${node.name} — rank ${eff} → ${eff + 1}${gear > 0 ? ` (${currentRank + 1} bought +${gear} gear)` : ''}`,
       `Costs ${cost} pt${cost > 1 ? 's' : ''}. You have ${this.skillPoints}.`,
       `Total effect ${fmtEffect(base, now)} → ${fmtEffect(base, next)} (+${fmtEffect(base, next - now)}).`,
       'Each rank past the cap costs 1 pt more and gives less.',
-      ...(node.keystone && currentRank === node.stackable!.softCap
+      ...(node.keystone && eff === node.stackable!.softCap
         ? [`Unlocks keystone: ${node.keystone.name} — ${node.keystone.description}`]
         : []),
     ].join('\n\n');
@@ -772,7 +1221,7 @@ export class SkillTreeUI {
     this.ranks.set(id, nextRank);
     this.skillPoints -= cost;
     this.flashId = id;
-    this.selectedId = id; // keep the panel on the node just bought
+    this.selectedId = id; // keep the outline (and refund bar) on the node just bought
     this.render();
 
     supabase.rpc('unlock_skill_node', {
@@ -865,7 +1314,8 @@ export class SkillTreeUI {
     return null;
   }
 
-  /** Optimistic single-rank refund — right-click. Mirrors buyNode. */
+  /** Optimistic single-rank refund — right-click, or the refund button in the
+   *  selection bar. Mirrors buyNode. */
   private refundNode(id: NodeId, node: SkillNode): void {
     if (!this.characterId) return;
     const currentRank = this.ranks.get(id) ?? 0;

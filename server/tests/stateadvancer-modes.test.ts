@@ -16,7 +16,7 @@ function fourPlayerState(mode: GameModeConfig, teams?: Record<string, string[]>)
   );
 }
 
-const idleInput = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+const idleInput = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null };
 
 describe('FFA win condition in advanceState', () => {
   it('does not end when 1 of 4 players dies', () => {
@@ -103,5 +103,19 @@ describe('friendly fire', () => {
     const next = advanceState(state, inputs, {}, FFA_MODE);
     const dmg = MAX_HP - next.players['p2'].hp;
     expect(dmg).toBeGreaterThan(0);
+  });
+
+  it('ice bolt damages a teammate in 2v2 but does not chill them', () => {
+    const state = fourPlayerState(TEAM_DUEL_MODE, teams);
+    state.players['p2'].position = { x: 210, y: 1000 };
+    state.projectiles.push({
+      id: 'ib1', ownerId: 'p1', type: 'icebolt',
+      position: { x: 210, y: 1000 }, velocity: { x: 400, y: 0 },
+    });
+    const inputs = { p1: idleInput, p2: idleInput, p3: idleInput, p4: idleInput };
+    const next = advanceState(state, inputs, {}, TEAM_DUEL_MODE);
+    const dmg = MAX_HP - next.players['p2'].hp;
+    expect(dmg).toBeGreaterThan(0);
+    expect(next.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(next.tick);
   });
 });

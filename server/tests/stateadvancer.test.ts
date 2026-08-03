@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { advanceState, makeInitialState } from '../src/gameloop/StateAdvancer.ts';
 import { SPELL_CONFIG, MAX_HP, MAX_MANA, MANA_REGEN_PER_TICK, FIREWALL_DAMAGE_PER_TICK, InputFrame, REST_CAST_TICKS, REST_REGEN_FRACTION_PER_SEC, REST_COOLDOWN_TICKS, TICK_RATE } from '@arena/shared';
+import { ICEBOLT_DAMAGE_MIN, ICEBOLT_DAMAGE_MAX, effectAtRank } from '@arena/shared';
 import { spawnFireWall } from '../src/spells/FireWall.ts';
 
 function twoPlayerState() {
@@ -34,8 +35,8 @@ describe('advanceState — movement', () => {
   it('moves p1 right when move input is {x:1, y:0}', () => {
     const state = twoPlayerState();
     const inputs = {
-      p1: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].position.x).toBeGreaterThan(200);
@@ -47,8 +48,8 @@ describe('advanceState — mana regen', () => {
     const state = twoPlayerState();
     state.players['p1'].mana = MAX_MANA - 10;
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].mana).toBe(MAX_MANA - 10 + MANA_REGEN_PER_TICK);
@@ -59,8 +60,8 @@ describe('advanceState — fireball cast', () => {
   it('spawns a fireball and deducts mana when p1 casts spell 1', () => {
     const state = twoPlayerState();
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.projectiles.length).toBe(1);
@@ -71,8 +72,8 @@ describe('advanceState — fireball cast', () => {
     const state = twoPlayerState();
     state.players['p1'].mana = 0;
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.projectiles.length).toBe(0);
@@ -83,8 +84,8 @@ describe('advanceState — cooldowns', () => {
   it('sets cooldown after casting fireball and blocks immediate re-cast', () => {
     const state = twoPlayerState();
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].cooldowns[1]).toBeGreaterThan(0);
@@ -108,8 +109,8 @@ describe('advanceState — win condition', () => {
       velocity: { x: 400, y: 0 },
     });
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.phase).toBe('ended');
@@ -124,8 +125,8 @@ describe('advanceState — fire wall damage', () => {
     const fw2 = spawnFireWall('p2', { x: 180, y: 1000 }, { x: 220, y: 1000 }, 0);
     state.fireWalls.push(fw1, fw2);
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].hp).toBeCloseTo(MAX_HP - FIREWALL_DAMAGE_PER_TICK * 2, 10);
@@ -143,8 +144,8 @@ describe('advanceState — simultaneous death', () => {
       { id: 'fb2', ownerId: 'p1', type: 'fireball', position: { x: 1800, y: 1000 }, velocity: { x: -400, y: 0 } },
     );
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.phase).toBe('ended');
@@ -156,8 +157,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
   it('sets player position to clamped target and deducts 40 mana', () => {
     const state = twoPlayerState();
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     // Target is 800 units away — clamped to TELEPORT_MAX_RANGE (600) even
@@ -170,8 +171,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
     const state = twoPlayerState();
     state.players['p1'].position = { x: 600, y: 1000 };
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     // Pillar at (1000,1000) halfSize 28 + player half-size 16 → pushed to 956
@@ -183,8 +184,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
 
     // Lower-x and upper-y
     const inputs1 = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: -500, y: 9999 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: -500, y: 9999 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next1 = advanceState(state, inputs1);
     expect(next1.players['p1'].position.x).toBeGreaterThanOrEqual(16);
@@ -193,8 +194,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
     // Upper-x and lower-y
     const state2 = twoPlayerState();
     const inputs2 = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 9999, y: -500 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 9999, y: -500 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next2 = advanceState(state2, inputs2);
     expect(next2.players['p1'].position.x).toBeLessThanOrEqual(2000 - 16);
@@ -205,8 +206,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
     const state = twoPlayerState();
     state.players['p1'].mana = 10; // less than 40
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].position).toEqual({ x: 200, y: 1000 }); // unchanged spawn
@@ -216,8 +217,8 @@ describe('advanceState — teleport cast (spell 4)', () => {
   it('sets a 2-second cooldown after a successful teleport', () => {
     const state = twoPlayerState();
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null,       aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs);
     expect(next.players['p1'].cooldowns[4]).toBe(120);
@@ -243,8 +244,8 @@ describe('advanceState — skill modifiers', () => {
       radius: 13,
     });
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200,  y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200,  y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs, skills);
     expect(next.players['p2'].hp).toBeLessThan(MAX_HP);
@@ -257,8 +258,8 @@ describe('advanceState — skill modifiers', () => {
       p2: new Map([['fire.fireball', 1]]),
     };
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs, skills);
     expect(next.projectiles).toHaveLength(0);
@@ -278,8 +279,8 @@ describe('advanceState — skill modifiers', () => {
       velocity: { x: 400, y: 0 },
     });
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 400 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1000, y: 400 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs, skills);
     expect(next.players['p1'].hp).toBe(MAX_HP);
@@ -294,12 +295,80 @@ describe('advanceState — skill modifiers', () => {
       p1: new Map([['fire.fireball', 1], ['fire.seeking_flame', 3]]),
     };
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
     };
     const next = advanceState(state, inputs, skillSets);
     expect(next.projectiles.length).toBe(1);
     expect(next.projectiles[0].homing).toBeGreaterThan(0);
+  });
+});
+
+describe('advanceState — Frostbite (frost.frostbite)', () => {
+  // A stationary ice bolt sitting exactly on p2 hits on the very first tick
+  // regardless of velocity, and Math.random is pinned so both scenarios roll
+  // the identical base damage — isolating the frostbite multiplier as the
+  // only possible source of a difference.
+  function stateWithStationaryBolt(frostbiteRank: number) {
+    const state = makeInitialState([
+      { id: 'p1', displayName: 'P1', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
+    ]);
+    state.projectiles.push({
+      id: 'ib_test',
+      ownerId: 'p1',
+      type: 'icebolt',
+      position: { ...state.players['p2'].position },
+      velocity: { x: 0, y: 0 },
+    });
+    const skillSets: Record<string, Map<NodeId, number>> = {
+      p1: new Map([['frost.frostbite', frostbiteRank]]),
+    };
+    const inputs: Record<string, InputFrame> = {
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 200, y: 1000 }, channel: null },
+    };
+    return { state, skillSets, inputs };
+  }
+
+  it('deals base damage against an unchilled target — Frostbite contributes nothing', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { state, skillSets, inputs } = stateWithStationaryBolt(5);
+      const next = advanceState(state, inputs, skillSets);
+      const expectedDamage = Math.floor(ICEBOLT_DAMAGE_MIN + 0.5 * (ICEBOLT_DAMAGE_MAX - ICEBOLT_DAMAGE_MIN + 1));
+      expect(next.players['p2'].hp).toBe(MAX_HP - expectedDamage);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('deals more damage against an already-chilled target than the same bolt/rank against an unchilled one', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const rank = 3;
+      const { state: unchilled, skillSets, inputs } = stateWithStationaryBolt(rank);
+      const unchilledNext = advanceState(unchilled, inputs, skillSets);
+      const unchilledDamage = MAX_HP - unchilledNext.players['p2'].hp;
+
+      const { state: chilled } = stateWithStationaryBolt(rank);
+      chilled.players['p2'].slowUntil = 50;
+      chilled.players['p2'].slowFactor = 0.4; // the chill floor
+      const chilledNext = advanceState(chilled, inputs, skillSets);
+      const chilledDamage = MAX_HP - chilledNext.players['p2'].hp;
+
+      expect(chilledDamage).toBeGreaterThan(unchilledDamage);
+
+      // iceBoltDamage() floors ONLY the base roll — the frostbite multiplier
+      // is applied to that already-floored integer afterward, not folded
+      // into a single floor. Mirror that order exactly.
+      const baseDamage = Math.floor(ICEBOLT_DAMAGE_MIN + 0.5 * (ICEBOLT_DAMAGE_MAX - ICEBOLT_DAMAGE_MIN + 1));
+      const expectedFrostbiteMult = 1 + effectAtRank(0.10, rank) * (1 - 0.4);
+      const expectedChilledDamage = baseDamage * expectedFrostbiteMult;
+      expect(chilledDamage).toBeCloseTo(expectedChilledDamage, 6);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 });
 

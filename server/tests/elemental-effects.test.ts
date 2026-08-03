@@ -3,7 +3,7 @@ import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts
 import type { NodeId, InputFrame, GameState } from '@arena/shared';
 import { MAX_HP, PLAYER_SPEED, DELTA, TICK_RATE } from '@arena/shared';
 
-const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim });
+const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim, channel: null });
 
 function rangerSkillsWith(extra: [string, number][]): Map<NodeId, number> {
   return new Map<NodeId, number>([
@@ -73,7 +73,7 @@ describe('elemental arrow effects', () => {
     expect(slowed.slowFactor).toBeLessThan(1);
 
     const before = state.players['p2'].position.x;
-    state = advanceState(state, { p1: idle(), p2: { move: { x: -1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, skills);
+    state = advanceState(state, { p1: idle(), p2: { move: { x: -1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null } }, skills);
     const movedDist = before - state.players['p2'].position.x;
     expect(movedDist).toBeCloseTo(PLAYER_SPEED * DELTA * slowed.slowFactor!, 5);
     expect(movedDist).toBeLessThan(PLAYER_SPEED * DELTA);
@@ -108,7 +108,7 @@ describe('rain zone element application', () => {
     };
     let state = baseState();
     // Rain centered on p2; zone spawns after RAIN_DELAY_TICKS, then ticks damage.
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 }, channel: null };
     state = advanceState(state, { p1: cast, p2: idle() }, skills);
     for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
     expect(state.players['p2'].hp).toBeLessThan(MAX_HP);          // zone damaged them
@@ -122,7 +122,7 @@ describe('rain zone element application', () => {
       p2: new Map<NodeId, number>(),
     };
     let state = baseState();
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 }, channel: null };
     state = advanceState(state, { p1: cast, p2: idle() }, skills);
     for (let i = 0; i < 50; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
     expect(state.players['p2'].burnUntil).toBeGreaterThan(state.tick);
@@ -130,7 +130,7 @@ describe('rain zone element application', () => {
 });
 
 describe('evade utility skills', () => {
-  const evadeCast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 500, y: 1000 } };
+  const evadeCast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 500, y: 1000 }, channel: null };
 
   it('Combat Roll fires an arrow at the nearest enemy during evade', () => {
     const skills = {
@@ -293,13 +293,13 @@ describe('Deep Freeze keystone', () => {
 
     // Rooted: movement input does nothing.
     const x0 = state.players['p2'].position.x;
-    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null } }, dfSkills);
     expect(state.players['p2'].position.x).toBe(x0);
 
     // After the root expires (0.4s) they can move again, though still slowed.
     for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, dfSkills);
     const x1 = state.players['p2'].position.x;
-    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } } }, dfSkills);
+    state = advanceState(state, { p1: idle(), p2: { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null } }, dfSkills);
     expect(state.players['p2'].position.x).toBeGreaterThan(x1);
 
     // A second freeze inside the ICD refreshes the slow but not the root.
