@@ -16,6 +16,7 @@ import {
   REST_CAST_TICKS, REST_REGEN_FRACTION_PER_SEC, REST_COOLDOWN_TICKS,
   BLOCK_DAMAGE_REDUCTION, BLOCK_MOVE_MULT, BLOCK_RERAISE_TICKS,
   JAB_RANGE, JAB_WIDTH, EXECUTIONER_BONUS,
+  SPEAR_STUN_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -34,6 +35,7 @@ import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
 import { firstJabTarget, jabDamage } from '../spells/Jab.ts';
+import { spawnSpear, advanceSpear, isSpearExpired, spearHitsPlayer, spearDamage } from '../spells/Spear.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
@@ -531,10 +533,18 @@ export function advanceState(
           players[targetId] = { ...target, hp: Math.max(0, target.hp - mit.damage) };
         }
       }
-    } else if (spell === 13 || spell === 14 || spell === 15) {
+    } else if (spell === 13) {
       const gm = gladMods[id];
       if (!gm) continue;
-      // Mechanics land per-spell in Tasks 8-10.
+      projectiles = [...projectiles, spawnSpear(id, p.position, input.aimTarget, {
+        damageMin: gm.spear.damageMin,
+        damageMax: gm.spear.damageMax,
+        stunTicks: gm.spear.stunTicks,
+      })];
+    } else if (spell === 14 || spell === 15) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      // Mechanics land per-spell in Tasks 9-10.
     }
   }
 
@@ -687,6 +697,35 @@ export function advanceState(
             if (ownerAM && ownerAM.element !== 'none' && next.hp > 0 && !sameTeam) {
               const atkDamageMult = players[moved.ownerId]?.statMults.damage ?? 1;
               applyElementStatus(next, ownerAM, atkDamageMult, tick);
+            }
+            players[pid] = next;
+          }
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) survivingProjectiles.push(moved);
+    } else if (proj.type === 'spear') {
+      const moved = advanceSpear(proj);
+      if (isSpearExpired(moved)) continue;
+      if ((moved.noHitUntil ?? 0) > tick) { survivingProjectiles.push(moved); continue; }
+      let hit = false;
+      for (const [pid, player] of Object.entries(players)) {
+        if (player.hp <= 0) continue;
+        if (spearHitsPlayer(moved, player.position, pid)) {
+          const invuln = (player.invulnUntil ?? 0) > tick;
+          if (!invuln) {
+            const raw = spearDamage(moved.damageMin, moved.damageMax)
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
+            const mit = mitigateDamage(player, moved.position, raw, blockDR(pid));
+            const next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            // The stun pierces Block (spec) but never applies to teammates —
+            // full CC through reduced friendly fire would undercut the FF rule.
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[moved.ownerId]?.teamId !== undefined &&
+              players[moved.ownerId].teamId === player.teamId;
+            if (!sameTeam && next.hp > 0) {
+              next.stunUntil = tick + (moved.stunTicks ?? SPEAR_STUN_TICKS);
             }
             players[pid] = next;
           }
