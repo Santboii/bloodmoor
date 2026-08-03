@@ -1,6 +1,6 @@
 import { supabase, fetchItems } from '../supabase';
-import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, computeLoadout } from '@arena/shared';
-import type { CharacterClass } from '@arena/shared';
+import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, computeLoadout, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
+import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
@@ -41,10 +41,44 @@ const NODE_ICONS: Record<NodeId, string> = {
   'archer_utility.combat_roll': 'fa-person-falling',
   'archer_utility.shadowstep':  'fa-ghost',
   'archer_utility.acrobatics':  'fa-tornado',
+  'frost.ice_bolt':         'fa-icicles',
+  'frost.bitter_chill':     'fa-temperature-low',
+  'frost.ice_lance':        'fa-arrow-right-long',
+  'frost.ice_ray':          'fa-bolt',
+  'frost.frostbite':        'fa-tooth',
+  'frost.splintering_ice':  'fa-shapes',
+  'frost.blizzard':         'fa-snowflake',
+  'frost.lingering_winter': 'fa-hourglass-half',
+  'frost.deepening_cold':   'fa-temperature-arrow-down',
+  'frost.whiteout':         'fa-expand',
+  'frost.frozen_orb':       'fa-circle-nodes',
+  'frost.shard_storm':      'fa-burst',
+  'frost.glacial_drift':    'fa-gauge-simple-low',
+  'frost.cold_mastery':     'fa-award',
 };
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * `#ui-overlay` (this screen's mount point) applies `zoom: var(--ui-zoom)`
+ * to scale the whole UI (see pixelTheme.ts). That scaling reaches
+ * position:fixed descendants too — the same reason `.bm-ui`/`.cs-ui` divide
+ * `100vh` by this value to get their true on-screen height. The cursor
+ * tooltip positions itself with raw `left`/`top` px, so it needs the same
+ * compensation: divide real viewport coordinates by this factor right
+ * before writing them into style, or the tooltip drifts from the cursor by
+ * the zoom factor the farther it sits from the viewport's top-left corner.
+ */
+function uiZoom(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom');
+  const z = parseFloat(raw);
+  return Number.isFinite(z) && z > 0 ? z : 1;
+}
+
+function nodeForSpell(spell: SpellId): NodeId {
+  return SPELL_BINDINGS.find(b => b.spell === spell)!.node;
 }
 
 /** Stackable effects are stored either as a fraction (0.4 → "40%") or as a
@@ -71,6 +105,23 @@ const FIRE_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'fire.molten_impact':   { x: 20, row: 6 },
   'fire.blind_strike':    { x: 50, row: 6 },
   'fire.cataclysm':       { x: 80, row: 6 },
+};
+
+const FROST_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'frost.ice_bolt':         { x: 50, row: 0 },
+  'frost.bitter_chill':     { x: 20, row: 1 },
+  'frost.ice_ray':          { x: 50, row: 1 },
+  'frost.ice_lance':        { x: 80, row: 1 },
+  'frost.frostbite':        { x: 30, row: 2 },
+  'frost.splintering_ice':  { x: 70, row: 2 },
+  'frost.blizzard':         { x: 50, row: 3 },
+  'frost.lingering_winter': { x: 20, row: 4 },
+  'frost.deepening_cold':   { x: 50, row: 4 },
+  'frost.whiteout':         { x: 80, row: 4 },
+  'frost.frozen_orb':       { x: 50, row: 5 },
+  'frost.shard_storm':      { x: 20, row: 6 },
+  'frost.glacial_drift':    { x: 50, row: 6 },
+  'frost.cold_mastery':     { x: 80, row: 6 },
 };
 
 const UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
@@ -103,7 +154,7 @@ const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7;
 
 /**
  * The tree used to be drawn at one fixed size tuned to survive a 720px
@@ -124,14 +175,22 @@ const SCALES: Scale[] = [
 ];
 
 const treeHeight = (rows: number, s: Scale) => (rows - 1) * s.row + s.block;
-/** Height both columns are pinned to — the deepest tree plus its label, so the
- *  page is exactly as tall for a ranger as for a mage. */
-const workspaceHeight = (s: Scale) => treeHeight(FIRE_ROWS, s) + 24;
 
-/** Everything above the workspace (nav, subhead) plus the legend and padding
- *  below it. Measured from the rendered page; a few px of slack keeps the
- *  largest step that "fits" from being the one that adds a scrollbar. */
-const CHROME_H = 250;
+/** Header band + body padding inside `.st-tree-panel`. Measured in-browser:
+ *  header 30px (7px+7px padding + a 16px VT323 line) + body padding 26px
+ *  (16px top, 10px bottom) = 56. Independent of Scale — the panel header
+ *  keeps a fixed VT323 size regardless of node-circle scale. */
+const PANEL_CHROME_H = 56;
+
+/** Height every column is pinned to — the deepest tree plus its panel chrome,
+ *  so the page is exactly as tall for a ranger as for a mage. */
+const workspaceHeight = (s: Scale) => treeHeight(FIRE_ROWS, s) + PANEL_CHROME_H;
+
+/** Everything above the workspace (nav, subhead) plus the legend, selection
+ *  bar, hotbar and picker rows below it, and padding. Approximate — measured
+ *  from the pre-tooltip layout and padded for the rows the tooltip/hotbar
+ *  rework added since; worth eyeballing at common viewport heights. */
+const CHROME_H = 360;
 
 /** The largest step whose 7-row tree still fits the viewport without the page
  *  scrolling, smallest step otherwise. */
@@ -143,11 +202,22 @@ function pickScale(viewportH: number): Scale {
   return SCALES[0];
 }
 
+/** Per-tree accent colour — used for the tree panel's border/header band and
+ *  threaded through to the tooltip border when a node from that tree is
+ *  hovered. Mirrors the accents already used for spell-slot colouring in
+ *  HUD.ts (fire/archer orange, frost cyan, utility/archer_utility violet). */
+const TREE_ACCENT: Record<SkillNode['tree'], string> = {
+  fire: '#e86020',
+  lightning: '#e86020',
+  archer: '#e86020',
+  frost: '#6fd3f2',
+  utility: '#b48cff',
+  archer_utility: '#b48cff',
+};
+
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
-/* Tight bottom padding: the smallest scale plus the legend is sized to clear a
-   720px viewport without the overlay scrolling, and it only just does. */
-.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px 10px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
+.st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px 16px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
 /* ── header bar ─────────────────────────────────────────────────────── */
 .st-title{font-size:11px;letter-spacing:0.05em;}
 .st-points-pill{display:flex;align-items:center;gap:10px;background:#101117;padding:8px 16px;box-shadow:inset 0 0 0 2px var(--px-border-dark);}
@@ -155,35 +225,29 @@ const STYLES = `
 .st-points-num{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--px-success);}
 .st-points-label{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-border-light);letter-spacing:0.1em;}
 .st-btn{padding:10px 16px;font-size:8px;letter-spacing:0.05em;}
-/* ── two-column workspace ───────────────────────────────────────────── */
-/* Never wraps. Wrapping dropped the details panel below the fold, so the node
-   you were inspecting and its description could not be on screen together —
-   the one thing this two-column layout exists to guarantee. Below the min the
-   overlay scrolls sideways instead, which at least keeps them adjacent. */
-.st-columns{display:flex;gap:24px;width:100%;max-width:1060px;min-width:840px;align-items:flex-start;flex-wrap:nowrap;justify-content:center;}
-.st-col-main{flex:1 1 auto;min-width:460px;max-width:660px;}
-/* Both columns are pinned to the same workspace height (set inline) so the
-   page height never depends on which class is open or how much the details
-   panel has to say — the panel absorbs the difference by scrolling itself. */
-.st-col-side{flex:0 1 340px;min-width:300px;display:flex;flex-direction:column;gap:16px;}
-/* Both tree headings sit directly on the masonry backdrop, so they carry the
-   same black outline the node names do — the utility heading in particular
-   was disappearing into the lit bricks behind it. */
-.st-tree-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:#d86030;text-align:center;margin-bottom:8px;
-  text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
-.st-util-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;color:#8c93a3;text-transform:uppercase;text-align:center;margin-bottom:8px;
-  text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
+/* ── three-column workspace ─────────────────────────────────────────── */
+.st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+.st-col-main{flex:1 1 480px;min-width:380px;max-width:560px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;max-width:480px;}
+.st-col-side{flex:1 1 340px;min-width:340px;max-width:400px;}
+.st-col-frost{flex:1 1 380px;min-width:380px;max-width:480px;}
+/* Every column is pinned to the same workspace height (set inline) so the
+   panels line up in a clean row regardless of how many rows the tree inside
+   actually uses. */
+.st-tree-panel{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:#15161b;box-shadow:inset 0 2px 0 0 var(--px-border-dark),inset 0 -2px 0 0 var(--px-border-light),0 0 0 2px var(--st-tree-accent,var(--px-accent));}
+.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));text-align:center;}
+.st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;}
 .st-tree-container{position:relative;width:100%;}
-.st-util-block{flex:0 0 auto;}
 .st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
 /* ── nodes ──────────────────────────────────────────────────────────── */
 .st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
 .st-node-circle{border-radius:0;display:flex;align-items:center;justify-content:center;transition:filter 0.14s,transform 0.14s;position:relative;}
 .st-node-circle:hover{transform:scale(1.08);}
-/* Locked nodes are still worth clicking — the panel explains what they need —
-   so they keep the pointer cursor and only lose the "this will do something"
-   hover lift. */
+/* The hover tooltip already shows a locked node's requirements the instant
+   the cursor lands on it — there is nothing left for a click to reveal, so
+   unlike the old pinned-panel layout this stays not-allowed. */
+.st-node[data-state="locked"] .st-node-circle{cursor:not-allowed;}
 .st-node[data-state="locked"] .st-node-circle:hover{transform:none;}
 /* Sizes come from the picked Scale, set as custom properties on .st-ui. */
 .st-node-spell{width:var(--st-spell);height:var(--st-spell);}
@@ -226,13 +290,11 @@ const STYLES = `
 .st-keystone-active{background:rgba(221,184,74,0.14)}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
 /* Wide enough that the longest name ("Rain of Arrows") stays on one line —
-   a wrapped spell name is what used to collide with the badge below it. */
-/* The 4-way black outline is what keeps names readable over the torchlit
-   masonry behind the tree — without it dim states dissolve into the bricks. */
-/* --st-namew is set from JS against the measured tree width (see
-   syncNameWidth). A percentage here would resolve against .st-node, which is
-   absolutely positioned and shrink-to-fit — it collapses to the circle's
-   width and wraps every name. */
+   a wrapped spell name is what used to collide with the badge below it.
+   --st-namew is set from JS against the measured tree width (see
+   syncNameWidth). The 4-way black outline is what keeps names readable over
+   the torchlit masonry behind the tree — without it dim states dissolve into
+   the bricks. */
 .st-node-name{font-family:'Press Start 2P',monospace;font-size:var(--st-name);text-align:center;max-width:var(--st-namew);margin-top:4px;line-height:1.35;
   text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
 /* corner badges replace the old cost/rank text rows */
@@ -255,15 +317,10 @@ const STYLES = `
 .st-node-locked .st-keymark{color:#6b6242;}
 .st-flash .st-node-circle{animation:st-buy-flash 0.45s ease-out;}
 @keyframes st-buy-flash{0%{filter:brightness(3) saturate(2);}100%{filter:none;}}
-/* ── details panel ──────────────────────────────────────────────────── */
-.st-details{padding:12px 16px;flex:1 1 auto;min-height:0;overflow-y:auto;box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--px-border-light) transparent;}
-/* The panel is height-pinned, so a long node (keystone + requirements + a
-   supercharge note) overflows it. macOS hides overlay scrollbars until you
-   scroll, which made that read as a clipped bug rather than a scroll region —
-   this fades the cut edge. Toggled from JS, and dropped once scrolled to the
-   bottom so the last line is never left under the gradient. */
-.st-details.st-scrollable{-webkit-mask-image:linear-gradient(#000 calc(100% - 16px),transparent);mask-image:linear-gradient(#000 calc(100% - 16px),transparent);}
-.st-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:12px;}
+/* ── hover tooltip (WoW-style: cursor-anchored, instant, never intercepts
+   clicks) — content markup mirrors the old pinned details panel exactly,
+   gear/exclusion info included. ── */
+.st-tooltip{position:fixed;display:none;z-index:200;max-width:320px;padding:10px 14px;box-sizing:border-box;background:var(--px-panel);box-shadow:inset 0 0 0 2px var(--px-border-dark),0 0 0 2px var(--st-tt-accent,var(--px-accent)),0 6px 16px rgba(0,0,0,0.55);pointer-events:none;font-family:'VT323',monospace;color:var(--px-text);}
 .st-details-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
 .st-details-icon{width:40px;height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:center;background:#101117;box-shadow:inset 0 0 0 2px var(--px-border-dark);font-size:18px;}
 .st-details-name{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--px-accent);line-height:1.5;}
@@ -289,17 +346,21 @@ const STYLES = `
 .st-super-note b{color:#f0d060;}
 .st-refund-hint{margin-top:6px;font-size:14px;color:var(--px-border-light);}
 .st-refund-hint.st-refund-blocked{color:var(--px-danger);opacity:0.85;}
-/* Refunding used to be right-click only, documented solely in a legend that
-   disappeared after the first hover. The gesture stays; this is the visible
-   affordance for it. */
-.st-refund-btn{margin-top:10px;padding:8px 12px;font-size:7px;letter-spacing:0.05em;}
-/* Legend lives under the workspace, not inside the details panel — the panel
-   is occupied by a node as soon as the pointer touches the tree. */
-.st-legend{width:100%;max-width:1060px;margin-top:10px;padding:7px 16px;box-sizing:border-box;
-  display:flex;flex-wrap:wrap;gap:8px 22px;justify-content:center;font-size:14px;color:var(--px-border-light);}
-.st-legend-row{display:flex;align-items:center;gap:8px;}
-.st-legend-swatch{width:12px;height:12px;flex:0 0 12px;}
+/* Slim horizontal strip beneath the tree row — quiet, not a second focal
+   point, so it wraps on narrow widths rather than forcing a scrollbar. */
+.st-legend{margin-top:14px;padding-top:10px;border-top:1px solid var(--px-border-dark);display:flex;flex-wrap:wrap;justify-content:center;gap:8px 20px;font-size:13px;color:var(--px-border-light);width:100%;max-width:1400px;box-sizing:border-box;}
+.st-legend-row{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.st-legend-swatch{width:11px;height:11px;flex:0 0 11px;}
 .st-legend-mark{flex:0 0 auto;font-size:11px;color:#ffd75e;}
+/* ── selected-node action bar ──────────────────────────────────────────
+   The details panel used to host a visible refund button; it can't live in
+   the tooltip above (pointer-events:none, and it tracks the cursor rather
+   than staying put), so it's rehomed here, anchored to whichever node was
+   last clicked (selectedId) rather than last hovered. Empty/hidden unless
+   the selected node is owned. */
+.st-selection-bar{display:none;align-items:center;gap:14px;margin-top:14px;padding:10px 16px;background:#15161b;box-shadow:inset 0 0 0 2px var(--px-border-dark);width:100%;max-width:1400px;box-sizing:border-box;font-family:'VT323',monospace;font-size:15px;color:var(--px-border-light);}
+.st-selection-name{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--px-accent);flex:0 0 auto;}
+.st-refund-btn{padding:8px 12px;font-size:7px;letter-spacing:0.05em;}
 /* ── confirm modal (kept for reset + past-cap ranks) ─────────────────── */
 .st-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:400;}
 .st-confirm-panel{padding:28px 32px;max-width:340px;text-align:center;}
@@ -307,6 +368,15 @@ const STYLES = `
 .st-confirm-text{font-family:'VT323',monospace;font-size:16px;color:var(--px-text);margin-bottom:24px;line-height:1.5;white-space:pre-line;}
 .st-confirm-buttons{display:flex;gap:12px;justify-content:center;}
 .st-confirm-yes,.st-confirm-no{padding:9px 24px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;}
+/* ── hotbar slot assignment ─────────────────────────────────────────── */
+.st-slots{display:flex;gap:8px;justify-content:center;margin-top:14px}
+.st-slot{width:46px;height:46px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.st-slot.picking{box-shadow:0 0 0 2px var(--px-accent)}
+.st-slot .st-slot-key{position:absolute;right:2px;bottom:2px;font-family:'Press Start 2P',monospace;font-size:7px;color:var(--px-text)}
+.st-picker{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.st-picker-item{padding:6px 10px;background:#23252c;box-shadow:0 0 0 2px var(--px-border-dark);cursor:pointer;font-family:'VT323',monospace;font-size:15px;color:var(--px-text)}
+.st-picker-item:hover{box-shadow:0 0 0 2px var(--px-accent)}
+.st-picker-item.st-picker-item-current{box-shadow:0 0 0 2px var(--px-success)}
 `;
 
 export class SkillTreeUI {
@@ -317,15 +387,25 @@ export class SkillTreeUI {
    *  They change what a talent DOES, never what it costs or what it unlocks,
    *  so they stay out of `ranks` and out of every gate/price calculation. */
   private gearRanks = new Map<NodeId, number>();
+  private slotRows: SpellSlotRow[] = [];
   private characterId: string | null = null;
   private skillPoints = 0;
   private charName = '';
   private charClass = '';
   private selectedId: NodeId | null = null;
   private flashId: NodeId | null = null;
+  private pickingSlot: SlotIndex | null = null;
   private scale: Scale = SCALES[0];
   private hasRendered = false;
   private resizeTimer: number | null = null;
+  // Cursor tooltip. Lives outside `this.el`'s innerHTML churn (render()
+  // rewrites that wholesale on every purchase/refund/slot change) so it isn't
+  // torn down and rebuilt every time; `hoveredId`/`lastPointer` let render()
+  // refresh its content in place when the point count or ranks change under
+  // an already-hovered node.
+  private tooltipEl: HTMLElement;
+  private hoveredId: NodeId | null = null;
+  private lastPointer: { x: number; y: number } = { x: 0, y: 0 };
 
   /** Row index → pixels at the current scale. */
   private yOf(pos: NodePos): number {
@@ -346,11 +426,14 @@ export class SkillTreeUI {
   };
 
   /**
-   * Caps node names at 28% of the tree's measured width — under the 30% gap
-   * between neighbouring columns, so two names can never collide however
+   * Caps node names at 28% of the main tree's measured width — under the 30%
+   * gap between neighbouring columns, so two names can never collide however
    * narrow the window gets — or at the scale's natural width, whichever is
    * smaller. Has to be measured: the cap is relative to the tree, and no
-   * ancestor of the name is the tree.
+   * ancestor of the name is the tree. Applied as one shared CSS variable
+   * across all three tree columns (main/frost/util); the frost and util
+   * containers are usually narrower than main, so this is an approximation,
+   * not an exact per-column measurement.
    */
   private syncNameWidth(): void {
     const ui = this.el.querySelector('.st-ui') as HTMLElement | null;
@@ -374,6 +457,10 @@ export class SkillTreeUI {
     this.el = document.createElement('div');
     this.el.className = 'st-overlay';
     container.appendChild(this.el);
+
+    this.tooltipEl = document.createElement('div');
+    this.tooltipEl.className = 'st-tooltip';
+    container.appendChild(this.tooltipEl);
   }
 
   private closeResolver: ((next: NavKey) => void) | null = null;
@@ -395,6 +482,7 @@ export class SkillTreeUI {
   /** `next` is where the user asked to go — 'arena' for the lobby. */
   hide(next: NavKey = 'arena'): void {
     this.el.style.display = 'none';
+    this.hideTooltip();
     window.removeEventListener('resize', this.onResize);
     if (this.resizeTimer !== null) { window.clearTimeout(this.resizeTimer); this.resizeTimer = null; }
     this.hasRendered = false;
@@ -410,7 +498,7 @@ export class SkillTreeUI {
    * load — previously that gap was a blank screen, because show() only set
    * display:block on a still-empty element and then awaited the network.
    * Kept separate from render() rather than folded in behind a flag: render()
-   * binds the respec button and both tree <svg>s by id with non-null
+   * binds the respec button and all tree <svg>s by id with non-null
    * assertions, and none of that markup exists yet.
    */
   private renderLoading(): void {
@@ -436,9 +524,9 @@ export class SkillTreeUI {
   private async reload(): Promise<void> {
     if (!this.characterId) return;
 
-    // All three fetches are independent — run them in parallel, the tree opens
-    // in one round trip instead of three.
-    const [{ data: charData }, { data }, items] = await Promise.all([
+    // All four fetches are independent — run them in parallel, the tree opens
+    // in one round trip instead of four.
+    const [{ data: charData }, { data }, items, { data: slotData }] = await Promise.all([
       supabase
         .from('characters')
         .select('skill_points_available, name, class')
@@ -449,6 +537,10 @@ export class SkillTreeUI {
         .select('node_id, rank')
         .eq('character_id', this.characterId),
       fetchItems(),
+      supabase
+        .from('character_spell_slots')
+        .select('slot, spell')
+        .eq('character_id', this.characterId),
     ]);
 
     this.skillPoints = charData?.skill_points_available ?? 0;
@@ -484,7 +576,27 @@ export class SkillTreeUI {
       }
     }
 
+    this.slotRows = (slotData ?? []) as SpellSlotRow[];
+
     this.render();
+  }
+
+  /** Spells the character can currently slot: bought via `ranks`, or granted
+   *  purely by equipped gear via `gearRanks` — mirrors `refreshLoadout` in
+   *  main.ts, which folds gear talent ranks into `ownedSpells` the same way.
+   *  A gear-only spell (e.g. a Meteor talent affix) is live in combat, so it
+   *  must be assignable here too, not just visible in the tree. */
+  private ownedSpells(): Set<SpellId> {
+    return new Set(
+      SPELL_BINDINGS.filter(b => this.ranks.has(b.node) || this.gearRanks.has(b.node)).map(b => b.spell)
+    );
+  }
+
+  /** The resolved six-slot bar for the character right now. `renderSlotBar`
+   *  and `assignSlot` both derive it through this one path so they always
+   *  agree about what the stored slot rows mean. */
+  private currentSlots(): (SpellId | null)[] {
+    return resolveSlots(this.ownedSpells(), this.slotRows);
   }
 
   private render(): void {
@@ -496,17 +608,22 @@ export class SkillTreeUI {
     const mainPositions = isRanger ? ARCHER_POSITIONS : FIRE_POSITIONS;
     const utilPositions = isRanger ? ARCHER_UTIL_POSITIONS : UTIL_POSITIONS;
     const mainLabel = isRanger ? 'Archer' : 'Fire';
+    const mainTree = isRanger ? 'archer' : 'fire';
+    const utilTree = isRanger ? 'archer_utility' : 'utility';
+    const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
 
     this.scale = pickScale(window.innerHeight);
     const s = this.scale;
     const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS, s)}px`;
     const utilContainerHeight = `${treeHeight(UTIL_ROWS, s)}px`;
+    const frostContainerHeight = `${treeHeight(FROST_ROWS, s)}px`;
     const workspaceH = workspaceHeight(s);
     const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px;--st-name:${s.name}px`;
 
-    // Keystones and "choose one" groups are ranger-only today, and a legend
-    // entry for a marker the open class never draws is just noise.
-    const shown = [...mainNodes, ...utilNodes];
+    // Keystones and "choose one" groups aren't universal across every tree,
+    // and a legend entry for a marker the open class never draws is just
+    // noise. Mages draw fire + frost + utility; rangers draw archer + evasion.
+    const shown = isRanger ? [...mainNodes, ...utilNodes] : [...mainNodes, ...frostNodes, ...utilNodes];
     const hasKeystones = shown.some(n => n.keystone);
     const hasExclusive = shown.some(n => GATES[n.id]?.mutuallyExclusive?.length);
     const hasGear = this.gearRanks.size > 0;
@@ -527,39 +644,58 @@ export class SkillTreeUI {
           </div>
         </div>
 
-        <div class="st-columns">
+        <div class="st-columns${!isRanger ? ' has-frost' : ''}">
           <div class="st-col-main" style="height:${workspaceH}px">
-            <div class="st-tree-label">${mainLabel}</div>
-            <div class="st-tree-container" style="height:${mainContainerHeight}">
-              <svg id="st-main-svg" class="st-tree-svg"></svg>
-              ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[mainTree]}">
+              <div class="st-tree-panel-header">${mainLabel}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${mainContainerHeight}">
+                  <svg id="st-main-svg" class="st-tree-svg"></svg>
+                  ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
+                </div>
+              </div>
             </div>
           </div>
+          ${!isRanger ? `
+          <div class="st-col-frost" style="height:${workspaceH}px">
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT.frost}">
+              <div class="st-tree-panel-header">Frost</div>
+              <div class="st-tree-panel-body">
+                <div class="st-tree-container" style="height:${frostContainerHeight}">
+                  <svg id="st-frost-svg" class="st-tree-svg"></svg>
+                  ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+                </div>
+              </div>
+            </div>
+          </div>` : ''}
           <div class="st-col-side" style="height:${workspaceH}px">
-            <div id="st-details" class="st-details px-panel"></div>
-            <div class="st-util-block">
-              <div class="st-util-label">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
-              <div class="st-util-container" style="height:${utilContainerHeight}">
-                <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
-                ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[utilTree]}">
+              <div class="st-tree-panel-header">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
+              <div class="st-tree-panel-body">
+                <div class="st-util-container" style="height:${utilContainerHeight}">
+                  <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
+                  ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Kept to one row: the workspace height above is tuned so a 7-row
-             tree still fits a 720px viewport, and a wrapping legend spends
-             that margin. -->
-        <div class="st-legend px-panel">
+        <div class="st-legend">
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked (cost shown)</div>
           ${hasGear ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #3f9fbd;background:#04222c;"></span>Rank from gear</div>` : ''}
           ${hasKeystones ? `<div class="st-legend-row"><span class="st-legend-mark"><i class="fa fa-bolt"></i></span>Keystone (past cap)</div>` : ''}
-          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Any one parent</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
           ${hasExclusive ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 2px 0 0 var(--px-accent);"></span>Choose one</div>` : ''}
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click: refund</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-border-light);background:#101117;"></span>Right-click a skill: refund 1 rank</div>
         </div>
+
+        <div class="st-selection-bar" id="st-selection-bar"></div>
+
+        <div class="st-slots" id="st-slots">${this.renderSlotBar()}</div>
+        <div class="st-picker" id="st-picker"></div>
       </div>
     `;
 
@@ -571,12 +707,31 @@ export class SkillTreeUI {
       onSettings: () => this.navHandlers.onSettings(),
     });
     this.el.querySelector('#st-respec')!.addEventListener('click', () => this.handleRespec());
+    this.el.querySelectorAll('.st-slot').forEach(el => {
+      el.addEventListener('click', () => {
+        this.openPicker(Number((el as HTMLElement).dataset.slot) as SlotIndex);
+      });
+    });
+    // Delegate on the container, not the items. `render()` emits #st-picker
+    // EMPTY and openPicker fills it later via innerHTML — binding the items
+    // here would attach zero listeners and the picker would never respond.
+    this.el.querySelector('#st-picker')!.addEventListener('click', e => {
+      const item = (e.target as HTMLElement).closest('.st-picker-item') as HTMLElement | null;
+      if (!item || this.pickingSlot === null) return;
+      const raw = item.dataset.spell;
+      void this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
+    });
 
     this.syncNameWidth();
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
+    this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
     this.attachNodeListeners(pts);
-    this.renderDetails(this.selectedId, pts);
+    this.renderSelectionBar();
+    // A purchase/refund/slot-change re-renders the whole tree (new node
+    // elements), which would otherwise leave the tooltip showing stale ranks
+    // and costs while the mouse hasn't moved off the node it was over.
+    if (this.hoveredId) this.showTooltipFor(this.hoveredId, pts);
 
     if (this.flashId) {
       this.el.querySelector(`.st-node[data-id="${this.flashId}"]`)?.classList.add('st-flash');
@@ -707,6 +862,17 @@ export class SkillTreeUI {
     return out;
   }
 
+  private renderSlotBar(): string {
+    const slots = this.currentSlots();
+    return slots.map((spell, i) => {
+      const icon = spell === null ? 'fa-minus' : (NODE_ICONS[nodeForSpell(spell)] ?? 'fa-star');
+      return `<div class="st-slot" data-slot="${i + 1}">
+        <i class="fa ${icon} fa-fw"${spell === null ? ' style="opacity:0.3"' : ''}></i>
+        <span class="st-slot-key">${i + 1}</span>
+      </div>`;
+    }).join('');
+  }
+
   private drawConnections(svgId: string, positions: Partial<Record<NodeId, NodePos>>, nodes: SkillNode[], pts: number): void {
     const svg = this.el.querySelector(`#${svgId}`) as SVGElement | null;
     if (!svg) return;
@@ -745,21 +911,11 @@ export class SkillTreeUI {
     svg.innerHTML = lines + this.exclusiveBrackets(positions, nodes);
   }
 
-  /** The pinned side panel: full description, rank track, requirements, and
-   *  what happens on click — replaces the old cursor-chasing tooltip. */
-  private renderDetails(id: NodeId | null, pts: number): void {
-    const panel = this.el.querySelector('#st-details') as HTMLElement | null;
-    if (!panel) return;
-
-    if (!id) {
-      panel.innerHTML = `
-        <div class="st-details-empty">
-          Hover a skill to inspect it.<br>Click to learn or rank up.
-        </div>
-      `;
-      return;
-    }
-
+  /** Builds the tooltip's inner HTML for a hovered node: full description,
+   *  gear-rank line, rank track (bought + gear segments), requirements
+   *  (including any exclusion conflict), and what happens on click — same
+   *  markup and order the old pinned details panel used. */
+  private buildTooltipContent(id: NodeId, pts: number): string {
     const node = SKILL_NODES.find(n => n.id === id)!;
     const gate = GATES[id];
     const currentRank = this.ranks.get(id) ?? 0;
@@ -828,7 +984,9 @@ export class SkillTreeUI {
       }
     }
 
-    // Requirements with met/unmet marks.
+    // Requirements with met/unmet marks, including a mutually-exclusive
+    // conflict (the same information that drives the excluded/red node state
+    // and the "CHOOSE ONE" bracket).
     let reqHtml = '';
     if (gate && !isOwned) {
       const rows: string[] = [];
@@ -852,16 +1010,16 @@ export class SkillTreeUI {
       if (rows.length) reqHtml = `<div class="st-req">${rows.join('')}</div>`;
     }
 
-    // Refund control for owned nodes. Right-click still works and is the
-    // faster gesture, but it can't be the only one — it is invisible, and
-    // keyboard and touch have no equivalent.
+    // Refund hint for owned nodes: right-click gives one rank back, or click
+    // the node (below, in the tree) to bring up the refund button under the
+    // legend — this tooltip can't host a clickable button, it's
+    // pointer-events:none so it never steals a click from the node beneath.
     let refundLine = '';
     if (isOwned) {
       const reason = this.refundBlockReason(id);
       const refund = rankUpCost(node, currentRank - 1);
       refundLine = reason === null
-        ? `<button id="st-refund-btn" class="px-btn st-refund-btn">− Refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''})</button>
-           <div class="st-refund-hint">…or right-click the skill</div>`
+        ? `<div class="st-refund-hint">Right-click: refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''}) — or click to select it for the refund button below the tree.</div>`
         : `<div class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</div>`;
     }
 
@@ -886,7 +1044,7 @@ export class SkillTreeUI {
       status = `<span class="st-status-bad">Locked — requirements not met</span>`;
     }
 
-    panel.innerHTML = `
+    return `
       <div class="st-details-head">
         <div class="st-details-icon"><i class="fa ${icon}" style="color:var(--px-accent)"></i></div>
         <div>
@@ -903,23 +1061,77 @@ export class SkillTreeUI {
       ${superBlock}
       ${refundLine}
     `;
-
-    // Acts on the node the panel is showing, which is the node the button
-    // names — so a stale hover can't refund something else.
-    panel.querySelector('#st-refund-btn')?.addEventListener('click', () => this.refundNode(id, node));
-    this.syncPanelFade(panel);
   }
 
-  /** Shows the cut-edge fade only while there is more panel below the fold.
-   *  Assigned rather than added so re-rendering on every hover can't stack
-   *  scroll listeners. */
-  private syncPanelFade(panel: HTMLElement): void {
-    const update = () => panel.classList.toggle(
-      'st-scrollable',
-      panel.scrollHeight - panel.scrollTop - panel.clientHeight > 2,
-    );
-    panel.onscroll = update;
-    update();
+  /** Shows (or refreshes) the tooltip for `id`, colouring its border with
+   *  that node's tree accent, then repositions it at the last known cursor
+   *  spot. Content and position are separate steps because a re-render can
+   *  refresh content without any new mouse movement to reposition from. */
+  private showTooltipFor(id: NodeId, pts: number): void {
+    const node = SKILL_NODES.find(n => n.id === id);
+    if (!node) return;
+    this.hoveredId = id;
+    this.tooltipEl.style.setProperty('--st-tt-accent', TREE_ACCENT[node.tree]);
+    this.tooltipEl.innerHTML = this.buildTooltipContent(id, pts);
+    this.tooltipEl.style.display = 'block';
+    this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+  }
+
+  /** Cursor + 18px right/down; flips to the left/above the cursor rather
+   *  than letting either edge clip off-screen. Must run after the tooltip's
+   *  content and display are set — its measured size depends on both.
+   *  `clientX`/`clientY`, `window.innerWidth/Height` and the measured rect
+   *  are all real viewport pixels (getBoundingClientRect always reports the
+   *  rendered box, zoom included); only the final left/top written to style
+   *  need the /uiZoom() compensation described on that function. */
+  private positionTooltip(clientX: number, clientY: number): void {
+    const OFFSET = 18;
+    const rect = this.tooltipEl.getBoundingClientRect();
+    let x = clientX + OFFSET;
+    let y = clientY + OFFSET;
+    if (x + rect.width > window.innerWidth) x = clientX - OFFSET - rect.width;
+    if (y + rect.height > window.innerHeight) y = clientY - OFFSET - rect.height;
+    x = Math.max(4, x);
+    y = Math.max(4, y);
+    const zoom = uiZoom();
+    this.tooltipEl.style.left = `${x / zoom}px`;
+    this.tooltipEl.style.top = `${y / zoom}px`;
+  }
+
+  private hideTooltip(): void {
+    this.hoveredId = null;
+    this.tooltipEl.style.display = 'none';
+  }
+
+  /** Refund control for the last-clicked node (`selectedId`), rehomed here
+   *  because the old details panel is gone and the button can't live inside
+   *  the pointer-events:none cursor tooltip. Hidden unless the selection is
+   *  an owned node. Re-run after every render() and every click-to-select. */
+  private renderSelectionBar(): void {
+    const bar = this.el.querySelector('#st-selection-bar') as HTMLElement | null;
+    if (!bar) return;
+    const id = this.selectedId;
+    const node = id ? SKILL_NODES.find(n => n.id === id) : undefined;
+    const currentRank = id ? (this.ranks.get(id) ?? 0) : 0;
+    if (!id || !node || currentRank === 0) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+
+    const reason = this.refundBlockReason(id);
+    const refund = rankUpCost(node, currentRank - 1);
+    bar.style.display = 'flex';
+    bar.innerHTML = reason === null
+      ? `<span class="st-selection-name">${esc(node.name)}</span>
+         <button id="st-refund-btn" class="px-btn st-refund-btn">− Refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''})</button>
+         <span class="st-refund-hint">…or right-click the skill</span>`
+      : `<span class="st-selection-name">${esc(node.name)}</span>
+         <span class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</span>`;
+
+    // Acts on the node the bar is showing, which is the node its label
+    // names — so a stale selection can't refund something else.
+    bar.querySelector('#st-refund-btn')?.addEventListener('click', () => this.refundNode(id, node));
   }
 
   private attachNodeListeners(pts: number): void {
@@ -927,12 +1139,17 @@ export class SkillTreeUI {
       const id = el.getAttribute('data-id') as NodeId;
       const node = SKILL_NODES.find(n => n.id === id)!;
 
-      // Sticky inspect: the panel keeps showing the last-hovered node (no
-      // mouseleave revert). The panel's refund button acts on whichever node
-      // the panel is showing, so a node crossed on the way to the panel swaps
-      // the button's target — but it also visibly relabels it, and the pointer
-      // has to land on the button itself to do anything.
-      el.addEventListener('mouseenter', () => this.renderDetails(id, pts));
+      // WoW-style cursor tooltip: appears instantly on enter (no fade delay),
+      // tracks the cursor while over the node, and disappears on leave.
+      el.addEventListener('mouseenter', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.showTooltipFor(id, pts);
+      });
+      el.addEventListener('mousemove', (e) => {
+        this.lastPointer = { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
+        this.positionTooltip(this.lastPointer.x, this.lastPointer.y);
+      });
+      el.addEventListener('mouseleave', () => this.hideTooltip());
 
       el.addEventListener('click', () => {
         this.selectedId = id;
@@ -957,10 +1174,12 @@ export class SkillTreeUI {
           }
           sfx.playDenied();
         }
-        // Not buyable from the node: select it so the panel pins its details.
+        // Not buyable from the node: select it. The tooltip already shows its
+        // details from the hover that preceded this click; the selection bar
+        // below the tree picks up the refund control when it's owned.
         this.el.querySelectorAll('.st-node-selected').forEach(n => n.classList.remove('st-node-selected'));
         el.classList.add('st-node-selected');
-        this.renderDetails(id, pts);
+        this.renderSelectionBar();
       });
 
       // Right-click: refund one rank.
@@ -1002,7 +1221,7 @@ export class SkillTreeUI {
     this.ranks.set(id, nextRank);
     this.skillPoints -= cost;
     this.flashId = id;
-    this.selectedId = id; // keep the panel on the node just bought
+    this.selectedId = id; // keep the outline (and refund bar) on the node just bought
     this.render();
 
     supabase.rpc('unlock_skill_node', {
@@ -1019,6 +1238,56 @@ export class SkillTreeUI {
 
   private handleUnlock(id: NodeId, cost: number): void {
     this.buyNode(id, cost, 1);
+  }
+
+  private openPicker(slot: SlotIndex): void {
+    this.pickingSlot = slot;
+    // Mark which slot is being edited. The picker renders in its own row
+    // below the bar, so without this the player has no way to tell which of
+    // the six slots their choice will land in.
+    this.el.querySelectorAll('.st-slot').forEach(el => {
+      el.classList.toggle('picking', Number((el as HTMLElement).dataset.slot) === slot);
+    });
+    const picker = this.el.querySelector('#st-picker') as HTMLElement;
+    // Now that the picker works, show what already occupies this slot so the
+    // player isn't choosing blind.
+    const currentSpell = this.currentSlots()[slot - 1];
+    const items = [...this.ownedSpells()].map(spell => {
+      const node = SKILL_NODES.find(n => n.id === nodeForSpell(spell));
+      const current = spell === currentSpell ? ' st-picker-item-current' : '';
+      return `<div class="st-picker-item${current}" data-spell="${spell}">${esc(node?.name ?? String(spell))}</div>`;
+    });
+    const clearCurrent = currentSpell === null ? ' st-picker-item-current' : '';
+    items.push(`<div class="st-picker-item${clearCurrent}" data-spell="clear">— Clear —</div>`);
+    picker.innerHTML = items.join('');
+  }
+
+  private async assignSlot(slot: SlotIndex, spell: SpellId | null): Promise<void> {
+    if (!this.characterId) return;
+
+    // Snapshot-authoritative: compute the whole bar and store the whole bar.
+    // There is no swap to model against the server, so the optimistic view
+    // and what persists cannot drift apart.
+    const next = this.currentSlots();
+    const existing = spell === null ? -1 : next.indexOf(spell);
+    // Moving a spell that already sits somewhere swaps the two slots; the
+    // vacated one takes whatever the target was holding (possibly nothing).
+    if (existing !== -1) next[existing] = next[slot - 1];
+    next[slot - 1] = spell;
+
+    this.slotRows = next
+      .map((s, i) => ({ slot: i + 1, spell: s }))
+      .filter((r): r is { slot: number; spell: SpellId } => r.spell !== null);
+
+    this.pickingSlot = null;
+    this.render();
+
+    const { error } = await supabase.rpc('set_spell_slots', {
+      p_character_id: this.characterId,
+      p_slots: next,
+    });
+    if (error) console.error('Slot assignment failed, reverting:', error.message);
+    await this.reload();
   }
 
   /**
@@ -1045,7 +1314,8 @@ export class SkillTreeUI {
     return null;
   }
 
-  /** Optimistic single-rank refund — right-click. Mirrors buyNode. */
+  /** Optimistic single-rank refund — right-click, or the refund button in the
+   *  selection bar. Mirrors buyNode. */
   private refundNode(id: NodeId, node: SkillNode): void {
     if (!this.characterId) return;
     const currentRank = this.ranks.get(id) ?? 0;

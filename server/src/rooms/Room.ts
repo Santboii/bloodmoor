@@ -129,7 +129,7 @@ export class Room {
     if (this.state.phase === 'ended') return this.state;
     const inputs: Record<string, InputFrame> = {};
     for (const [id] of this.players) {
-      let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+      let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null };
       const staleness = this.ticksSinceInput.get(id) ?? 0;
       this.ticksSinceInput.set(id, staleness + 1);
       if (staleness > Room.INPUT_GRACE_TICKS && (pending.move.x !== 0 || pending.move.y !== 0)) {
@@ -307,6 +307,17 @@ export class Room {
       }
       for (const echo of this.state.echoVolleys ?? []) {
         if (echo.ownerId === oldSocketId) echo.ownerId = newSocketId;
+      }
+      for (const orb of this.state.frozenOrbs) {
+        if (orb.ownerId === oldSocketId) orb.ownerId = newSocketId;
+      }
+      // Absolute Zero's dwell map is keyed by target socket id — remap it too,
+      // or a reconnecting player's dwell progress is silently dropped.
+      for (const fw of this.state.fireWalls) {
+        if (fw.dwell && oldSocketId in fw.dwell) {
+          fw.dwell[newSocketId] = fw.dwell[oldSocketId];
+          delete fw.dwell[oldSocketId];
+        }
       }
     }
   }

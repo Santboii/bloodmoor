@@ -1,4 +1,4 @@
-import { GameState, PlayerState, SpellId, SPELL_CONFIG, SPELL_BINDINGS, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, REST_CAST_TICKS, REST_COOLDOWN_TICKS } from '@arena/shared';
+import { GameState, PlayerState, SpellId, SPELL_CONFIG, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, MAX_SPELL_SLOTS, REST_CAST_TICKS, REST_COOLDOWN_TICKS } from '@arena/shared';
 import { Minimap } from './Minimap';
 import * as sfx from '../audio/sfx';
 
@@ -6,12 +6,14 @@ import * as sfx from '../audio/sfx';
 const SPELL_ICONS: Record<number, string> = {
   1: 'fa-fire', 2: 'fa-fire-flame-simple', 3: 'fa-meteor', 4: 'fa-wand-magic',
   5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
+  9: 'fa-icicles', 10: 'fa-snowflake', 11: 'fa-circle-nodes', 12: 'fa-bolt',
 };
 
-// Spell-school tint for slot icons: fire / utility (mobility) / ranger.
+// Spell-school tint for slot icons: fire / utility (mobility) / ranger / frost.
 const SPELL_TINTS: Record<number, string> = {
   1: '#ff8c42', 2: '#ff8c42', 3: '#ff8c42', 4: '#b48cff',
   5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
+  9: '#6fd3f2', 10: '#6fd3f2', 11: '#6fd3f2', 12: '#6fd3f2',
 };
 
 // Chunky 20-gon staircase — a circle drawn at pixel-art resolution.
@@ -23,6 +25,7 @@ const PIXEL_CIRCLE =
 type EnemyRow = { row: HTMLElement; name: HTMLElement; fill: HTMLElement; lastHp: number; lastName: string; flashTimer: number };
 
 type SlotEntry = {
+  spell: SpellId;
   slot: HTMLElement;
   cd: HTMLElement;
   cdTime: HTMLElement;
@@ -47,7 +50,7 @@ export class HUD {
   private mpNum: HTMLElement;
   private spellsEl: HTMLElement;
   private enemiesEl: HTMLElement;
-  private slotEls = new Map<SpellId, SlotEntry>();
+  private slotEls: (SlotEntry | null)[] = [];
   private enemyRows = new Map<string, EnemyRow>();
   private lastHpPct = -1;
   private lastMpPct = -1;
@@ -92,6 +95,8 @@ export class HUD {
         .spell-slot.nomana .slot-icon{opacity:0.35;filter:saturate(0.2) brightness(1.6) hue-rotate(180deg)}
         .spell-slot.active{box-shadow:inset 0 2px 0 0 rgba(255,255,255,0.08),inset 0 -2px 0 0 rgba(0,0,0,0.45),0 0 0 2px var(--px-accent),0 0 10px rgba(255,179,71,0.55)}
         .spell-slot.active::after{content:'';position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,179,71,0.4);z-index:2;pointer-events:none}
+        .spell-slot.empty{opacity:0.3}
+        .spell-slot.empty .slot-icon{opacity:0.5}
         .spell-slot .charge-pips{position:absolute;left:3px;top:3px;display:flex;gap:3px;z-index:3}
         .charge-pips .pip{width:6px;height:6px;background:#3a3d46;box-shadow:0 0 0 1px var(--px-border-dark)}
         .charge-pips .pip.full{background:#ddb84a}
@@ -161,21 +166,28 @@ export class HUD {
     this.lastMpPct = -1;
   }
 
-  buildSpellSlots(ownedSpells: Set<SpellId>): void {
+  buildSpellSlots(slots: (SpellId | null)[]): void {
     this.spellsEl.textContent = '';
-    this.slotEls.clear();
-    for (const binding of SPELL_BINDINGS) {
-      if (!ownedSpells.has(binding.spell)) continue;
+    this.slotEls = [];
+    for (let i = 0; i < MAX_SPELL_SLOTS; i++) {
+      const spell = slots[i] ?? null;
       const slot = document.createElement('div');
-      slot.className = 'spell-slot';
+      slot.className = spell === null ? 'spell-slot empty' : 'spell-slot';
+      const icon = spell === null ? 'fa-minus' : (SPELL_ICONS[spell] ?? 'fa-star');
+      const tint = spell === null ? 'var(--px-text)' : (SPELL_TINTS[spell] ?? 'var(--px-text)');
       slot.innerHTML = `
-        <i class="fa ${SPELL_ICONS[binding.spell] ?? 'fa-star'} fa-fw slot-icon" style="color:${SPELL_TINTS[binding.spell] ?? 'var(--px-text)'}"></i>
-        <span class="slot-key">${binding.key}</span>
+        <i class="fa ${icon} fa-fw slot-icon" style="color:${tint}"></i>
+        <span class="slot-key">${i + 1}</span>
         <div class="cd-overlay" style="height:0%"></div>
         <span class="cd-time"></span>
         <div class="charge-pips"></div>`;
       this.spellsEl.appendChild(slot);
-      this.slotEls.set(binding.spell, {
+      if (spell === null) {
+        this.slotEls.push(null);
+        continue;
+      }
+      this.slotEls.push({
+        spell,
         slot,
         cd: slot.querySelector('.cd-overlay') as HTMLElement,
         cdTime: slot.querySelector('.cd-time') as HTMLElement,
@@ -189,7 +201,7 @@ export class HUD {
     }
   }
 
-  update(state: GameState, activeSpell: SpellId): void {
+  update(state: GameState, activeSpell: SpellId | null): void {
     const me = state.players[this.myId];
     if (!me) return;
 
@@ -227,7 +239,9 @@ export class HUD {
       else sfx.playHitTaken();
     }
 
-    for (const [key, entry] of this.slotEls) {
+    for (const entry of this.slotEls) {
+      if (!entry) continue;
+      const key = entry.spell;
       const active = key === activeSpell;
       if (active !== entry.lastActive) {
         entry.slot.classList.toggle('active', active);

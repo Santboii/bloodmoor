@@ -1,4 +1,4 @@
-import { Vec2, PLAYER_SPEED, PLAYER_HALF_SIZE, ARENA_SIZE, PILLARS, DELTA, Pillar, TELEPORT_MAX_RANGE } from './types.js';
+import { Vec2, PLAYER_SPEED, PLAYER_HALF_SIZE, ARENA_SIZE, PILLARS, DELTA, Pillar, Segment, TELEPORT_MAX_RANGE } from './types.js';
 
 export function circleHitsAABB(center: Vec2, radius: number, pillar: Pillar): boolean {
   const closestX = Math.max(pillar.x - pillar.halfSize, Math.min(center.x, pillar.x + pillar.halfSize));
@@ -62,4 +62,15 @@ export function movePlayer(position: Vec2, input: Vec2, speedMultiplier = 1): Ve
     y: position.y + ny * PLAYER_SPEED * DELTA * speedMultiplier,
   };
   return resolvePlayerPillarCollisions(clampToArena(moved));
+}
+
+export function pointToSegmentDist(p: Vec2, seg: Segment): number {
+  const dx = seg.x2 - seg.x1;
+  const dy = seg.y2 - seg.y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.sqrt((p.x - seg.x1) ** 2 + (p.y - seg.y1) ** 2);
+  const t = Math.max(0, Math.min(1, ((p.x - seg.x1) * dx + (p.y - seg.y1) * dy) / lenSq));
+  const cx = seg.x1 + t * dx;
+  const cy = seg.y1 + t * dy;
+  return Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
 }

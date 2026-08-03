@@ -7,3 +7,4 @@ export * from './appearance.js';
 export * from './items.js';
 export * from './gearVisuals.js';
 export * from './economy.js';
+export * from './iceRay.js';

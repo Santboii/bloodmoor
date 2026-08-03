@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { spawnFireWall, fireWallDamagesPlayer, buildWallSegments } from '../src/spells/FireWall.ts';
+import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, buildWallSegments } from '../src/spells/FireWall.ts';
 import { FIREWALL_DURATION_TICKS, FIREWALL_MAX_LENGTH } from '@arena/shared';
 
 describe('buildWallSegments', () => {
@@ -45,5 +45,18 @@ describe('fireWallDamagesPlayer', () => {
   it('returns false when player is far from the wall', () => {
     const fw = spawnFireWall('p1', { x: 100, y: 100 }, { x: 300, y: 100 }, 0);
     expect(fireWallDamagesPlayer(fw, { x: 400, y: 600 }, 'p2')).toBe(false);
+  });
+});
+
+describe('zone kind', () => {
+  it('stamps spawnFireWall zones as firewall', () => {
+    const fw = spawnFireWall('p1', { x: 0, y: 0 }, { x: 100, y: 0 }, 0, 1, 1);
+    expect(fw.kind).toBe('firewall');
+  });
+
+  it('stamps craters as crater, not firewall', () => {
+    const crater = spawnFireCrater('p1', { x: 50, y: 50 }, 40, 0, 180);
+    expect(crater.kind).toBe('crater');
+    expect(crater.shape).toBe('circle');
   });
 });

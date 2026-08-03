@@ -6,8 +6,8 @@ import { RoomManager } from './rooms/RoomManager.ts';
 import { Room } from './rooms/Room.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
 import { InputFrame, GameState } from '@arena/shared';
-import type { GameModeType, ItemRow } from '@arena/shared';
-import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS } from '@arena/shared';
+import type { GameModeType, ItemRow, FireWallState, Vec2 } from '@arena/shared';
+import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS, PLAYER_HALF_SIZE } from '@arena/shared';
 import { loadSkillsForCharacter, creditMatchResult, loadUserFromToken } from './skills/loadSkills.ts';
 import { economyRouter } from './economy/routes.ts';
 import { supabase } from './supabase.ts';
@@ -31,7 +31,7 @@ const rematchTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const AIM_LIMIT = 100_000;
 function sanitizeInput(raw: unknown): InputFrame | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; rest?: unknown };
+  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; channel?: unknown; rest?: unknown };
 
   const rawMove = r.move as { x?: unknown; y?: unknown } | undefined;
   const clampAxis = (v: unknown): number =>
@@ -45,7 +45,11 @@ function sanitizeInput(raw: unknown): InputFrame | null {
 
   const castValid =
     r.castSpell === null ||
-    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 8);
+    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 12);
+
+  const channelValid =
+    r.channel === null || r.channel === undefined ||
+    (typeof r.channel === 'number' && Number.isInteger(r.channel) && r.channel >= 1 && r.channel <= 12);
 
   if (!aimValid) return null;
 
@@ -54,6 +58,7 @@ function sanitizeInput(raw: unknown): InputFrame | null {
     // A cast without a valid aim point cannot be resolved — drop the cast.
     castSpell: castValid ? (r.castSpell as InputFrame['castSpell']) : null,
     aimTarget: { x: rawAim!.x as number, y: rawAim!.y as number },
+    channel: channelValid ? ((r.channel ?? null) as InputFrame['channel']) : null,
   };
   if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
   if (r.rest === true) input.rest = true;
@@ -73,6 +78,18 @@ function roundForWire(value: unknown): unknown {
   return value;
 }
 
+/** Blinding Squall keystone: true if `pos` is standing inside an active
+ *  (non-lingering) Blizzard owned by `ownerId` that has the keystone
+ *  stamped on it. Excludes Permafrost's lingering (`noDamage`) zone — that
+ *  is leftover chilled ground, not an active Blizzard, mirroring the
+ *  Absolute Zero dwell exclusion in StateAdvancer.ts. */
+function insideBlindingBlizzard(ownerId: string, pos: Vec2, fireWalls: FireWallState[]): boolean {
+  return fireWalls.some(fw =>
+    fw.kind === 'blizzard' && fw.ownerId === ownerId && fw.blindingSquall && !fw.noDamage &&
+    fw.center && fw.radius &&
+    (pos.x - fw.center.x) ** 2 + (pos.y - fw.center.y) ** 2 <= (fw.radius + PLAYER_HALF_SIZE) ** 2);
+}
+
 function broadcastState(roomId: string, room: Room, state: GameState): void {
   const wire = roundForWire(state) as GameState;
   // volatile: a stalled client skips snapshots instead of buffering them
@@ -80,15 +97,24 @@ function broadcastState(roomId: string, room: Room, state: GameState): void {
   // 'ended' snapshot has NO successor and carries the last death (FFA
   // placement, death visuals) — it must be delivered reliably.
   const reliable = state.phase === 'ended';
-  // Blind Strike meteors must not be visible to opponents — filter per recipient.
-  if (state.meteors.some(m => m.hidden)) {
+  // Blind Strike meteors must not be visible to opponents, and Blinding
+  // Squall hides a caster's meteor impact indicators from anyone standing
+  // inside their Blizzard — both filter per recipient.
+  const anyHidden = state.meteors.some(m => m.hidden) ||
+    state.fireWalls.some(fw => fw.kind === 'blizzard' && fw.blindingSquall && !fw.noDamage);
+  if (anyHidden) {
     for (const id of room.players.keys()) {
       const sock = io.sockets.sockets.get(id);
       if (!sock) continue;
       const emitter = reliable ? sock : sock.volatile;
+      const recipientPos = state.players[id]?.position;
       emitter.emit('game-state', {
         ...wire,
-        meteors: wire.meteors.filter(m => !m.hidden || m.ownerId === id),
+        meteors: wire.meteors.filter(m => {
+          if (m.ownerId === id) return true;
+          if (m.hidden) return false;
+          return !(recipientPos && insideBlindingBlizzard(m.ownerId, recipientPos, state.fireWalls));
+        }),
       });
     }
   } else {

@@ -4,7 +4,7 @@ import { buildRangerModifiers } from '../src/skills/RangerModifiers.ts';
 import type { NodeId, InputFrame, ItemRow } from '@arena/shared';
 import { MAX_HP, MAX_MANA, computeLoadout, deriveElement } from '@arena/shared';
 
-const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim });
+const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim, channel: null });
 
 // bone_ring's implicit is max_mana — inert for every other stat under test
 // below, so it never collides with the affix being exercised.
@@ -56,7 +56,7 @@ describe('statMults consumption in the tick loop', () => {
       { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1 as const, aimTarget: { x: 1800, y: 1000 }, channel: null },
       p2: idle(),
     };
     const next = advanceState(state, inputs);
@@ -90,8 +90,8 @@ describe('statMults consumption in the tick loop', () => {
     ]);
     const move = { x: 1, y: 0 };
     const next = advanceState(state, {
-      p1: { move, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move, castSpell: null, aimTarget: { x: 1800, y: 1000 } },
+      p1: { move, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move, castSpell: null, aimTarget: { x: 1800, y: 1000 }, channel: null },
     });
     const d1 = next.players.p1.position.x - 200;
     const d2 = next.players.p2.position.x - 200;
@@ -112,7 +112,7 @@ describe('effective ranks — tree + item talent merge', () => {
       { id: 'p1', displayName: 'P1', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 3, aimTarget: { x: 1000, y: 1000 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 3, aimTarget: { x: 1000, y: 1000 }, channel: null };
 
     const treeOnly = advanceState(state, { p1: cast, p2: idle() }, { p1: treeRanks, p2: new Map() });
     const withItem = advanceState(state, { p1: cast, p2: idle() }, { p1: merged, p2: new Map() });
@@ -133,7 +133,7 @@ describe('effective ranks — tree + item talent merge', () => {
       { id: 'p1', displayName: 'P1', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'P2', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 3, aimTarget: { x: 1000, y: 1000 } };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 3, aimTarget: { x: 1000, y: 1000 }, channel: null };
 
     const withoutItem = advanceState(state, { p1: cast, p2: idle() }, { p1: treeRanks, p2: new Map() });
     expect(withoutItem.meteors).toHaveLength(0);

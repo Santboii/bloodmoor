@@ -1,4 +1,4 @@
-import { InputFrame, SpellId, SPELL_BINDINGS } from '@arena/shared';
+import { InputFrame, SpellId, MAX_SPELL_SLOTS, MOBILITY_SPELLS } from '@arena/shared';
 import type { CharacterClass } from '@arena/shared';
 import { Scene } from '../renderer/Scene';
 
@@ -8,11 +8,14 @@ const ISO_SIN   =  Math.sin(ISO_ANGLE); // ≈ -0.7071
 
 export class InputHandler {
   private keys = new Set<string>();
-  private activeSpell: SpellId = 1;
+  private activeSpell: SpellId | null = null;
+  private slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
   private charClass: CharacterClass = 'mage';
   private mouseScreen = { x: 0, y: 0 };
   private mouseWorld = { x: 1000, y: 1000 }; // center of new arena
   private pendingCast: { spell: SpellId; aimTarget: { x: number; y: number } } | null = null;
+  private leftHeld = false;
+  private channelSpells = new Set<SpellId>();
   private pendingRest = false;
 
   constructor(private scene: Scene, private canvas: HTMLElement) {
@@ -25,39 +28,54 @@ export class InputHandler {
     canvas.addEventListener('mouseup', this.onMouseUp);
   }
 
-  private spellForKey(key: 1 | 2 | 3 | 4): SpellId | null {
-    return SPELL_BINDINGS.find(b => b.charClass === this.charClass && b.key === key)?.spell ?? null;
+  private spellForSlot(slot: number): SpellId | null {
+    return this.slots[slot - 1] ?? null;
+  }
+
+  private get activeIsChannel(): boolean {
+    return this.activeSpell !== null && this.channelSpells.has(this.activeSpell);
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys.add(e.code);
-    const digit = /^Digit([1-4])$/.exec(e.code);
+    const digit = /^Digit([1-6])$/.exec(e.code);
     if (digit) {
-      const spell = this.spellForKey(Number(digit[1]) as 1 | 2 | 3 | 4);
+      const spell = this.spellForSlot(Number(digit[1]));
       if (spell) this.activeSpell = spell;
     }
     if (e.code === 'Space') {
       e.preventDefault();
-      // Key 4 is each class's mobility spell (teleport / evade).
-      const mobilitySpell = this.spellForKey(4);
-      if (mobilitySpell) this.pendingCast = { spell: mobilitySpell, aimTarget: this.mouseWorld };
+      // The mobility spell is cast by its id wherever it sits — slots are free
+      // now, so "whatever is on key 4" is no longer the same thing.
+      const mobility = MOBILITY_SPELLS[this.charClass];
+      if (this.slots.includes(mobility)) {
+        this.pendingCast = { spell: mobility, aimTarget: this.mouseWorld };
+      }
     }
     if (e.code === 'KeyR') this.pendingRest = true;
   };
 
   private onKeyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
 
-  private onBlur = () => { this.keys.clear(); };
+  private onBlur = () => { this.keys.clear(); this.leftHeld = false; };
 
   private onMouseMove = (e: MouseEvent) => {
     this.mouseScreen = { x: e.clientX, y: e.clientY };
     this.mouseWorld = this.scene.screenToWorld(e.clientX, e.clientY);
   };
 
-  private onMouseDown = (_e: MouseEvent) => {};
+  private onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) return;
+    this.leftHeld = true;
+  };
 
   private onMouseUp = (e: MouseEvent) => {
     if (e.button !== 0) return;
+    this.leftHeld = false;
+    if (this.activeSpell === null) return;
+    // A channel ends on release; queuing a cast here would fire a phantom
+    // discrete cast on top of it — an extra damage tick and a second charge.
+    if (this.activeIsChannel) return;
     this.pendingCast = { spell: this.activeSpell, aimTarget: this.mouseWorld };
   };
 
@@ -74,7 +92,12 @@ export class InputHandler {
     move.x = rx;
     move.y = ry;
 
-    const frame: InputFrame = { move, castSpell: null, aimTarget: this.mouseWorld };
+    const frame: InputFrame = {
+      move,
+      castSpell: null,
+      channel: this.leftHeld && this.activeIsChannel ? this.activeSpell : null,
+      aimTarget: this.mouseWorld,
+    };
 
     if (this.pendingCast) {
       frame.castSpell = this.pendingCast.spell;
@@ -94,12 +117,22 @@ export class InputHandler {
     this.mouseWorld = this.scene.screenToWorld(this.mouseScreen.x, this.mouseScreen.y);
   }
 
-  setCharacterClass(cls: string): void {
-    this.charClass = cls === 'ranger' ? 'ranger' : 'mage';
-    this.activeSpell = this.spellForKey(1) ?? 1;
+  setSlots(slots: (SpellId | null)[]): void {
+    this.slots = slots;
+    // Keep the current selection if it survived the change; otherwise fall back
+    // to the first non-empty slot so left-click is never a no-op.
+    if (this.activeSpell === null || !slots.includes(this.activeSpell)) {
+      this.activeSpell = slots.find((s): s is SpellId => s !== null) ?? null;
+    }
   }
 
-  getActiveSpell(): SpellId { return this.activeSpell; }
+  setCharacterClass(cls: string): void {
+    this.charClass = cls === 'ranger' ? 'ranger' : 'mage';
+  }
+
+  setChannelSpells(spells: Set<SpellId>): void { this.channelSpells = spells; }
+
+  getActiveSpell(): SpellId | null { return this.activeSpell; }
   getCurrentMouseWorld(): { x: number; y: number } { return this.mouseWorld; }
 
   dispose(): void {

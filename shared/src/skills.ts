@@ -1,5 +1,5 @@
-import type { SpellId, CharacterClass } from './types.js';
-import { TELEPORT_MAX_RANGE } from './types.js';
+import type { SpellId, CharacterClass, SlotIndex } from './types.js';
+import { TELEPORT_MAX_RANGE, MAX_SPELL_SLOTS } from './types.js';
 
 export type NodeId =
   | 'fire.fireball' | 'fire.volatile_ember' | 'fire.seeking_flame'
@@ -13,7 +13,12 @@ export type NodeId =
   | 'archer.sustained_rain' | 'archer.piercing_rain' | 'archer.wide_rain'
   | 'archer.burn' | 'archer.freeze' | 'archer.poison'
   | 'archer_utility.evade' | 'archer_utility.combat_roll'
-  | 'archer_utility.shadowstep' | 'archer_utility.acrobatics';
+  | 'archer_utility.shadowstep' | 'archer_utility.acrobatics'
+  | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance' | 'frost.ice_ray'
+  | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
+  | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
+  | 'frost.frozen_orb' | 'frost.shard_storm' | 'frost.glacial_drift'
+  | 'frost.cold_mastery';
 
 export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility';
 
@@ -68,6 +73,20 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   'archer_utility.combat_roll': { requiresAll: ['archer_utility.evade'] },
   'archer_utility.shadowstep':  { requiresAll: ['archer_utility.evade'] },
   'archer_utility.acrobatics':  { requiresAll: ['archer_utility.evade'], requiresAny: ['archer_utility.combat_roll', 'archer_utility.shadowstep'] },
+  // Frost tree — mirrors the fire tree's gate shape exactly.
+  'frost.bitter_chill':     { requiresAll: ['frost.ice_bolt'] },
+  'frost.ice_lance':        { requiresAll: ['frost.ice_bolt'] },
+  'frost.ice_ray':          { requiresAll: ['frost.ice_bolt'] },
+  'frost.frostbite':        { requiresAll: ['frost.ice_bolt'] },
+  'frost.splintering_ice':  { requiresAll: ['frost.ice_bolt'] },
+  'frost.blizzard':         { requiresAll: ['frost.ice_bolt'], requiresAny: ['frost.bitter_chill', 'frost.ice_lance', 'frost.ice_ray'] },
+  'frost.lingering_winter': { requiresAll: ['frost.blizzard'] },
+  'frost.deepening_cold':   { requiresAll: ['frost.blizzard'] },
+  'frost.whiteout':         { requiresAll: ['frost.blizzard'] },
+  'frost.frozen_orb':       { requiresAll: ['frost.blizzard'], requiresAny: ['frost.lingering_winter', 'frost.deepening_cold', 'frost.whiteout'] },
+  'frost.shard_storm':      { requiresAll: ['frost.frozen_orb'] },
+  'frost.glacial_drift':    { requiresAll: ['frost.frozen_orb'] },
+  'frost.cold_mastery':     { requiresAll: ['frost.frozen_orb'] },
 };
 
 export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): boolean {
@@ -125,27 +144,141 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'archer_utility.shadowstep',   name: 'Shadowstep',   tree: 'archer_utility', tier: 2, cost: 2, isSpell: false, description: 'Become invisible for 0.5s after evading.' },
   { id: 'archer_utility.acrobatics',   name: 'Acrobatics',   tree: 'archer_utility', tier: 3, cost: 3, isSpell: false, description: 'Evade cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Second Wind', description: 'Evade holds 2 charges.' } },
+  // ── Frost tree ────────────────────────────────────────────────────────────
+  { id: 'frost.ice_bolt',         name: 'Ice Bolt',         tree: 'frost', tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile that chills on hit. 60–85 damage.' },
+  { id: 'frost.bitter_chill',     name: 'Bitter Chill',     tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt\'s chill is stronger and lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.05 },
+    keystone: { name: 'Flash Freeze', description: 'An Ice Bolt hitting an unchilled target roots them for 0.4s (once per 6s per target).' } },
+  { id: 'frost.ice_lance',        name: 'Ice Lance',        tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt pierces one additional enemy per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Impaler', description: 'Pierce is unlimited, and each enemy pierced adds +8% damage to later hits.' } },
+  { id: 'frost.ice_ray',          name: 'Ice Ray',          tree: 'frost', tier: 2, cost: 2, isSpell: true,  description: 'Hold to channel a beam. Damage, mana cost and width all grow the longer you hold. You move at 35% speed while channelling.' },
+  { id: 'frost.frostbite',        name: 'Frostbite',        tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt deals more damage the more slowed the target is.', stackable: { softCap: 3, baseEffect: 0.10 },
+    keystone: { name: 'Rimeheart', description: 'The bonus applies to all your frost damage against that target, not just Ice Bolt.' } },
+  { id: 'frost.splintering_ice',  name: 'Splintering Ice',  tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt shatters into shards on impact. One more shard per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Flechette', description: 'Shards home toward the nearest enemy instead of scattering.' } },
+  { id: 'frost.blizzard',         name: 'Blizzard',         tree: 'frost', tier: 4, cost: 2, isSpell: true,  description: 'Persistent field. 45 dmg/s, chills anyone inside.' },
+  { id: 'frost.lingering_winter', name: 'Lingering Winter', tree: 'frost', tier: 5, cost: 1, isSpell: false, description: '+10% Blizzard duration per rank.', stackable: { softCap: 5, baseEffect: 0.10 },
+    keystone: { name: 'Permafrost', description: 'An expiring Blizzard leaves chilled ground for 2s — no damage, but the chill continues.' } },
+  { id: 'frost.deepening_cold',   name: 'Deepening Cold',   tree: 'frost', tier: 5, cost: 2, isSpell: false, description: '+8% Blizzard damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Absolute Zero', description: 'Standing in your Blizzard for 1.5s roots for 0.4s (once per 6s per target).' } },
+  { id: 'frost.whiteout',         name: 'Whiteout',         tree: 'frost', tier: 5, cost: 1, isSpell: false, description: '+20% Blizzard radius per rank.', stackable: { softCap: 5, baseEffect: 0.20 },
+    keystone: { name: 'Blinding Squall', description: 'Enemies inside your Blizzard cannot see your spell impact indicators.' } },
+  { id: 'frost.frozen_orb',       name: 'Frozen Orb',       tree: 'frost', tier: 6, cost: 3, isSpell: true,  description: 'Drifts forward spraying ice shards, then expires. 25–40 per shard.' },
+  { id: 'frost.shard_storm',      name: 'Shard Storm',      tree: 'frost', tier: 7, cost: 2, isSpell: false, description: 'Frozen Orb fires more shards per volley per rank.', stackable: { softCap: 3, baseEffect: 2 },
+    keystone: { name: 'Cataclysmic Orb', description: 'The orb detonates when it expires: 120 damage in a 100-unit radius.' } },
+  { id: 'frost.glacial_drift',    name: 'Glacial Drift',    tree: 'frost', tier: 7, cost: 1, isSpell: false, description: 'Frozen Orb travels slower and lives longer per rank.', stackable: { softCap: 5, baseEffect: 0.12 } },
+  { id: 'frost.cold_mastery',     name: 'Cold Mastery',     tree: 'frost', tier: 7, cost: 2, isSpell: false, description: '+6% damage to all frost spells per rank.', stackable: { softCap: 5, baseEffect: 0.06 },
+    keystone: { name: 'Absolute Cold', description: 'Your chill lasts 50% longer.' } },
 ];
 
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
 
 // ── Spell bindings ──────────────────────────────────────────────────────────
-// Single source of truth for spell id ↔ unlock node ↔ keybind ↔ class.
+// Single source of truth for spell id ↔ unlock node ↔ default slot ↔ class.
 // Consumed by the server cast gate, the client HUD, input handling, and the
 // skill-unlock → owned-spells derivation. Add new classes/spells here only.
 
-export type SpellBinding = { spell: SpellId; node: NodeId; key: 1 | 2 | 3 | 4; charClass: CharacterClass };
+/** Maps a spell to the node that unlocks it and the class that can cast it.
+ *  `defaultSlot` is the hotbar slot the spell takes when the character has
+ *  not assigned one — it preserves the pre-slots keybind layout. A spell
+ *  without one falls to the lowest empty slot. */
+export type SpellBinding = {
+  spell: SpellId;
+  node: NodeId;
+  charClass: CharacterClass;
+  defaultSlot?: SlotIndex;
+};
 
 export const SPELL_BINDINGS: SpellBinding[] = [
-  { spell: 1, node: 'fire.fireball',          key: 1, charClass: 'mage' },
-  { spell: 2, node: 'fire.fire_wall',         key: 2, charClass: 'mage' },
-  { spell: 3, node: 'fire.meteor',            key: 3, charClass: 'mage' },
-  { spell: 4, node: 'utility.teleport',       key: 4, charClass: 'mage' },
-  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'ranger' },
-  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'ranger' },
-  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'ranger' },
-  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'ranger' },
+  { spell: 1, node: 'fire.fireball',          defaultSlot: 1, charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         defaultSlot: 2, charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            defaultSlot: 3, charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       defaultSlot: 4, charClass: 'mage' },
+  { spell: 9,  node: 'frost.ice_bolt',   charClass: 'mage' },
+  { spell: 10, node: 'frost.blizzard',   charClass: 'mage' },
+  { spell: 11, node: 'frost.frozen_orb', charClass: 'mage' },
+  { spell: 12, node: 'frost.ice_ray',  charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
 ];
+
+export type SpellSlotRow = { slot: number; spell: number };
+
+/** Each class's movement spell, cast by Space regardless of which slot holds it. */
+export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
+  mage: 4,    // Teleport
+  ranger: 8,  // Evade
+};
+
+const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
+
+/**
+ * Resolve persisted slot rows into the character's hotbar.
+ *
+ * The model is **snapshot-authoritative**: a character who has edited their
+ * bar has every slot persisted, and those rows are the complete truth.
+ * Defaults apply only to a character who has never edited.
+ *
+ *   1. Explicit rows win. If any survived validation, return immediately —
+ *      an absent slot in a stored snapshot means *deliberately empty*, and
+ *      nothing may fall into it. This is what makes benching a spell
+ *      possible, and it is why "Clear" works.
+ *   2. Otherwise (a never-edited character) every owned spell seeds at its
+ *      legacy default slot. This keeps an existing character's bar identical
+ *      to what it was before slots existed: a mage owning Fireball and
+ *      Meteor keeps them on keys 1 and 3, with the gap where Fire Wall goes.
+ *   3. Anything still unplaced — its default slot was taken, or it has no
+ *      default (Phase B frost spells) — falls to the lowest empty slot.
+ *
+ * The early return keys off whether any row *survived validation*, not
+ * whether any row was supplied. A snapshot whose spells were all respecced
+ * away resolves to defaults rather than stranding the player on an empty
+ * bar.
+ *
+ * Consequence to know: once a character has edited, a newly unlocked spell
+ * does NOT auto-appear on the bar. They assign it from the slot bar on the
+ * skill tree screen, which is where they just spent the point.
+ */
+export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
+  const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+  const placed = new Set<SpellId>();
+
+  const claim = (index: number, spell: SpellId) => {
+    slots[index] = spell;
+    placed.add(spell);
+  };
+
+  for (const row of rows) {
+    if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
+    if (!ALL_SPELL_IDS.has(row.spell)) continue;
+    const spell = row.spell as SpellId;
+    if (!owned.has(spell)) continue;
+    if (placed.has(spell)) continue;      // first row wins
+    if (slots[row.slot - 1] !== null) continue;
+    claim(row.slot - 1, spell);
+  }
+
+  // Snapshot-authoritative: a stored assignment is the whole bar. Empty
+  // slots in it are deliberate benches, so the default passes must not run.
+  if (placed.size > 0) return slots;
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    if (binding.defaultSlot === undefined) continue;
+    const index = binding.defaultSlot - 1;
+    if (slots[index] === null) claim(index, binding.spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    const free = slots.indexOf(null);
+    if (free === -1) break;
+    claim(free, binding.spell);
+  }
+
+  return slots;
+}
 
 /** The free starter node every character of a class begins with. */
 export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {

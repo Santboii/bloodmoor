@@ -16,8 +16,8 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 5, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 5, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
     };
     const next = advanceState(state, inputs, { p1: rangerSkills, p2: new Map() });
     const arrows = next.projectiles.filter(p => p.type === 'arrow');
@@ -31,8 +31,8 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 6, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 6, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
     };
     const next = advanceState(state, inputs, { p1: rangerSkills, p2: new Map() });
     const arrows = next.projectiles.filter(p => p.type === 'arrow');
@@ -50,8 +50,8 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
     };
     const next = advanceState(state, inputs, { p1: skills, p2: new Map() });
     expect(next.rainOfArrows).toHaveLength(1);
@@ -68,8 +68,8 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
     };
     const next = advanceState(state, inputs, { p1: skills, p2: new Map() });
     expect(next.players['p1'].position.x).toBeGreaterThan(500);
@@ -87,8 +87,8 @@ describe('Ranger combat integration', () => {
       { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 500, y: 1000 } },
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
-    const evade: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 900, y: 1000 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
+    const evade: InputFrame = { move: { x: 0, y: 0 }, castSpell: 8, aimTarget: { x: 900, y: 1000 }, channel: null };
     const sk = { p1: skills, p2: new Map<NodeId, number>() };
 
     state = advanceState(state, { p1: idle, p2: idle }, sk);
@@ -129,8 +129,8 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: 1, aimTarget: { x: 1800, y: 1000 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
+      p1: { move: { x: 0, y: 0 }, castSpell: 1, aimTarget: { x: 1800, y: 1000 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
     };
     const next = advanceState(state, inputs, { p1: rangerSkills, p2: new Map() });
     expect(next.projectiles.filter(p => p.type === 'fireball')).toHaveLength(0);
@@ -146,8 +146,8 @@ describe('Ranger combat integration', () => {
       { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 6, aimTarget: { x: 1800, y: 1000 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 6, aimTarget: { x: 1800, y: 1000 }, channel: null };
     state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
     const firstVolley = state.projectiles.filter(p => p.type === 'arrow').length;
     expect(state.echoVolleys).toHaveLength(1);
@@ -176,8 +176,8 @@ describe('Ranger combat integration', () => {
         { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
         { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
       ]);
-      const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
-      const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 } };
+      const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
+      const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1600, y: 1000 }, channel: null };
       state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
       for (let i = 0; i < 60; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
       return state.players['p2'].hp;
@@ -201,8 +201,8 @@ describe('Ranger combat integration', () => {
       { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 }, channel: null };
     state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
     // Let the zone spawn, then drift for 30 ticks.
     for (let i = 0; i < 75; i++) state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
@@ -221,8 +221,8 @@ describe('Ranger combat integration', () => {
       { id: 'p1', displayName: 'Ranger', charClass: 'ranger', spawnPos: { x: 200, y: 1000 } },
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1800, y: 1000 } },
     ]);
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
-    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
+    const cast: InputFrame = { move: { x: 0, y: 0 }, castSpell: 7, aimTarget: { x: 1000, y: 1000 }, channel: null };
     state = advanceState(state, { p1: cast, p2: idle }, { p1: skills, p2: new Map() });
     expect(state.rainOfArrows).toHaveLength(2);
     const [primary, twin] = state.rainOfArrows;
@@ -241,10 +241,10 @@ describe('Ranger combat integration', () => {
     ]);
     // Two already-detonated zones stacked on p2.
     state.fireWalls.push(
-      { id: 'rain_zone_a', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
-      { id: 'rain_zone_b', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+      { id: 'rain_zone_a', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
+      { id: 'rain_zone_b', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000, shape: 'circle', center: { x: 1600, y: 1000 }, radius: 70 },
     );
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
     const before = state.players['p2'].hp;
     state = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
     const lost = before - state.players['p2'].hp;
@@ -272,7 +272,7 @@ describe('Ranger combat integration', () => {
       { id: 'p2', displayName: 'Mage', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
     ]);
     state.fireWalls.push({
-      id: 'rain_zone_test', ownerId: 'p1', segments: [], expiresAt: 10_000,
+      id: 'rain_zone_test', kind: 'rain', ownerId: 'p1', segments: [], expiresAt: 10_000,
       shape: 'circle', center: { x: 1513, y: 1000 }, radius: 70.5,
     });
     state.projectiles.push({
@@ -280,7 +280,7 @@ describe('Ranger combat integration', () => {
       position: { x: 1600, y: 1000 }, velocity: { x: 0, y: 0 }, radius: 8,
       damageMin: 100, damageMax: 100, homing: 0, homingRedirects: 0, homingInterval: 0, redirectCount: 0,
     });
-    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const idle: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
     const before = state.players['p2'].hp;
     const next = advanceState(state, { p1: idle, p2: idle }, { p1: skills, p2: new Map() });
     const lost = before - next.players['p2'].hp;
@@ -316,8 +316,8 @@ describe('Ranger combat integration', () => {
       predator: true,
     });
     const inputs: Record<string, InputFrame> = {
-      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } },
-      p2: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1300, y: 400 } },   // teleport straight up, dist === TELEPORT_MAX_RANGE
+      p1: { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null },
+      p2: { move: { x: 0, y: 0 }, castSpell: 4 as const, aimTarget: { x: 1300, y: 400 }, channel: null },   // teleport straight up, dist === TELEPORT_MAX_RANGE
     };
     const next = advanceState(state, inputs);
     expect(next.players['p2'].position).toEqual({ x: 1300, y: 400 });
