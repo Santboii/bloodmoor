@@ -122,7 +122,7 @@ export async function fetchItems(): Promise<ItemRow[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from('items')
-    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source')
+    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source, unique_id')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) { console.error('fetchItems failed:', error.message); return []; }
@@ -162,12 +162,13 @@ export type AdminItemRow = {
   id: string; user_id: string; base_id: string; rarity: string;
   affixes: RolledAffix[]; level_req: number; equipped_by: string | null;
   equipped_slot: string | null; slot: string; source: string; created_at: string;
+  unique_id: string | null;
 };
 
 export async function adminFetchAllItems(): Promise<AdminItemRow[]> {
   const { data, error } = await supabase
     .from('items')
-    .select('id, user_id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source, created_at');
+    .select('id, user_id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, source, created_at, unique_id');
   if (error) { console.error('adminFetchAllItems failed:', error.message); return []; }
   return (data ?? []) as AdminItemRow[];
 }
@@ -180,6 +181,7 @@ export async function adminGrantItem(
   levelReq: number,
   slot: ItemBaseSlot,
   classRestriction?: CharacterClass,
+  uniqueId?: string | null,
 ): Promise<string | null> {
   const { data, error } = await supabase.rpc('admin_grant_item', {
     p_user_id: userId,
@@ -189,6 +191,7 @@ export async function adminGrantItem(
     p_level_req: levelReq,
     p_slot: slot,
     p_class_restriction: classRestriction ?? null,
+    p_unique_id: uniqueId ?? null,
   });
   if (error) { console.error('admin_grant_item failed:', error.message); return null; }
   return data as string;

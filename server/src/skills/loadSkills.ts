@@ -39,7 +39,7 @@ export async function loadSkillsForCharacter(
 
   const { data: itemRows, error: itemsErr } = await supabase
     .from('items')
-    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot')
+    .select('id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, unique_id')
     .eq('equipped_by', characterId);
 
   if (itemsErr) return { ok: false, error: itemsErr.message };

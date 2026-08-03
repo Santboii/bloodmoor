@@ -4,28 +4,14 @@ import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
 import type { VendorView, VendorSlotView } from '../supabase';
-import { LOOTBOX_PRICES } from '@arena/shared';
-import type { LootboxTier, ItemRow, AffixId, RolledAffix } from '@arena/shared';
+import { LOOTBOX_PRICES, affixLabel, uniqueForRow } from '@arena/shared';
+import type { LootboxTier, ItemRow } from '@arena/shared';
 import { RARITY_COLORS, itemBase, itemDisplayName } from './GearScreen';
 import * as sfx from '../audio/sfx';
 import { iconCellAttrs, applyItemIcons } from './itemIcon';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (v: number) => string> = {
-  max_health: v => `+${v} Max Health`,
-  max_mana: v => `+${v} Max Mana`,
-  damage_pct: v => `+${v}% Damage`,
-  cast_speed_pct: v => `+${v}% Cast Speed`,
-  move_speed_pct: v => `+${v}% Move Speed`,
-  mana_regen_pct: v => `+${v}% Mana Regen`,
-};
-
-function affixLabel(a: RolledAffix): string {
-  if (a.id === 'talent') return `+${a.value} Talent Rank`;
-  return AFFIX_LABELS[a.id](a.value);
 }
 
 /** Pure affordability check — gold is always a fresh server read (fetchGold
@@ -306,9 +292,10 @@ export class ShopScreen {
     if (!base) return '';
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
+    const unique = item.rarity === 'unique' ? uniqueForRow(item) : undefined;
     return `
       <div class="sh-reveal" style="box-shadow:inset 0 0 0 2px ${color}">
-        <div class="sh-reveal-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="sh-reveal-icon"${iconCellAttrs(base, unique)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div class="sh-reveal-name" style="color:${color}">${esc(name)}</div>
         <div class="sh-reveal-note">Sent to stash</div>
       </div>`;

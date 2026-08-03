@@ -14,6 +14,7 @@ export class InputHandler {
   private mouseScreen = { x: 0, y: 0 };
   private mouseWorld = { x: 1000, y: 1000 }; // center of new arena
   private pendingCast: { spell: SpellId; aimTarget: { x: number; y: number } } | null = null;
+  private pendingRest = false;
 
   constructor(private scene: Scene, private canvas: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown);
@@ -45,6 +46,7 @@ export class InputHandler {
         this.pendingCast = { spell: mobility, aimTarget: this.mouseWorld };
       }
     }
+    if (e.code === 'KeyR') this.pendingRest = true;
   };
 
   private onKeyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
@@ -83,6 +85,11 @@ export class InputHandler {
       frame.castSpell = this.pendingCast.spell;
       frame.aimTarget = this.pendingCast.aimTarget;
       this.pendingCast = null;
+    }
+
+    if (this.pendingRest) {
+      frame.rest = true;
+      this.pendingRest = false;
     }
 
     return frame;

@@ -1,12 +1,24 @@
 import * as THREE from 'three';
 import { Segment } from '@arena/shared';
+import type { AuraStyle } from '@arena/shared';
+import { INTERNAL_HEIGHT, MAX_PIXEL_RATIO } from './pixelation';
 
 const POOL_SIZE = 4096;
 const SOFT_CAP = Math.floor(POOL_SIZE * 0.9);
 
-const DEFAULT_COLOR_R = 1.0;
+// Auras yield to spells: they stop emitting at half the pool, well below the
+// SOFT_CAP the spell emitters respect, so a Meteor and Rain exchange never
+// loses particles to jewelry.
+export const AURA_SOFT_CAP = Math.floor(POOL_SIZE * 0.5);
+
+// HDR fire ember: >1.0 channels survive into the half-float composer buffer,
+// so trails and bursts feed the bloom pass like the fireball core does.
+// Unique-item auras override these per emit with their own 0-1 manifest
+// colors, so ambient jewelry glow stays out of the bloom pass — deliberate:
+// a ring should not read as a light source the way a fireball does.
+const DEFAULT_COLOR_R = 1.05;
 const DEFAULT_COLOR_G = 0.4;
-const DEFAULT_COLOR_B = 0.0;
+const DEFAULT_COLOR_B = 0.05;
 
 export class ParticleSystem {
   private posX = new Float32Array(POOL_SIZE);
@@ -18,6 +30,7 @@ export class ParticleSystem {
   private life = new Float32Array(POOL_SIZE);
   private maxLife = new Float32Array(POOL_SIZE);
   private particleSize = new Float32Array(POOL_SIZE);
+  private gravityScale = new Float32Array(POOL_SIZE);
   private colorR = new Float32Array(POOL_SIZE);
   private colorG = new Float32Array(POOL_SIZE);
   private colorB = new Float32Array(POOL_SIZE);
@@ -31,6 +44,19 @@ export class ParticleSystem {
   private colorAttr: THREE.BufferAttribute;
   private geometry: THREE.BufferGeometry;
   private points: THREE.Points;
+  private material: THREE.ShaderMaterial;
+
+  // gl_PointSize is in device pixels, but particle sizes are authored in the
+  // legacy 360p grid (INTERNAL_HEIGHT). Scale by the drawing-buffer height so
+  // particles keep their intended screen proportion at native resolution.
+  // No-op without a window: the emitters are unit-tested in the node
+  // environment, where the uniform keeps its default 1 and only the scale
+  // (not the emission maths under test) is absent.
+  private onResize = () => {
+    if (typeof window === 'undefined') return;
+    this.material.uniforms.uSizeScale.value =
+      (window.innerHeight * Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)) / INTERNAL_HEIGHT;
+  };
 
   constructor(private scene: THREE.Scene) {
     this.positionBuffer = new Float32Array(POOL_SIZE * 3);
@@ -54,14 +80,18 @@ export class ParticleSystem {
     this.geometry.setDrawRange(0, 0);
 
     const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uSizeScale: { value: 1 },
+      },
       vertexShader: `
+        uniform float uSizeScale;
         attribute float size;
         attribute vec3 particleColor;
         varying vec3 vColor;
         void main() {
           vColor = particleColor;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size;
+          gl_PointSize = size * uSizeScale;
         }
       `,
       fragmentShader: `
@@ -69,7 +99,10 @@ export class ParticleSystem {
         void main() {
           float dist = length(gl_PointCoord - vec2(0.5));
           if (dist > 0.5) discard;
-          float alpha = 1.0 - dist * 2.0;
+          // Additive blending sums overlapping embers, so a dense trail
+          // saturates to white regardless of per-particle color — the 0.4
+          // scale caps the stacked energy while keeping the plume's size.
+          float alpha = (1.0 - dist * 2.0) * 0.4;
           gl_FragColor = vec4(vColor, alpha);
         }
       `,
@@ -78,16 +111,20 @@ export class ParticleSystem {
       blending: THREE.AdditiveBlending,
     });
 
+    this.material = material;
     this.points = new THREE.Points(this.geometry, material);
     this.points.frustumCulled = false;
     scene.add(this.points);
+
+    this.onResize();
+    if (typeof window !== 'undefined') window.addEventListener('resize', this.onResize);
   }
 
   emitTrail(x: number, y: number, z: number, dirX: number, dirZ: number, radius = 10): void {
     if (this.activeCount >= SOFT_CAP) return;
     const scale = radius / 10;
-    const count = Math.min(12, Math.floor((3 + Math.floor(Math.random() * 3)) * scale));
-    const spread = 4 * scale;
+    const count = Math.min(14, Math.floor((4 + Math.floor(Math.random() * 3)) * scale));
+    const spread = 8 * scale;
     for (let i = 0; i < count; i++) {
       if (this.activeCount >= POOL_SIZE) return;
       this.spawn(
@@ -97,8 +134,8 @@ export class ParticleSystem {
         -dirX * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
         (10 + Math.random() * 20) * scale,
         -dirZ * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
-        0.35 + Math.random() * 0.15,
-        (12 + Math.random() * 4) * scale,
+        0.4 + Math.random() * 0.2,
+        (16 + Math.random() * 7) * scale,
       );
     }
   }
@@ -281,12 +318,14 @@ export class ParticleSystem {
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
     life: number, size: number,
+    gravity = 1,
   ): void {
     const i = this.activeCount++;
     this.posX[i] = x; this.posY[i] = y; this.posZ[i] = z;
     this.velX[i] = vx; this.velY[i] = vy; this.velZ[i] = vz;
     this.life[i] = life; this.maxLife[i] = life;
     this.particleSize[i] = size;
+    this.gravityScale[i] = gravity;
     this.colorR[i] = DEFAULT_COLOR_R;
     this.colorG[i] = DEFAULT_COLOR_G;
     this.colorB[i] = DEFAULT_COLOR_B;
@@ -302,11 +341,12 @@ export class ParticleSystem {
         this.velX[i] = this.velX[last]; this.velY[i] = this.velY[last]; this.velZ[i] = this.velZ[last];
         this.life[i] = this.life[last]; this.maxLife[i] = this.maxLife[last];
         this.particleSize[i] = this.particleSize[last];
+        this.gravityScale[i] = this.gravityScale[last];
         this.colorR[i] = this.colorR[last]; this.colorG[i] = this.colorG[last]; this.colorB[i] = this.colorB[last];
         this.activeCount--;
         continue;
       }
-      this.velY[i] -= 80 * delta;
+      this.velY[i] -= 80 * this.gravityScale[i] * delta;
       this.posX[i] += this.velX[i] * delta;
       this.posY[i] += this.velY[i] * delta;
       this.posZ[i] += this.velZ[i] * delta;
@@ -336,7 +376,90 @@ export class ParticleSystem {
     }
   }
 
+  /** Live particle count — a seam for tests, which cannot inspect the GPU
+   * buffers meaningfully. */
+  activeParticles(): number {
+    return this.activeCount;
+  }
+
+  /** Continuous ambient emission for a unique item's aura. Called at 30Hz by
+   * SpellRenderer, which supplies the world anchor point, an animation phase
+   * for the rotating styles, and whether the wearer is moving. */
+  emitAura(
+    style: AuraStyle,
+    color: readonly [number, number, number],
+    x: number, y: number, z: number,
+    opts: { intensity?: number; motes?: number; phase?: number; moving?: boolean } = {},
+  ): void {
+    if (this.activeCount >= AURA_SOFT_CAP) return;
+    const intensity = opts.intensity ?? 1;
+    const phase = opts.phase ?? 0;
+
+    const put = (
+      px: number, py: number, pz: number,
+      vx: number, vy: number, vz: number,
+      life: number, size: number, gravity: number,
+    ): void => {
+      if (this.activeCount >= POOL_SIZE) return;
+      const idx = this.activeCount;
+      this.spawn(px, py, pz, vx, vy, vz, life, size, gravity);
+      this.colorR[idx] = color[0];
+      this.colorG[idx] = color[1];
+      this.colorB[idx] = color[2];
+    };
+
+    switch (style) {
+      case 'embers': {
+        const count = intensity >= 1.3 ? 2 : 1;
+        for (let i = 0; i < count; i++) {
+          put(
+            x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 8, z + (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 6, 10 + Math.random() * 10, (Math.random() - 0.5) * 6,
+            0.8 + Math.random() * 0.4, (4 + Math.random() * 3) * intensity, -0.05,
+          );
+        }
+        break;
+      }
+      case 'frost':
+        put(
+          x + (Math.random() - 0.5) * 12, y + (Math.random() - 0.5) * 10, z + (Math.random() - 0.5) * 12,
+          (Math.random() - 0.5) * 10, -3, (Math.random() - 0.5) * 10,
+          0.9 + Math.random() * 0.3, (3 + Math.random() * 3) * intensity, 0.08,
+        );
+        break;
+      case 'orbit': {
+        const motes = opts.motes ?? 1;
+        const radius = 14;
+        for (let i = 0; i < motes; i++) {
+          const angle = phase * 1.6 + (i * Math.PI * 2) / motes;
+          put(
+            x + Math.cos(angle) * radius, y, z + Math.sin(angle) * radius,
+            0, 2, 0,
+            0.25, (4 + Math.random() * 2) * intensity, 0,
+          );
+        }
+        break;
+      }
+      case 'drip':
+        put(
+          x + (Math.random() - 0.5) * 8, y, z + (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4,
+          0.5 + Math.random() * 0.2, (3 + Math.random() * 3) * intensity, 1,
+        );
+        break;
+      case 'wisp':
+        if (!opts.moving) return;
+        put(
+          x + (Math.random() - 0.5) * 8, y + Math.random() * 4, z + (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 4, 4 + Math.random() * 4, (Math.random() - 0.5) * 4,
+          0.45 + Math.random() * 0.2, (4 + Math.random() * 3) * intensity, 0.1,
+        );
+        break;
+    }
+  }
+
   dispose(): void {
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
     this.scene.remove(this.points);
     this.geometry.dispose();
     (this.points.material as THREE.ShaderMaterial).dispose();

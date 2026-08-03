@@ -16,6 +16,60 @@ export type AffixId =
 
 export type RolledAffix = { id: AffixId; value: number; node?: NodeId }; // node only for 'talent'
 
+/** A unique's affix as authored: a range to roll within. Stored numerically,
+ * so `max` is ALWAYS the lucky end — for a grant (+4→+7) and equally for a
+ * drawback (-60→-35, where -35 is the smaller penalty). That invariant is what
+ * lets roll quality use one formula for both. A fixed affix has min === max. */
+export type UniqueAffixSpec = { id: AffixId; min: number; max: number; node?: NodeId };
+
+const PCT_AFFIX_IDS = new Set<AffixId>([
+  'damage_pct', 'cast_speed_pct', 'move_speed_pct', 'mana_regen_pct',
+]);
+
+const AFFIX_NAMES: Record<Exclude<AffixId, 'talent'>, string> = {
+  max_health: 'Max Health',
+  max_mana: 'Max Mana',
+  damage_pct: 'Damage',
+  cast_speed_pct: 'Cast Speed',
+  move_speed_pct: 'Move Speed',
+  mana_regen_pct: 'Mana Regen',
+};
+
+/** An affix's signed value with its unit and no stat name — '+8%', '-35'. */
+export function affixValueText(id: AffixId, value: number): string {
+  return `${value < 0 ? '-' : '+'}${Math.abs(value)}${PCT_AFFIX_IDS.has(id) ? '%' : ''}`;
+}
+
+/** Human-readable affix text, shared by the Gear, Shop, and Admin screens —
+ * they each had a private copy that hardcoded '+', which renders a drawback
+ * as '+-35 Max Health'. */
+export function affixLabel(a: RolledAffix): string {
+  if (a.id === 'talent') return `+${a.value} Talent Rank`;
+  return `${affixValueText(a.id, a.value)} ${AFFIX_NAMES[a.id]}`;
+}
+
+/** True for a negative (drawback) affix — the UI renders these in a muted
+ * red so the tradeoff is legible at a glance. Talent ranks are never
+ * drawbacks. */
+export function isDrawback(a: RolledAffix): boolean {
+  return a.id !== 'talent' && a.value < 0;
+}
+
+/** The roll window as display text, or null when the affix is fixed.
+ * Drawbacks read worst-to-best so the arrow points at the lucky end. */
+export function affixRangeText(spec: UniqueAffixSpec): string | null {
+  if (spec.min === spec.max) return null;
+  const lo = affixValueText(spec.id, spec.min);
+  const hi = affixValueText(spec.id, spec.max);
+  return spec.max < 0 ? `${lo} → ${hi}` : `${lo}–${hi}`;
+}
+
+/** An affix's stat name with no value — 'Max Health'. Talent affixes name
+ * their node instead, which only the caller knows how to resolve. */
+export function affixStatName(id: Exclude<AffixId, 'talent'>): string {
+  return AFFIX_NAMES[id];
+}
+
 /** One LPC sheet layer a visible base contributes. Paths may contain the
  * tokens '{body}' (male|female) and '{legs}' (male|thin pants fit) which
  * layersForLoadout substitutes from the wearer's appearance. */
@@ -45,9 +99,30 @@ export type ItemBase = {
   lpc?: ItemBaseLpc;
 };
 
+/** A unique's particle aura. `style` picks a shared emitter shape; there is
+ * no per-item emitter code. Colors are 0-1 rgb, matching ParticleSystem's
+ * float color buffers. */
+export type AuraStyle = 'embers' | 'frost' | 'orbit' | 'drip' | 'wisp';
+export type AuraAnchor = 'head' | 'chest' | 'feet';
+export type UniqueAura = {
+  style: AuraStyle;
+  color: [number, number, number];
+  anchor: AuraAnchor;
+  /** Scales emission rate and particle size; 1 is the default weight. */
+  intensity?: number;
+  /** 'orbit' only — how many motes ride the ring. Defaults to 1. */
+  motes?: number;
+};
+
 export type UniqueItem = {
   id: string; baseId: string; name: string; flavor: string;
-  affixes: RolledAffix[]; levelReq: number;
+  affixes: UniqueAffixSpec[];               // authored roll ranges, not fixed values
+  levelReq: number;
+  /** Overrides the tint of every layer of the base's lpc manifest, so the
+   * unique is visually distinct in-world and on its inventory icon. Only
+   * meaningful on bases that have an lpc entry. */
+  lpcTint?: { color: string; mode?: 'fabric' };
+  aura?: UniqueAura;
 };
 
 export type ItemSource = 'starter' | 'drop' | 'vendor' | 'lootbox' | 'admin';
@@ -56,6 +131,10 @@ export type ItemRow = {                      // DB shape, snake_case at the boun
   id: string; base_id: string; rarity: ItemRarity; affixes: RolledAffix[];
   level_req: number; equipped_by: string | null; equipped_slot: EquipSlot | null;
   slot: ItemBaseSlot;
+  /** Which manifest unique this row is, for rarity 'unique' rows. Absent on
+   * every non-unique row, and on unique rows granted before the column
+   * existed — uniqueForRow falls back to a base_id match for those. */
+  unique_id?: string | null;
   // Optional: only populated by callers that select it (fetchItems, for the
   // Gear screen's starter-detection gate on selling) — other ItemRow
   // producers (loadSkills, economy/service's vendor/lootbox/drop rows,
@@ -192,29 +271,242 @@ export const ITEM_BASES: ItemBase[] = [
   },
 ];
 
+/**
+ * Hand-authored uniques: one axis above rare, one axis below. Negative affix
+ * values are drawbacks and are load-bearing — `computeLoadout`'s STAT_FLOORS
+ * bound what they can stack into.
+ *
+ * Talent affixes are the payload, used three ways: granting a spell the
+ * player never bought (the cast gate only checks node presence), granting a
+ * binary modifier node, and pushing a stackable node past its soft cap into
+ * its keystone. An item never trips a keystone alone — it rewards investment
+ * already made.
+ *
+ * Class-shared slots grant BOTH classes' equivalent node; off-class talent
+ * affixes are inert in computeLoadout, so one item reads identically on
+ * either class at no extra cost.
+ *
+ * Only ranger nodes carry keystone data today, so keystone-forcing is
+ * ranger-only here; the mage's equivalent payoff is the spell grants.
+ */
 export const UNIQUE_ITEMS: UniqueItem[] = [
+  // --- Level 1 ---
+  {
+    id: 'kindling', baseId: 'apprentice_staff', name: 'Kindling',
+    flavor: 'Every apprentice is told not to feed it. Every apprentice does.',
+    affixes: [
+      { id: 'damage_pct', min: 4, max: 6 },
+      { id: 'talent', min: 1, max: 2, node: 'fire.volatile_ember' },
+      { id: 'max_health', min: -45, max: -25 },
+    ],
+    levelReq: 1,
+    lpcTint: { color: '#ff8a3d' },
+    aura: { style: 'embers', color: [1.0, 0.45, 0.1], anchor: 'chest', intensity: 0.6 },
+  },
+  {
+    // Grants Multi-shot — a 2-point tier-2 spell — at level 1. The mana cut
+    // is what makes firing it a choice rather than a freebie.
+    id: 'threefold_draw', baseId: 'short_bow', name: 'Threefold Draw',
+    flavor: 'One string. It has never agreed with itself.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'archer.multishot' },
+      { id: 'cast_speed_pct', min: 2, max: 4 },
+      { id: 'max_mana', min: -33, max: -18 },
+    ],
+    levelReq: 1,
+    lpcTint: { color: '#e8e2cf', mode: 'fabric' },
+    aura: { style: 'orbit', color: [0.88, 0.9, 0.82], anchor: 'chest', intensity: 0.8, motes: 3 },
+  },
+  {
+    // Both classes' homing node: your shots track, and they hit softer.
+    id: 'hunters_eye', baseId: 'bone_ring', name: "Hunter's Eye",
+    flavor: 'It always knows where you meant to look.',
+    affixes: [
+      { id: 'talent', min: 1, max: 2, node: 'fire.seeking_flame' },
+      { id: 'talent', min: 1, max: 2, node: 'archer.guided' },
+      { id: 'max_mana', min: 15, max: 26 },
+      { id: 'damage_pct', min: -7, max: -3 },
+    ],
+    levelReq: 1,
+    aura: { style: 'orbit', color: [1.0, 0.72, 0.25], anchor: 'chest', intensity: 0.5, motes: 1 },
+  },
+
+  // --- Level 4 ---
+  {
+    id: 'widows_vow', baseId: 'carved_amulet', name: "Widow's Vow",
+    flavor: "She traded her heart's warmth for one more word with him.",
+    affixes: [
+      { id: 'max_mana', min: 60, max: 90 },
+      { id: 'mana_regen_pct', min: 14, max: 22 },
+      { id: 'cast_speed_pct', min: 3, max: 5 },
+      { id: 'max_health', min: -115, max: -75 },
+    ],
+    levelReq: 4,
+    aura: { style: 'drip', color: [0.7, 0.85, 1.0], anchor: 'chest', intensity: 0.7 },
+  },
+  {
+    id: 'marshstrider_breeches', baseId: 'cloth_pants', name: 'Marshstrider Breeches',
+    flavor: 'Peat-stained to the knee. They remember every path out of the moor.',
+    affixes: [
+      { id: 'move_speed_pct', min: 5, max: 7 },
+      { id: 'max_health', min: 40, max: 55 },
+      { id: 'cast_speed_pct', min: -6, max: -4 },
+    ],
+    levelReq: 4,
+    lpcTint: { color: '#6f8f4a', mode: 'fabric' },
+    aura: { style: 'wisp', color: [0.45, 0.7, 0.35], anchor: 'feet', intensity: 0.9 },
+  },
+  {
+    // Each class's 2-point vanish-while-moving node: invulnerability after
+    // teleport for a mage, invisibility after evade for a ranger.
+    id: 'hollowhide_jerkin', baseId: 'padded_tunic', name: 'Hollowhide Jerkin',
+    flavor: 'Cut from something that had already learned to vanish.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'utility.ethereal_form' },
+      { id: 'talent', min: 1, max: 1, node: 'archer_utility.shadowstep' },
+      { id: 'max_health', min: 40, max: 60 },
+      { id: 'mana_regen_pct', min: -45, max: -25 },
+      { id: 'damage_pct', min: -8, max: -4 },
+    ],
+    levelReq: 4,
+    lpcTint: { color: '#7d5f96', mode: 'fabric' },
+    aura: { style: 'drip', color: [0.55, 0.35, 0.7], anchor: 'chest', intensity: 0.7 },
+  },
+
+  // --- Level 7 (keystone band opens) ---
+  {
+    // The boldest item in the set: a free tier-6, 3-point spell, paid for
+    // with the mana to sustain it.
+    id: 'cinderfall', baseId: 'gnarled_staff', name: 'Cinderfall',
+    flavor: 'The sky owes it a favour.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'fire.meteor' },
+      { id: 'damage_pct', min: 4, max: 8 },
+      { id: 'max_mana', min: -135, max: -85 },
+      { id: 'cast_speed_pct', min: -11, max: -5 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#6b4a3a' },
+    aura: { style: 'embers', color: [1.0, 0.35, 0.05], anchor: 'chest', intensity: 1.4 },
+  },
+  {
+    // A max roll (+3) plus one invested tree rank of Freeze reaches rank
+    // 4 — past the soft cap of 3 — and unlocks Deep Freeze.
+    id: 'quiverfrost', baseId: 'war_bow', name: 'Quiverfrost',
+    flavor: 'The string does not thaw.',
+    affixes: [
+      { id: 'talent', min: 1, max: 3, node: 'archer.freeze' },
+      { id: 'damage_pct', min: 6, max: 11 },
+      { id: 'max_health', min: -95, max: -55 },
+      { id: 'mana_regen_pct', min: -28, max: -12 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#9fd8f0', mode: 'fabric' },
+    aura: { style: 'frost', color: [0.6, 0.9, 1.0], anchor: 'chest', intensity: 1.0 },
+  },
+  {
+    // A max roll (+3) plus three invested tree ranks of Wide Rain reach 6 —
+    // past the soft cap of 5 — and unlock Twin Storm. The negative
+    // move_speed_pct on a helmet is deliberate: the
+    // leggings-only rule in AFFIX_ALLOWED_SLOTS governs ROLLED affixes, and a
+    // heavy helm that slows you is the whole idea.
+    id: 'doomsayers_barbute', baseId: 'iron_helm', name: "Doomsayer's Barbute",
+    flavor: 'The visor is welded shut. Whoever wore it last had stopped looking.',
+    affixes: [
+      { id: 'talent', min: 1, max: 3, node: 'fire.cataclysm' },
+      { id: 'talent', min: 1, max: 3, node: 'archer.wide_rain' },
+      { id: 'max_health', min: 70, max: 100 },
+      { id: 'move_speed_pct', min: -8, max: -4 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#b06a4a' },
+    aura: { style: 'drip', color: [0.7, 0.3, 0.18], anchor: 'head', intensity: 0.8 },
+  },
   {
     id: 'emberheart', baseId: 'moon_amulet', name: 'Emberheart',
     flavor: 'A cinder that never cools, warm to the touch even in the dead of winter.',
     affixes: [
-      { id: 'max_mana', value: 60 },
-      { id: 'damage_pct', value: 8 },
-      { id: 'talent', value: 2, node: 'fire.volatile_ember' },
-      { id: 'talent', value: 1, node: 'fire.searing_heat' },
+      { id: 'max_mana', min: 48, max: 72 },
+      { id: 'damage_pct', min: 6, max: 10 },
+      { id: 'talent', min: 1, max: 3, node: 'fire.volatile_ember' },
+      { id: 'talent', min: 1, max: 2, node: 'fire.searing_heat' },
     ],
     levelReq: 7,
+    aura: { style: 'orbit', color: [1.0, 0.55, 0.15], anchor: 'chest', intensity: 0.8, motes: 2 },
   },
   {
     id: 'windrunner_band', baseId: 'bone_ring', name: 'Windrunner Band',
     flavor: 'Fletched with feathers that never touched a bird.',
     affixes: [
-      { id: 'move_speed_pct', value: 6 },
-      { id: 'cast_speed_pct', value: 5 },
-      { id: 'talent', value: 2, node: 'archer.barrage' },
+      { id: 'move_speed_pct', min: 5, max: 8 },
+      { id: 'cast_speed_pct', min: 4, max: 7 },
+      { id: 'talent', min: 1, max: 3, node: 'archer.barrage' },
     ],
     levelReq: 7,
+    aura: { style: 'wisp', color: [0.75, 0.95, 0.8], anchor: 'feet', intensity: 0.8 },
+  },
+
+  // --- Level 10 ---
+  {
+    id: 'ninefold_ember', baseId: 'archmage_staff', name: 'Ninefold Ember',
+    flavor: 'Nine splinters of the same falling star, bound with wire.',
+    affixes: [
+      { id: 'talent', min: 2, max: 3, node: 'fire.pyroclasm' },
+      { id: 'damage_pct', min: 9, max: 15 },
+      { id: 'max_health', min: -185, max: -115 },
+      { id: 'cast_speed_pct', min: -11, max: -5 },
+    ],
+    levelReq: 10,
+    lpcTint: { color: '#ffd9a0', mode: 'fabric' },
+    aura: { style: 'embers', color: [1.0, 0.9, 0.75], anchor: 'chest', intensity: 1.8 },
+  },
+  {
+    // The full rain build in one item: can trip Stormcall (soft cap 5) and
+    // Exposed (soft cap 3) together on an invested tree.
+    id: 'stormcallers_yew', baseId: 'great_bow', name: "Stormcaller's Yew",
+    flavor: 'It bends toward weather that has not arrived yet.',
+    affixes: [
+      { id: 'talent', min: 1, max: 3, node: 'archer.sustained_rain' },
+      { id: 'talent', min: 1, max: 3, node: 'archer.piercing_rain' },
+      { id: 'cast_speed_pct', min: 4, max: 8 },
+      { id: 'max_mana', min: -150, max: -90 },
+      { id: 'move_speed_pct', min: -7, max: -3 },
+    ],
+    levelReq: 10,
+    lpcTint: { color: '#9a86d6', mode: 'fabric' },
+    aura: { style: 'wisp', color: [0.65, 0.5, 0.95], anchor: 'feet', intensity: 1.2 },
+  },
+  {
+    // Shares moon_amulet with Emberheart — legal only because rows now carry
+    // unique_id.
+    id: 'the_quiet_hour', baseId: 'moon_amulet', name: 'The Quiet Hour',
+    flavor: 'Between the last bell and the first, nothing is owed to anyone.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'utility.phantom_step' },
+      { id: 'talent', min: 1, max: 1, node: 'archer_utility.combat_roll' },
+      { id: 'cast_speed_pct', min: 7, max: 12 },
+      { id: 'max_health', min: -135, max: -85 },
+      { id: 'max_mana', min: -90, max: -50 },
+    ],
+    levelReq: 10,
+    aura: { style: 'orbit', color: [0.85, 0.87, 0.95], anchor: 'chest', intensity: 0.5, motes: 2 },
   },
 ];
+
+const UNIQUES_BY_ID = new Map(UNIQUE_ITEMS.map(u => [u.id, u]));
+
+/** The manifest unique a stored row represents. Resolves by unique_id, and
+ * falls back to a base_id match for legacy rows granted before that column
+ * existed. The fallback is ambiguous once a base carries two uniques — it
+ * returns the first in manifest order — which is correct, because the second
+ * one cannot predate the column. */
+export function uniqueForRow(row: Pick<ItemRow, 'base_id' | 'unique_id'>): UniqueItem | undefined {
+  if (row.unique_id) {
+    const byId = UNIQUES_BY_ID.get(row.unique_id);
+    return byId && byId.baseId === row.base_id ? byId : undefined;
+  }
+  return UNIQUE_ITEMS.find(u => u.baseId === row.base_id);
+}
 
 /** Weight that one of a rolled item's affix slots is a 'talent' affix
  * (rare rolls only — see rollItem). Tuned so ~1 in 4 rare rolls includes
@@ -288,6 +580,41 @@ export function rollItem(base: ItemBase, rarity: ItemRarity, rng: () => number =
   return affixes;
 }
 
+/** Roll a unique's affixes from its authored ranges. Pure and deterministic
+ * given an rng — drops call this off the same seeded stream that picked the
+ * item, so a seed still reproduces a whole drop. */
+export function rollUnique(unique: UniqueItem, rng: () => number = Math.random): RolledAffix[] {
+  return unique.affixes.map(spec => ({
+    id: spec.id,
+    value: rollInRange([spec.min, spec.max], rng),
+    // Spread rather than assign: a `node: undefined` key would survive into
+    // the stored JSON and break strict equality against manifest fixtures.
+    ...(spec.node === undefined ? {} : { node: spec.node }),
+  }));
+}
+
+/** How lucky a rolled copy is: the unweighted mean of each rolling affix's
+ * position in its window, 0 (all minimum) to 1 (all maximum). Because `max` is
+ * the lucky end for grants AND drawbacks alike, one formula covers both with
+ * no sign special-casing. Fixed affixes are skipped rather than counted as
+ * perfect, so a mostly-binary item is judged only on what actually varied.
+ * Returns null when nothing on the item rolls. */
+export function rollQuality(unique: UniqueItem, affixes: RolledAffix[]): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const spec of unique.affixes) {
+    if (spec.max === spec.min) continue;
+    const rolled = affixes.find(a => a.id === spec.id && a.node === spec.node);
+    if (!rolled) continue;
+    sum += (rolled.value - spec.min) / (spec.max - spec.min);
+    count++;
+  }
+  // Clamped defensively: a legacy stored value from a since-narrowed range
+  // would otherwise land outside [0, 1] and break both the PERFECT check
+  // (exact 1) and the percentage display.
+  return count === 0 ? null : Math.min(1, Math.max(0, sum / count));
+}
+
 const RARITY_ORDER: ItemRarity[] = ['basic', 'magic', 'rare', 'unique'];
 
 /** Weighted rarity roll — weights need not be pre-normalized. */
@@ -306,6 +633,16 @@ export function classOwnsTree(cls: CharacterClass, node: NodeId): boolean {
   const tree = node.slice(0, node.indexOf('.')) as SkillTree;
   return CLASS_TREES[cls].includes(tree);
 }
+
+/** Floors for a folded StatBlock. Unique items carry negative affix values
+ * (drawbacks) and nothing else bounds the result — these guarantee no
+ * combination produces a character who cannot move, cast, or survive a hit.
+ * Same posture as the moveSpeedMult cap below: a hard cap, not a taste
+ * guideline. The shipped catalog's worst stack is ~-430 HP against a 750
+ * base, well clear of these; they exist for future items. */
+export const STAT_FLOORS = {
+  maxHp: 100, maxMana: 50, moveSpeedMult: 0.75, manaRegenMult: 0,
+} as const;
 
 /** Fold implicits + affixes of every equipped item into a StatBlock, and sum
  * talent ranks for nodes owned by the character's class. Off-class talent
@@ -343,7 +680,9 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
 
   return {
     statBlock: {
-      maxHp, maxMana, damageMult,
+      maxHp: Math.max(STAT_FLOORS.maxHp, maxHp),
+      maxMana: Math.max(STAT_FLOORS.maxMana, maxMana),
+      damageMult,
       cooldownMult: Math.max(0.5, cooldownMult),
       // Spec's affix-system taste rules cap total move-speed intent at
       // "~+15% across a full loadout, enforced by range design" — but the
@@ -352,9 +691,9 @@ export function computeLoadout(items: ItemRow[], cls: CharacterClass): {
       // Runtime-clamp here, mirroring the cooldownMult floor above: in an
       // arena PvP game, uncapped move speed is the single most
       // balance-decisive stat, so this is a hard cap, not just a taste
-      // guideline.
-      moveSpeedMult: Math.min(1.15, moveSpeedMult),
-      manaRegenMult,
+      // guideline. The floor is the drawback-item mirror of it.
+      moveSpeedMult: Math.min(1.15, Math.max(STAT_FLOORS.moveSpeedMult, moveSpeedMult)),
+      manaRegenMult: Math.max(STAT_FLOORS.manaRegenMult, manaRegenMult),
     },
     talentRanks,
   };
@@ -394,6 +733,13 @@ export function validateItemRow(row: unknown): ItemRow | null {
   // source is optional (see ItemRow) — validated only when a caller's
   // select includes it; absent entirely for callers that don't.
   if (r.source !== undefined && (typeof r.source !== 'string' || !VALID_SOURCES.includes(r.source as ItemSource))) return null;
+  // unique_id is optional (see ItemRow); when present it must name a manifest
+  // unique that actually sits on this row's base.
+  if (r.unique_id !== undefined && r.unique_id !== null) {
+    if (typeof r.unique_id !== 'string') return null;
+    const u = UNIQUES_BY_ID.get(r.unique_id);
+    if (!u || u.baseId !== r.base_id) return null;
+  }
 
   return {
     id: r.id,
@@ -404,6 +750,7 @@ export function validateItemRow(row: unknown): ItemRow | null {
     equipped_by: r.equipped_by as string | null,
     equipped_slot: r.equipped_slot as EquipSlot | null,
     slot: r.slot as ItemBaseSlot,
+    unique_id: r.unique_id as string | null | undefined,
     source: r.source as ItemSource | undefined,
   };
 }

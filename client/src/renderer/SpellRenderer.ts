@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } from '@arena/shared';
+import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS, aurasForGear, type AuraAnchor, type Vec2 } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
+import { spriteWorldHeight } from './sprites/SpriteCharacter';
 import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
@@ -43,8 +44,13 @@ const FALLING_ARROW_GEO = new THREE.BoxGeometry(2, 14, 2);
 const METEOR_RING_GEO = new THREE.RingGeometry(50, 58, 32);
 const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
 
-const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 });
+// HDR-bright fire: channel values above 1.0 survive into the half-float
+// composer buffer (tone mapping runs last), so bloom reads the fireball as a
+// real light source. ACES renders the core white-hot with an orange fringe,
+// and the 360p-pinned bloom smears it into the wide soft glow the old
+// pixelated pipeline had.
+const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.7, 0.8, 0.2) });
+const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 0.3, 0.09), transparent: true, opacity: 0.25 });
 const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
 
@@ -92,6 +98,34 @@ function disposeObject3D(root: THREE.Object3D): void {
   });
 }
 
+/** Where on the body an aura emits. Fractions of the sprite's world height:
+ * feet just clear of the ground, chest at the midpoint, head near the top. */
+export function auraAnchorY(anchor: AuraAnchor, spriteHeight: number): number {
+  const fraction = anchor === 'feet' ? 0.08 : anchor === 'chest' ? 0.5 : 0.82;
+  return spriteHeight * fraction;
+}
+
+// Below this per-sample step the player is standing still — position noise
+// from interpolation should not make a wisp trail flicker on.
+const AURA_MOVE_EPSILON = 0.5;
+
+export function isMoving(prev: Vec2 | undefined, next: Vec2): boolean {
+  if (!prev) return false;
+  return Math.hypot(next.x - prev.x, next.y - prev.y) > AURA_MOVE_EPSILON;
+}
+
+/** Mirrors main.ts's own visibility rule for Shadowstep (archer_utility.shadowstep):
+ * every viewer sees themselves; everyone else sees nobody once their
+ * invisibleUntil tick is still ahead of the current tick. Shared so a
+ * unique's aura can't out itself as an invisible player's glow. */
+export function isInvisibleToViewer(
+  player: { id: string; invisibleUntil?: number },
+  viewerId: string,
+  tick: number,
+): boolean {
+  return player.id !== viewerId && (player.invisibleUntil ?? 0) > tick;
+}
+
 export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
   private arrows = new Map<string, ArrowEntry>();
@@ -110,6 +144,11 @@ export class SpellRenderer {
   // emitting per render frame spawns 2.4x the particles on a 144Hz display
   // and exhausts the pool during heavy fights.
   private shouldEmitContinuous = true;
+  // Auras run at half the continuous cadence — they are ambient, and the
+  // pool is shared with every spell effect.
+  private auraAccumulator = 0;
+  private shouldEmitAura = false;
+  private prevAuraPositions = new Map<string, Vec2>();
 
   constructor(private scene: THREE.Scene, private myId: string) {
     this.particles = new ParticleSystem(scene);
@@ -165,18 +204,26 @@ export class SpellRenderer {
     }
   }
 
-  update(state: GameState): void {
+  /** selfPosition, when given, overrides the local player's position for aura
+   * emission — the interpolated state buffer lags behind the predicted render
+   * position main.ts actually draws the local mesh at, so without this the
+   * aura visibly detaches from the body while moving (see syncUniqueAuras). */
+  update(state: GameState, selfPosition?: Vec2): void {
     const delta = this.clock.getDelta();
     this.elapsedTime += delta;
     this.emitAccumulator += delta;
     this.shouldEmitContinuous = this.emitAccumulator >= 1 / 60;
     if (this.shouldEmitContinuous) this.emitAccumulator %= 1 / 60;
+    this.auraAccumulator += delta;
+    this.shouldEmitAura = this.auraAccumulator >= 1 / 30;
+    if (this.shouldEmitAura) this.auraAccumulator %= 1 / 30;
     this.detectTeleports(state);
     this.syncFireballs(state);
     this.syncArrows(state);
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
+    this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -463,6 +510,40 @@ export class SpellRenderer {
       (entry.circle.material as THREE.MeshBasicMaterial).opacity = 0.12 + t * 0.23;
       entry.arrowMaterial.opacity = Math.min(1, t * 2);
       this.updateFallingArrows(entry);
+    }
+  }
+
+  /** Ambient emission for the uniques each player is wearing. aurasForGear
+   * caps this at MAX_AURAS_PER_PLAYER and picks the highest-levelReq items,
+   * and emitAura bails at AURA_SOFT_CAP, so a crowded fight silently drops
+   * auras rather than starving spell VFX.
+   *
+   * Skips corpses (hp <= 0 lingers in state.players for the rest of the
+   * match) and Shadowstepped enemies (isInvisibleToViewer) — an aura would
+   * otherwise keep glowing on a dead body or broadcast an invisible
+   * player's exact position, defeating the invisibility it grants. */
+  private syncUniqueAuras(state: GameState, selfPosition?: Vec2): void {
+    if (!this.shouldEmitAura) return;
+    const height = spriteWorldHeight();
+    const live = new Set<string>();
+    for (const player of Object.values(state.players)) {
+      live.add(player.id);
+      if (player.hp <= 0 || isInvisibleToViewer(player, this.myId, state.tick)) continue;
+      const position = player.id === this.myId && selfPosition ? selfPosition : player.position;
+      const auras = aurasForGear(player.gear ?? {});
+      const prev = this.prevAuraPositions.get(player.id);
+      const moving = isMoving(prev, position);
+      this.prevAuraPositions.set(player.id, { ...position });
+      for (const { aura } of auras) {
+        this.particles.emitAura(
+          aura.style, aura.color,
+          position.x, auraAnchorY(aura.anchor, height), position.y,
+          { intensity: aura.intensity, motes: aura.motes, phase: this.elapsedTime, moving },
+        );
+      }
+    }
+    for (const id of this.prevAuraPositions.keys()) {
+      if (!live.has(id)) this.prevAuraPositions.delete(id);
     }
   }
 
