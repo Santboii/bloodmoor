@@ -76,6 +76,12 @@ export function rotationRefreshDelay(soonestExpiresAt: number, nowMs: number): n
   return Math.max(60_000, soonestExpiresAt - nowMs + 1000);
 }
 
+/** How long to wait before retrying after a failed vendor fetch. Matches the
+ * countdown tick's cadence: slow enough not to hammer a struggling server,
+ * fast enough that a transient failure heals without the player having to
+ * close and reopen the shop. */
+const VENDOR_RETRY_DELAY_MS = 60_000;
+
 /** Insufficient-gold (402), rotated-out (409) and allowance-spent (429)
  * rejections get fixed, friendly notices; every other failure surfaces the
  * server's own message so it stays specific and doesn't drift from
@@ -96,7 +102,7 @@ const STYLES = `
 .sh-col-vendor{flex:1 1 480px;min-width:320px;max-width:560px;}
 .sh-col-lootbox{flex:0 0 280px;min-width:260px;display:flex;flex-direction:column;gap:14px;}
 .sh-col-label{font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--px-border-light);text-align:center;margin-bottom:8px;display:flex;flex-direction:column;gap:2px;}
-.sh-countdown{font-size:12px;letter-spacing:0.05em;text-transform:none;font-style:italic;opacity:0.75;}
+.sh-allowance{font-size:12px;letter-spacing:0.05em;text-transform:none;font-style:italic;opacity:0.75;}
 .sh-details{padding:14px 16px;min-height:120px;box-sizing:border-box;margin-bottom:12px;}
 .sh-details-empty{color:var(--px-border-light);font-size:15px;line-height:1.6;text-align:center;padding-top:8px;}
 .sh-details-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
@@ -270,25 +276,52 @@ export class ShopScreen {
 
   /** Arms a single refetch at the soonest slot expiry (one timer, not six —
    * the earliest deadline is the only one that matters, and reload()
-   * re-arms from the fresh view) plus a once-a-minute re-render so idle
-   * countdowns tick down instead of freezing until the next render. Both
-   * are gated on `generation` so a stale pair from a since-hidden/reset
-   * screen can never fire — the guard closes the same hole reload() itself
-   * guards against, in case a timer somehow outlived its clearTimers() call. */
+   * re-arms from the fresh view) plus a once-a-minute countdown tick so idle
+   * cards tick down instead of freezing until the next render. Both are
+   * gated on `generation` so a stale pair from a since-hidden/reset screen
+   * can never fire — the guard closes the same hole reload() itself guards
+   * against, in case a timer somehow outlived its clearTimers() call.
+   *
+   * With no vendor to show (the fetch failed, or returned nothing) it arms a
+   * plain retry instead: armTimers() only ever runs at the tail of reload(),
+   * so bailing out here without arming anything would strand the screen on
+   * "Unable to load the vendor right now." until it was closed and reopened. */
   private armTimers(): void {
     this.clearTimers();
-    if (!this.vendor || this.vendor.slots.length === 0) return;
+    const generation = this.generation;
+
+    if (!this.vendor || this.vendor.slots.length === 0) {
+      this.rotationTimer = window.setTimeout(() => {
+        if (generation !== this.generation) return;
+        void this.reload();
+      }, VENDOR_RETRY_DELAY_MS);
+      return;
+    }
+
     const soonest = Math.min(...this.vendor.slots.map(s => s.expiresAt));
     const delay = rotationRefreshDelay(soonest, Date.now());
-    const generation = this.generation;
     this.rotationTimer = window.setTimeout(() => {
       if (generation !== this.generation) return;
       void this.reload();
     }, delay);
     this.countdownTimer = window.setInterval(() => {
       if (generation !== this.generation) { this.clearTimers(); return; }
-      this.render();
+      this.tickCountdowns();
     }, 60_000);
+  }
+
+  /** Rewrites just the per-card countdown text. Deliberately NOT a full
+   * render(): that rebuilds the whole overlay's innerHTML, which re-runs
+   * `.sh-reveal`'s `animation:sh-flash`, so an idle player who had just
+   * opened a loot box watched their reward flash once a minute. Nothing else
+   * on the card can change without a reload() anyway. */
+  private tickCountdowns(): void {
+    if (!this.vendor) return;
+    const now = Date.now();
+    for (const slot of this.vendor.slots) {
+      const timer = this.el.querySelector(`[data-slot="${slot.slotIndex}"] .sh-vslot-timer`);
+      if (timer) timer.textContent = formatCountdown(slot.expiresAt - now);
+    }
   }
 
   private render(): void {
@@ -308,9 +341,14 @@ export class ShopScreen {
         ${this.loading ? `<div class="bm-loading">Loading shop…</div>` : `
         <div class="sh-columns">
           <div class="sh-col-vendor">
-            <div class="sh-col-label">Vendor<span class="sh-countdown">${
-              this.vendor && this.vendor.purchasesRemaining !== null
-                ? `${this.vendor.purchasesRemaining} / ${VENDOR_DAILY_PURCHASE_LIMIT} purchases left today`
+            <div class="sh-col-label">Vendor<span class="sh-allowance">${
+              // `?? null` rather than a bare `!== null` check: fetchVendorView
+              // casts the response JSON without validating it, so a server
+              // predating purchasesRemaining yields `undefined`, which passes
+              // `!== null` and renders "undefined / 6 purchases left today".
+              // Same treatment as the slotDisplayState call sites.
+              (this.vendor?.purchasesRemaining ?? null) !== null
+                ? `${this.vendor!.purchasesRemaining} / ${VENDOR_DAILY_PURCHASE_LIMIT} purchases left today`
                 : 'stock rotates hourly'
             }</span></div>
             ${this.staleNotice ? `<div class="sh-stale-notice">${esc(this.staleNotice)}</div>` : ''}
@@ -503,16 +541,17 @@ export class ShopScreen {
     this.pending.add(key);
     this.noticeBySlot.delete(slotIndex);
 
+    // DISPLAY-ONLY: flips SOLD, decrements the shown balance and burns an
+    // allowance slot immediately for responsiveness; reload() below always
+    // overwrites all three from a fresh server read, win or lose.
     if (this.gold !== null) {
-      // DISPLAY-ONLY: flips SOLD, decrements the shown balance and burns an
-      // allowance slot immediately for responsiveness; reload() below always
-      // overwrites all three from a fresh server read, win or lose. A null
-      // allowance means "unknown", not zero, so there's nothing to decrement.
       slot.purchased = true;
       this.gold -= slot.price;
-      if (this.vendor && this.vendor.purchasesRemaining !== null) {
-        this.vendor.purchasesRemaining = Math.max(0, this.vendor.purchasesRemaining - 1);
-      }
+    }
+    // Independent of whether gold is known — a null allowance means
+    // "unknown", not zero, so there's simply nothing to decrement then.
+    if (this.vendor && (this.vendor.purchasesRemaining ?? null) !== null) {
+      this.vendor.purchasesRemaining = Math.max(0, this.vendor.purchasesRemaining! - 1);
     }
     this.render();
 

@@ -14,6 +14,12 @@ alter table profiles add column if not exists gold integer not null default 0 ch
 -- ever inserted by the game server's service-role client (which bypasses
 -- RLS entirely), never by an authenticated client directly, so there is no
 -- insert/update/delete policy here — only owner-read.
+--
+-- SUPERSEDED (kept as-is: migrations are a historical record). The shape
+-- described above is no longer the live one — 20260803000000_vendor_rotation.sql
+-- re-keys this table to (user_id, instance_key) and adds daily_seq, because
+-- slots now rotate on staggered 6-hour lifetimes rather than per UTC day.
+-- Read that migration for the current contract.
 create table if not exists vendor_purchases (
   user_id uuid not null references auth.users(id) on delete cascade,
   utc_day date not null,
