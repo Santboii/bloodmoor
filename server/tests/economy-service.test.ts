@@ -7,7 +7,8 @@ import { vendorStockFor, LOOTBOX_WIN_CHANCE, VENDOR_DAILY_PURCHASE_LIMIT, vendor
 // aren't set — true in this test environment. Mock it out (and
 // loadUserFromToken, so the middleware test controls auth outcomes directly
 // instead of hitting a real Supabase project) before importing routes.ts.
-vi.mock('../src/supabase.ts', () => ({ supabase: {} }));
+const supabaseStub = vi.hoisted(() => ({ current: {} as any }));
+vi.mock('../src/supabase.ts', () => ({ get supabase() { return supabaseStub.current; } }));
 vi.mock('../src/skills/loadSkills.ts', () => ({ loadUserFromToken: vi.fn() }));
 
 import { requireUser, asyncHandler, buyVendorHandler, openLootboxHandler } from '../src/economy/routes.ts';
@@ -601,5 +602,42 @@ describe('asyncHandler: misconfigured env fails fast instead of hanging', () => 
 
     expect(status).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
+  });
+});
+
+describe('buyVendorHandler wiring', () => {
+  // buyerClient() constructs a real supabase-js client from these and
+  // throws if they're missing; the values never get used, because the
+  // instanceKey check rejects before any RPC.
+  const savedUrl = process.env.SUPABASE_URL;
+  const savedAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  beforeEach(() => {
+    process.env.SUPABASE_URL = 'http://localhost:54321';
+    process.env.SUPABASE_ANON_KEY = 'anon-key';
+  });
+
+  afterEach(() => {
+    supabaseStub.current = {};
+    if (savedUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = savedUrl;
+    if (savedAnonKey === undefined) delete process.env.SUPABASE_ANON_KEY; else process.env.SUPABASE_ANON_KEY = savedAnonKey;
+  });
+
+  it('forwards slotIndex and instanceKey from the request body', async () => {
+    supabaseStub.current = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+    }).client;
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    const req = {
+      userId: 'u1',
+      accessToken: 'tok',
+      body: { slotIndex: 0, instanceKey: 'definitely-not-the-current-offer' },
+    } as any;
+
+    await buyVendorHandler(req, { status, json } as any);
+
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json).toHaveBeenCalledWith({ error: 'stock changed' });
   });
 });
