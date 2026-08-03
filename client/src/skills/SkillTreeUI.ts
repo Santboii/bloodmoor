@@ -169,7 +169,7 @@ const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7;
  */
 type Scale = { row: number; spell: number; mod: number; name: number; block: number; icon: number; modIcon: number };
 const SCALES: Scale[] = [
-  { row: 74,  spell: 52, mod: 38, name: 7, block: 66,  icon: 1.25, modIcon: 1.05 },
+  { row: 52,  spell: 28, mod: 20, name: 7, block: 44,  icon: 0.7,  modIcon: 0.55 },
   { row: 88,  spell: 62, mod: 46, name: 8, block: 79,  icon: 1.5,  modIcon: 1.25 },
   { row: 102, spell: 72, mod: 54, name: 9, block: 92,  icon: 1.75, modIcon: 1.45 },
 ];
@@ -187,13 +187,16 @@ const PANEL_CHROME_H = 56;
 const workspaceHeight = (s: Scale) => treeHeight(FIRE_ROWS, s) + PANEL_CHROME_H;
 
 /** Everything above the workspace (nav, subhead) plus the legend, selection
- *  bar, hotbar and picker rows below it, and padding. Approximate — measured
- *  from the pre-tooltip layout and padded for the rows the tooltip/hotbar
- *  rework added since; worth eyeballing at common viewport heights. */
-const CHROME_H = 360;
+ *  bar and hotbar below it, and padding. Measured in-browser on a mage tree
+ *  (top chrome ~140 + bottom chrome ~98) — the previous value of 360 was
+ *  never actually checked against a render and was ~120 too high. */
+const CHROME_H = 238;
 
 /** The largest step whose 7-row tree still fits the viewport without the page
- *  scrolling, smallest step otherwise. */
+ *  scrolling, smallest step otherwise. `viewportH` must already be in the
+ *  same pre-zoom pixel units as `Scale` — i.e. real viewport height divided
+ *  by `uiZoom()`, since `#ui-overlay` scales this whole screen by that factor
+ *  and every px in `Scale`/`CHROME_H` is a local (pre-zoom) unit. */
 function pickScale(viewportH: number): Scale {
   const budget = viewportH - CHROME_H;
   for (let i = SCALES.length - 1; i > 0; i--) {
@@ -420,7 +423,7 @@ export class SkillTreeUI {
     this.resizeTimer = window.setTimeout(() => {
       this.resizeTimer = null;
       if (!this.hasRendered) return;
-      if (pickScale(window.innerHeight) !== this.scale) this.render();
+      if (pickScale(window.innerHeight / uiZoom()) !== this.scale) this.render();
       else this.syncNameWidth();
     }, 150);
   };
@@ -612,7 +615,7 @@ export class SkillTreeUI {
     const utilTree = isRanger ? 'archer_utility' : 'utility';
     const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
 
-    this.scale = pickScale(window.innerHeight);
+    this.scale = pickScale(window.innerHeight / uiZoom());
     const s = this.scale;
     const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS, s)}px`;
     const utilContainerHeight = `${treeHeight(UTIL_ROWS, s)}px`;
