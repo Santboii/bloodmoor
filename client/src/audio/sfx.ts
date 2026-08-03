@@ -62,6 +62,7 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   9: 'cast_fire', // Ice Bolt: fast single projectile, same shape as Fireball's cast
   10: 'cast_firewall', // Blizzard: persistent zone, same shape as Fire Wall's cast
   11: 'cast_meteor', // Frozen Orb: summoned construct that acts over time, closest to Meteor's cast
+  12: 'cast_firewall', // Ice Ray: channel that keeps going after the initial cast, same shape as Fire Wall's cast
 };
 
 export function playCast(spell: SpellId): void {

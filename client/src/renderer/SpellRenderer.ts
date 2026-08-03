@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS } from '@arena/shared';
+import {
+  GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
+  iceRayRamp, ICE_RAY_HALF_WIDTH_MIN, ICE_RAY_HALF_WIDTH_MAX,
+} from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
 import * as sfx from '../audio/sfx';
@@ -48,6 +51,11 @@ const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
 // (rotation.set(-PI/2, 0, -angle)) points it down the velocity vector.
 const ICE_BOLT_GEO = new THREE.ConeGeometry(5, 22, 6).rotateZ(-Math.PI / 2);
 const FALLING_SHARD_GEO = new THREE.ConeGeometry(1.5, 10, 4);
+// Ice Ray beam: unit box, scaled per-frame to (length, width, thickness) and
+// rotated with the same -PI/2,0,-angle convention as the arrow shaft/ice
+// bolt above, so its local X axis (length) ends up pointing from caster to
+// channelEnd and local Y (width) ends up spanning the horizontal plane.
+const ICE_RAY_BEAM_GEO = new THREE.BoxGeometry(1, 1, 1);
 
 const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xff6600 });
 const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.25 });
@@ -61,9 +69,14 @@ const FROZEN_ORB_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0x66ccff, trans
 // their sprayed shards do), so the visual size is a client-only constant.
 const FROZEN_ORB_VISUAL_RADIUS = 16;
 
+// Fixed vertical slab thickness for the beam — only its horizontal width
+// (perpendicular to travel) ramps with iceRayRamp's halfWidth.
+const ICE_RAY_THICKNESS = 10;
+const ICE_RAY_COLOR = 0x6fd3f2;
+
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
-  ICE_BOLT_GEO, FALLING_SHARD_GEO,
+  ICE_BOLT_GEO, FALLING_SHARD_GEO, ICE_RAY_BEAM_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
@@ -116,6 +129,7 @@ export class SpellRenderer {
   private rainZoneArrows = new Map<string, RainArrowVisual>();
   private iceBolts = new Map<string, IceBoltEntry>();
   private frozenOrbs = new Map<string, FrozenOrbEntry>();
+  private iceRays = new Map<string, THREE.Mesh>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
   private clock = new THREE.Clock();
@@ -217,6 +231,7 @@ export class SpellRenderer {
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
     this.syncFrozenOrbs(state);
+    this.syncIceRays(state);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -584,6 +599,65 @@ export class SpellRenderer {
     }
   }
 
+  private syncIceRays(state: GameState): void {
+    const activeIds = new Set(
+      Object.entries(state.players)
+        .filter(([, p]) => p.channelSpell === 12 && p.channelEnd)
+        .map(([id]) => id),
+    );
+
+    for (const [id, mesh] of this.iceRays) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(mesh);
+        disposeObject3D(mesh);
+        this.iceRays.delete(id);
+      }
+    }
+
+    for (const [id, player] of Object.entries(state.players)) {
+      if (player.channelSpell !== 12 || !player.channelEnd) continue;
+
+      if (!this.iceRays.has(id)) {
+        // Per-instance material so opacity can animate independently per
+        // beam; disposeObject3D frees it automatically since it's never
+        // added to sharedMaterials.
+        const material = new THREE.MeshBasicMaterial({
+          color: ICE_RAY_COLOR,
+          transparent: true,
+          opacity: 0.35,
+        });
+        const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, material);
+        this.scene.add(mesh);
+        this.iceRays.set(id, mesh);
+      }
+
+      const mesh = this.iceRays.get(id)!;
+      const ramp = iceRayRamp(player.channelTicks ?? 0);
+
+      const dx = player.channelEnd.x - player.position.x;
+      const dz = player.channelEnd.y - player.position.y;
+      const length = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dz, dx);
+      const fullWidth = ramp.halfWidth * 2;
+
+      mesh.position.set(
+        (player.position.x + player.channelEnd.x) / 2,
+        30,
+        (player.position.y + player.channelEnd.y) / 2,
+      );
+      // Same orientation convention as the arrow shaft/ice bolt: local X
+      // (the length axis after scaling) ends up pointing from caster to
+      // channelEnd.
+      mesh.rotation.set(-Math.PI / 2, 0, -angle);
+      mesh.scale.set(Math.max(length, 0.001), fullWidth, ICE_RAY_THICKNESS);
+
+      // Brighten toward full charge — derived from the already-ramped
+      // halfWidth (not a re-derivation of the ramp curve itself).
+      const t = (ramp.halfWidth - ICE_RAY_HALF_WIDTH_MIN) / (ICE_RAY_HALF_WIDTH_MAX - ICE_RAY_HALF_WIDTH_MIN);
+      (mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + t * 0.5;
+    }
+  }
+
   dispose(): void {
     sfx.stopAllSpellLoops();
     for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
@@ -605,6 +679,7 @@ export class SpellRenderer {
       disposeObject3D(entry.arrowGroup);
     }
     for (const entry of this.frozenOrbs.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const mesh of this.iceRays.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();
@@ -613,6 +688,7 @@ export class SpellRenderer {
     this.meteors.clear();
     this.rainOfArrows.clear();
     this.frozenOrbs.clear();
+    this.iceRays.clear();
     this.teleportEffects.length = 0;
     this.particles.dispose();
   }
