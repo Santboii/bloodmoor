@@ -76,12 +76,19 @@ describe('ice ray channel', () => {
   it('never lets mana go negative — the channel halts rather than dealing free damage', () => {
     let state = baseState();
     state.players['p1'].mana = 5;
+    let sawChannelActive = false;
     let sawChannelHalt = false;
     for (let i = 0; i < 60; i++) {
       state = advanceState(state, { p1: ray(), p2: idle() }, owns);
       expect(state.players['p1'].mana).toBeGreaterThanOrEqual(0);
+      if (state.players['p1'].channelSpell === 12) sawChannelActive = true;
       if (state.players['p1'].channelSpell === undefined) sawChannelHalt = true;
     }
+    // channelSpell starts undefined, so sawChannelHalt alone would pass
+    // vacuously if the channel never engaged at all (e.g. a full stub-out).
+    // Confirming it was actually active at some point is what makes the
+    // halt assertion mean something.
+    expect(sawChannelActive).toBe(true);
     expect(sawChannelHalt).toBe(true);
   });
 
@@ -117,12 +124,11 @@ describe('ice ray channel', () => {
     expect(state.players['p3'].hp).toBeLessThan(hp3);
   });
 
-  // Room.tick() clears castSpell (not channel) every tick, and the channel
-  // path never sets castSpell on the caster's own next-frame input. This
-  // pins that down at the advanceState level: releasing the channel button
-  // must not also trigger a one-shot spell-12 cast riding along on the same
-  // release frame, which would land as a free extra hit or an extra mana
-  // charge stacked on top of the channel's own per-tick drain.
+  // The release frame sets channel: null, castSpell: null. This guards
+  // against a trailing channel drain or damage tick bleeding onto that
+  // frame — i.e. section 3c's beam-damage loop still treating the caster
+  // as channelling for one tick after channelSpell has already been reset
+  // to undefined earlier in the same tick's processing.
   it('does not fire a phantom spell-12 cast on release', () => {
     let state = baseState();
     for (let i = 0; i < 5; i++) state = advanceState(state, { p1: ray(), p2: idle() }, owns);
@@ -133,8 +139,8 @@ describe('ice ray channel', () => {
 
     // No beam tick landed on the release frame.
     expect(state.players['p2'].hp).toBe(hpBeforeRelease);
-    // No extra mana charge on top of (only) regen — a phantom cast or a
-    // trailing channel drain would show up as a net decrease here.
+    // No extra mana charge on top of (only) regen — a trailing channel
+    // drain would show up as a net decrease here.
     expect(state.players['p1'].mana).toBeGreaterThanOrEqual(manaBeforeRelease);
   });
 });
