@@ -6,18 +6,29 @@ export type SkillLoadResult =
   | { ok: true; userId: string; skills: Map<NodeId, number>; charClass: CharacterClass; appearance: Appearance; items: ItemRow[] }
   | { ok: false; error: string };
 
-export async function loadSkillsForCharacter(
-  accessToken: string,
-  characterId: string,
-): Promise<SkillLoadResult> {
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(accessToken);
-  if (authErr || !user) return { ok: false, error: authErr?.message ?? 'Invalid token' };
+export type CharacterState = {
+  skills: Map<NodeId, number>;
+  charClass: CharacterClass;
+  appearance: Appearance;
+  items: ItemRow[];
+};
 
+export type CharacterStateResult =
+  | { ok: true; state: CharacterState }
+  | { ok: false; error: string };
+
+/** The post-auth half of loadSkillsForCharacter: reads a character the
+ * caller has already established belongs to userId. Used directly for
+ * refreshes (rematch) where no access token is in hand. */
+export async function loadCharacterState(
+  userId: string,
+  characterId: string,
+): Promise<CharacterStateResult> {
   const { data: charData, error: charErr } = await supabase
     .from('characters')
     .select('id, class, appearance')
     .eq('id', characterId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single();
 
   if (charErr || !charData) return { ok: false, error: 'Character not found or unauthorized' };
@@ -51,7 +62,19 @@ export async function loadSkillsForCharacter(
     else console.warn(`Dropped invalid item row for character ${characterId}:`, row);
   }
 
-  return { ok: true, userId: user.id, skills, charClass, appearance, items };
+  return { ok: true, state: { skills, charClass, appearance, items } };
+}
+
+export async function loadSkillsForCharacter(
+  accessToken: string,
+  characterId: string,
+): Promise<SkillLoadResult> {
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(accessToken);
+  if (authErr || !user) return { ok: false, error: authErr?.message ?? 'Invalid token' };
+
+  const res = await loadCharacterState(user.id, characterId);
+  if (!res.ok) return res;
+  return { ok: true, userId: user.id, ...res.state };
 }
 
 export type MatchCreditResult = {
