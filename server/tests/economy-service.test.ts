@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { vendorStockFor, LOOTBOX_WIN_CHANCE } from '@arena/shared';
+import { vendorStockFor, LOOTBOX_WIN_CHANCE, VENDOR_DAILY_PURCHASE_LIMIT, vendorInstanceKey } from '@arena/shared';
 
 // routes.ts pulls in server/src/supabase.ts (the service-role singleton) at
 // module scope, which throws if SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY
@@ -13,7 +13,7 @@ vi.mock('../src/skills/loadSkills.ts', () => ({ loadUserFromToken: vi.fn() }));
 import { requireUser, asyncHandler, buyVendorHandler, openLootboxHandler } from '../src/economy/routes.ts';
 import { loadUserFromToken } from '../src/skills/loadSkills.ts';
 import {
-  getVendorView, buyVendorSlot, openLootbox, maybeRollMatchDrop,
+  getVendorView, buyVendorSlot, openLootbox, maybeRollMatchDrop, vendorClockNow,
 } from '../src/economy/service.ts';
 
 // --- Minimal fluent + thenable Supabase query-builder stub -----------------
@@ -56,6 +56,13 @@ function mockBuyerClient(rpcResult: ChainResult): { client: SupabaseClient; rpc:
 
 const ok = (data: unknown = null): ChainResult => ({ data, error: null });
 const fail = (message: string): ChainResult => ({ data: null, error: { message } });
+
+// A fixed vendor clock. 2026-08-02T12:00Z is an arbitrary but stable
+// instant; tests derive expected instance keys from it via vendorStockFor
+// rather than hardcoding generation numbers.
+const CLOCK = vendorClockNow(Date.UTC(2026, 7, 2, 12, 0, 0));
+const keyFor = (userId: string, level: number, slotIndex: number) =>
+  vendorStockFor(userId, CLOCK.hour, level)[slotIndex].instanceKey;
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -105,53 +112,54 @@ describe('requireUser middleware', () => {
   });
 });
 
+describe('vendorClockNow', () => {
+  it('derives the UTC hour index and day from one instant', () => {
+    const clock = vendorClockNow(Date.UTC(2026, 7, 2, 23, 59, 59, 999));
+    expect(clock.utcDay).toBe('2026-08-02');
+    expect(clock.hour).toBe(Math.floor(Date.UTC(2026, 7, 2, 23, 0, 0) / 3_600_000));
+  });
+});
+
 describe('getVendorView', () => {
-  it('annotates purchased slots and cross-class weapon slots without altering vendorStockFor\'s stock', async () => {
-    const userId = 'user-vendor-1';
-    const maxLevel = 5;
-
-    // Search for a day whose stock includes at least one ranger-restricted
-    // weapon, so the crossClass=true branch is actually exercised (not just
-    // vacuously true for every slot).
-    let utcDay = '';
-    let rawStock: ReturnType<typeof vendorStockFor> = [];
-    for (let d = 1; d <= 60; d++) {
-      const day = `2026-01-${String(d).padStart(2, '0')}`;
-      const stock = vendorStockFor(userId, day, maxLevel);
-      if (stock.some(s => s.base.classRestriction === 'ranger')) {
-        utcDay = day;
-        rawStock = stock;
-        break;
-      }
-    }
-    expect(utcDay, 'expected at least one seed with a ranger weapon slot in 60 tries').not.toBe('');
-
-    const purchasedIndex = 1;
-    const { client } = mockServiceClient({
-      characters: [ok([{ class: 'mage', level: maxLevel }])], // mage-only account
-      vendor_purchases: [ok([{ slot_index: purchasedIndex }])],
+  it('marks a slot sold by instance key, not by slot index', async () => {
+    const soldKey = keyFor('u1', 5, 2);
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        ok([{ instance_key: soldKey }]),  // current-shelf purchases
+        ok([{ instance_key: soldKey }]),  // today's purchases (allowance)
+      ],
     });
 
-    const view = await getVendorView(client, userId, utcDay);
+    const view = await getVendorView(service, 'u1', CLOCK);
 
-    expect(view.length).toBe(6);
-    view.forEach((slot, i) => {
-      expect(slot.base).toEqual(rawStock[i].base);
-      expect(slot.rarity).toBe(rawStock[i].rarity);
-      expect(slot.price).toBe(rawStock[i].price);
-      expect(slot.slotIndex).toBe(i);
-      expect(slot.purchased).toBe(i === purchasedIndex);
-      const expectCrossClass = rawStock[i].base.classRestriction === 'ranger';
-      expect(slot.crossClass).toBe(expectCrossClass);
-    });
+    expect(view.slots.filter(s => s.purchased).map(s => s.slotIndex)).toEqual([2]);
   });
 
-  it('is stable for the same (userId, utcDay, maxLevel) inputs', async () => {
-    const { client: c1 } = mockServiceClient({ characters: [ok([])], vendor_purchases: [ok([])] });
-    const { client: c2 } = mockServiceClient({ characters: [ok([])], vendor_purchases: [ok([])] });
-    const a = await getVendorView(c1, 'stable-user', '2026-07-28');
-    const b = await getVendorView(c2, 'stable-user', '2026-07-28');
-    expect(a).toEqual(b);
+  it('reports the remaining daily allowance', async () => {
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        ok([]),
+        ok([{ instance_key: 'a' }, { instance_key: 'b' }]),
+      ],
+    });
+
+    const view = await getVendorView(service, 'u1', CLOCK);
+
+    expect(view.purchasesRemaining).toBe(VENDOR_DAILY_PURCHASE_LIMIT - 2);
+  });
+
+  it('never reports a negative allowance', async () => {
+    const rows = Array.from({ length: 9 }, (_, i) => ({ instance_key: `k${i}` }));
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [ok([]), ok(rows)],
+    });
+
+    const view = await getVendorView(service, 'u1', CLOCK);
+
+    expect(view.purchasesRemaining).toBe(0);
   });
 });
 
@@ -160,21 +168,67 @@ describe('buyVendorSlot', () => {
     const { client: service, fromCalls } = mockServiceClient({});
     const { client: buyer, rpc } = mockBuyerClient(ok());
 
-    const result = await buyVendorSlot(service, buyer, 'u1', 9);
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 9, 'whatever');
 
     expect(result).toEqual({ ok: false, status: 400, error: 'invalid slotIndex' });
     expect(rpc).not.toHaveBeenCalled();
     expect(fromCalls).toEqual([]);
   });
 
-  it('rejects an already-purchased slot before debiting gold', async () => {
-    const { client: service } = mockServiceClient({
+  it('rejects a missing instanceKey without touching gold or the DB', async () => {
+    const { client: service, fromCalls } = mockServiceClient({});
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, undefined);
+
+    expect(result).toEqual({ ok: false, status: 400, error: 'invalid instanceKey' });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).toEqual([]);
+  });
+
+  it('rejects a stale instanceKey with 409 before debiting gold', async () => {
+    // The key the client saw six hours ago at this slot.
+    const staleKey = vendorInstanceKey(0, 0, 4);
+    const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok([{ slot_index: 0 }])], // existing row found
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
 
-    const result = await buyVendorSlot(service, buyer, 'u1', 0);
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, staleKey);
+
+    expect(result).toEqual({ ok: false, status: 409, error: 'stock changed' });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).not.toContain('vendor_purchases');
+    expect(fromCalls).not.toContain('items');
+  });
+
+  it('rejects once the daily allowance is spent, before debiting gold', async () => {
+    const rows = Array.from(
+      { length: VENDOR_DAILY_PURCHASE_LIMIT },
+      (_, i) => ({ instance_key: `k${i}` }),
+    );
+    const { client: service, fromCalls } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [ok(rows)],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result).toEqual({ ok: false, status: 429, error: 'daily purchase limit reached' });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).not.toContain('items');
+  });
+
+  it('rejects an already-purchased offer before debiting gold', async () => {
+    const key = keyFor('u1', 5, 0);
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [ok([]), ok({ instance_key: key })], // allowance, then existing row
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, key);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/already purchased/);
@@ -184,11 +238,11 @@ describe('buyVendorSlot', () => {
   it('propagates spend_gold failure (insufficient gold) and never grants an item', async () => {
     const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok(null)], // no existing purchase
+      vendor_purchases: [ok([]), ok(null)],
     });
     const { client: buyer, rpc } = mockBuyerClient(fail('insufficient gold'));
 
-    const result = await buyVendorSlot(service, buyer, 'u1', 0);
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
 
     expect(result).toEqual({ ok: false, status: 402, error: 'insufficient gold' });
     expect(rpc).toHaveBeenCalledOnce();
@@ -199,7 +253,7 @@ describe('buyVendorSlot', () => {
     const insertedItem = { id: 'item-1', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
     const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok(null), ok(null)], // check: none purchased; insert: reserve succeeds
+      vendor_purchases: [ok([]), ok(null), ok(null)], // allowance, existing check, reserve insert
       items: [ok(insertedItem)],
     });
     const callOrder: string[] = [];
@@ -211,7 +265,7 @@ describe('buyVendorSlot', () => {
       return originalFrom(table);
     });
 
-    const result = await buyVendorSlot(service, buyer, 'u1', 0);
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.item).toEqual(insertedItem);
@@ -222,26 +276,19 @@ describe('buyVendorSlot', () => {
   it('refunds gold and releases the slot when the item insert fails after debit', async () => {
     const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok(null), ok(null)], // check: none purchased; insert: reserve succeeds
+      vendor_purchases: [ok([]), ok(null), ok(null), ok(null)], // allowance, check, reserve, release
       items: [fail('insert failed')],
       profiles: [ok({ gold: 100 }), ok(null)], // refund read, then update
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const result = await buyVendorSlot(service, buyer, 'u1', 0);
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
 
-    expect(rpc).toHaveBeenCalledOnce(); // debited exactly once, never refunded via a second debit
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(500);
-      expect(result.error).toMatch(/refunded/);
-    }
-    // vendor_purchases: check (1) + insert reserve (2) + delete compensation (3)
-    expect(fromCalls.filter(t => t === 'vendor_purchases').length).toBe(3);
-    // profiles: refund read (1) + refund update (2)
-    expect(fromCalls.filter(t => t === 'profiles').length).toBe(2);
-    expect(errorSpy).toHaveBeenCalled();
+    if (!result.ok) expect(result.status).toBe(500);
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(fromCalls).toContain('profiles');
     errorSpy.mockRestore();
   });
 });

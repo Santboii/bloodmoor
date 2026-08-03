@@ -8,6 +8,7 @@ import {
   LOOTBOX_WIN_CHANCE, LOOTBOX_PRICES,
   vendorStockFor, rollLootboxItem, rollMatchDropItem,
   normalizeCharacterClass, validateItemRow,
+  VENDOR_DAILY_PURCHASE_LIMIT, VENDOR_SLOT_COUNT, utcHourIndex,
 } from '@arena/shared';
 import type { LootboxTier, VendorSlot, ItemRow, ItemRarity, CharacterClass } from '@arena/shared';
 
@@ -35,6 +36,16 @@ export function buyerClient(accessToken: string): SupabaseClient {
  * format and vendor_purchases.utc_day. */
 export function utcDayString(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** The vendor's two clock readings taken from ONE instant, so a request can
+ * never straddle an hour or day boundary mid-flight. Injected into
+ * getVendorView/buyVendorSlot rather than read inside them, which keeps
+ * both testable without fake timers. */
+export type VendorClock = { hour: number; utcDay: string };
+
+export function vendorClockNow(nowMs: number = Date.now()): VendorClock {
+  return { hour: utcHourIndex(nowMs), utcDay: new Date(nowMs).toISOString().slice(0, 10) };
 }
 
 const ITEM_ROW_COLUMNS = 'id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, unique_id';
@@ -86,15 +97,16 @@ async function refundGold(service: SupabaseClient, userId: string, amount: numbe
 }
 
 export type VendorSlotView = VendorSlot & {
-  slotIndex: number;
   purchased: boolean;
   /** True when this slot's base is class-restricted and the account
    * currently has no character of that class — see the class-filter note
    * on getVendorView below. Purely informational; the slot stays
    * purchasable (the account may roll that class later, or is buying for a
-   * future character — see design note in the Task 3 brief). */
+   * future character). */
   crossClass: boolean;
 };
+
+export type VendorViewResult = { slots: VendorSlotView[]; purchasesRemaining: number };
 
 /** Deferred Task 1 finding: an unfiltered vendor slot can show a weapon
  * restricted to a class the account doesn't currently have (e.g. a bow for
@@ -108,35 +120,56 @@ export type VendorSlotView = VendorSlot & {
  * vendorStockFor's determinism are untouched — this only adds a read-only
  * flag for the client to render a hint/badge.
  */
-export async function getVendorView(service: SupabaseClient, userId: string, utcDay: string): Promise<VendorSlotView[]> {
+export async function getVendorView(
+  service: SupabaseClient, userId: string, clock: VendorClock,
+): Promise<VendorViewResult> {
   const { maxLevel, ownedClasses } = await loadAccountCharSummary(service, userId);
-  const stock = vendorStockFor(userId, utcDay, maxLevel);
+  const stock = vendorStockFor(userId, clock.hour, maxLevel);
 
+  // Purchases against the offers CURRENTLY on the shelf. Keyed by
+  // instance_key rather than utc_day: a 6-hour slot can straddle midnight
+  // UTC, so a live offer's purchase row may carry yesterday's day.
   const { data: purchases, error } = await service
     .from('vendor_purchases')
-    .select('slot_index')
+    .select('instance_key')
     .eq('user_id', userId)
-    .eq('utc_day', utcDay);
+    .in('instance_key', stock.map(s => s.instanceKey));
   if (error) console.error('getVendorView: vendor_purchases read failed:', error.message);
-  const purchasedSlots = new Set((purchases ?? []).map((r: { slot_index: number }) => r.slot_index));
+  const purchasedKeys = new Set((purchases ?? []).map((r: { instance_key: string }) => r.instance_key));
 
-  return stock.map((slot, slotIndex) => ({
-    ...slot,
-    slotIndex,
-    purchased: purchasedSlots.has(slotIndex),
-    crossClass: slot.base.classRestriction != null && !ownedClasses.has(slot.base.classRestriction),
-  }));
+  // Today's purchases, for the daily allowance. Capped at
+  // VENDOR_DAILY_PURCHASE_LIMIT rows, so selecting them is cheaper than a
+  // separate count query and keeps one code path for both reads.
+  const { data: todayRows, error: todayErr } = await service
+    .from('vendor_purchases')
+    .select('instance_key')
+    .eq('user_id', userId)
+    .eq('utc_day', clock.utcDay);
+  if (todayErr) console.error('getVendorView: daily allowance read failed:', todayErr.message);
+  const purchasesRemaining = Math.max(0, VENDOR_DAILY_PURCHASE_LIMIT - (todayRows?.length ?? 0));
+
+  return {
+    slots: stock.map(slot => ({
+      ...slot,
+      purchased: purchasedKeys.has(slot.instanceKey),
+      crossClass: slot.base.classRestriction != null && !ownedClasses.has(slot.base.classRestriction),
+    })),
+    purchasesRemaining,
+  };
 }
 
 export type VendorBuyResult = { ok: true; item: ItemRow } | { ok: false; status: number; error: string };
 
-/** Buy one of today's 6 vendor slots. Order: validate -> check not already
- * purchased -> debit gold (buyer's own JWT, so spend_gold's auth.uid() is
- * the buyer) -> reserve the slot (vendor_purchases insert) -> grant the item.
+/** Buy one vendor offer. Order: validate -> confirm the offer is still the
+ * one the client saw -> daily allowance -> not already bought -> debit gold
+ * (buyer's own JWT, so spend_gold's auth.uid() is the buyer) -> reserve the
+ * offer -> grant the item. Everything that can reject does so BEFORE the
+ * debit, so the only compensation path is the item insert failing.
+ *
  * The slot is reserved BEFORE the item is granted (rather than after) so a
  * mid-flight failure has only one failure mode to compensate: if the item
  * insert fails, both the reservation and the gold are rolled back; if the
- * reservation itself fails (e.g. a concurrent duplicate-slot race losing to
+ * reservation itself fails (e.g. a concurrent duplicate-offer race losing to
  * the table's unique constraint), only the gold needs refunding since no
  * item was ever granted. Refunds are the two-step read-then-write in
  * refundGold — see its docstring for the consistency tradeoff. */
@@ -144,36 +177,61 @@ export async function buyVendorSlot(
   service: SupabaseClient,
   buyer: SupabaseClient,
   userId: string,
+  clock: VendorClock,
   slotIndex: unknown,
+  instanceKey: unknown,
 ): Promise<VendorBuyResult> {
-  if (typeof slotIndex !== 'number' || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 5) {
+  if (typeof slotIndex !== 'number' || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= VENDOR_SLOT_COUNT) {
     return { ok: false, status: 400, error: 'invalid slotIndex' };
   }
+  if (typeof instanceKey !== 'string' || instanceKey.length === 0) {
+    return { ok: false, status: 400, error: 'invalid instanceKey' };
+  }
 
-  const utcDay = utcDayString();
   const { maxLevel } = await loadAccountCharSummary(service, userId);
-  const stock = vendorStockFor(userId, utcDay, maxLevel);
-  const slot = stock[slotIndex];
+  const slot = vendorStockFor(userId, clock.hour, maxLevel)[slotIndex];
+
+  // Substitution guard. The client bought a specific offer; if the shelf
+  // has reseeded since it rendered — hourly rotation, a level-band change,
+  // a tab left open — this index now holds something else, and granting it
+  // would charge the displayed price for a different item. Reject before
+  // any gold moves and let the client refetch. This is the authoritative
+  // check; the client's own expiry guard only narrows the window.
+  if (slot.instanceKey !== instanceKey) {
+    return { ok: false, status: 409, error: 'stock changed' };
+  }
+
+  const { data: todayRows, error: todayErr } = await service
+    .from('vendor_purchases')
+    .select('instance_key')
+    .eq('user_id', userId)
+    .eq('utc_day', clock.utcDay);
+  if (todayErr) {
+    console.error('buyVendorSlot: daily allowance read failed:', todayErr.message);
+    return { ok: false, status: 500, error: 'internal error' };
+  }
+  if ((todayRows?.length ?? 0) >= VENDOR_DAILY_PURCHASE_LIMIT) {
+    return { ok: false, status: 429, error: 'daily purchase limit reached' };
+  }
 
   const { data: existing, error: existingErr } = await service
     .from('vendor_purchases')
-    .select('slot_index')
+    .select('instance_key')
     .eq('user_id', userId)
-    .eq('utc_day', utcDay)
-    .eq('slot_index', slotIndex)
+    .eq('instance_key', instanceKey)
     .maybeSingle();
   if (existingErr) {
     console.error('buyVendorSlot: purchase check failed:', existingErr.message);
     return { ok: false, status: 500, error: 'internal error' };
   }
-  if (existing) return { ok: false, status: 400, error: 'slot already purchased today' };
+  if (existing) return { ok: false, status: 400, error: 'slot already purchased' };
 
   const { error: debitErr } = await buyer.rpc('spend_gold', { p_amount: slot.price });
   if (debitErr) return { ok: false, status: 402, error: debitErr.message };
 
   const { error: reserveErr } = await service
     .from('vendor_purchases')
-    .insert({ user_id: userId, utc_day: utcDay, slot_index: slotIndex });
+    .insert({ user_id: userId, utc_day: clock.utcDay, slot_index: slotIndex, instance_key: instanceKey });
   if (reserveErr) {
     console.error('buyVendorSlot: vendor_purchases insert failed after debit — refunding:', reserveErr.message);
     await refundGold(service, userId, slot.price);
@@ -198,7 +256,7 @@ export async function buyVendorSlot(
 
   if (itemErr || !itemRow) {
     console.error('buyVendorSlot: item insert failed after debit — refunding and releasing slot:', itemErr?.message);
-    await service.from('vendor_purchases').delete().eq('user_id', userId).eq('utc_day', utcDay).eq('slot_index', slotIndex);
+    await service.from('vendor_purchases').delete().eq('user_id', userId).eq('instance_key', instanceKey);
     await refundGold(service, userId, slot.price);
     return { ok: false, status: 500, error: 'purchase failed, gold refunded' };
   }
