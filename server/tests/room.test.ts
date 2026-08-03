@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Room } from '../src/rooms/Room.ts';
 import { DUEL_MODE, FFA_MODE, TEAM_DUEL_MODE, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
-import type { ItemRow } from '@arena/shared';
+import type { ItemRow, InputFrame } from '@arena/shared';
 
 describe('Room.creatorName', () => {
   it('stores the first player added as creator', () => {
@@ -313,5 +313,25 @@ describe('Room.startMatch with modes', () => {
       team2: ['s3', 's4'],
     });
     expect(room.state!.gameMode).toBe('2v2');
+  });
+});
+
+describe('Room.tick channel handling', () => {
+  it('does not clear channel between ticks, unlike castSpell', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.startMatch();
+
+    room.queueInput('s1', {
+      move: { x: 0, y: 0 }, castSpell: 3, channel: 12, aimTarget: { x: 500, y: 500 },
+    });
+    room.tick();
+
+    const after = (room as unknown as { pendingInputs: Map<string, InputFrame> }).pendingInputs.get('s1')!;
+    // castSpell is cleared so one keypress is one cast...
+    expect(after.castSpell).toBeNull();
+    // ...but channel persists, which is what lets the ramp climb.
+    expect(after.channel).toBe(12);
   });
 });

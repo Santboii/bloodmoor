@@ -735,6 +735,7 @@ function startGame(): void {
       );
   hud.buildSpellSlots(slots);
   inputHandler.setSlots(slots);
+  inputHandler.setChannelSpells(new Set([12]));
   hud.show();
   setScene('arena');
   setDueling(true);

@@ -31,7 +31,7 @@ const rematchTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const AIM_LIMIT = 100_000;
 function sanitizeInput(raw: unknown): InputFrame | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown };
+  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; channel?: unknown };
 
   const rawMove = r.move as { x?: unknown; y?: unknown } | undefined;
   const clampAxis = (v: unknown): number =>
@@ -45,7 +45,11 @@ function sanitizeInput(raw: unknown): InputFrame | null {
 
   const castValid =
     r.castSpell === null ||
-    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 11);
+    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 12);
+
+  const channelValid =
+    r.channel === null || r.channel === undefined ||
+    (typeof r.channel === 'number' && Number.isInteger(r.channel) && r.channel >= 1 && r.channel <= 12);
 
   if (!aimValid) return null;
 
@@ -54,7 +58,7 @@ function sanitizeInput(raw: unknown): InputFrame | null {
     // A cast without a valid aim point cannot be resolved — drop the cast.
     castSpell: castValid ? (r.castSpell as InputFrame['castSpell']) : null,
     aimTarget: { x: rawAim!.x as number, y: rawAim!.y as number },
-    channel: null,
+    channel: channelValid ? ((r.channel ?? null) as InputFrame['channel']) : null,
   };
   if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
   return input;
