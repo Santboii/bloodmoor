@@ -251,6 +251,11 @@ io.on('connection', socket => {
         room.userIds.set(socket.id, skillResult.userId);
         room.characterIds.set(socket.id, characterId);
         room.loadouts.set(socket.id, skillResult.items);
+      } else {
+        // Without this the player silently fights as a gearless default
+        // mage — the exact failure mode a missing item column caused once.
+        console.error(`join-room: loadout load failed for character ${characterId}: ${skillResult.error}`);
+        socket.emit('loadout-load-failed', { reason: skillResult.error });
       }
     }
 

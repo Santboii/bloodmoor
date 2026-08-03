@@ -73,6 +73,10 @@ export class SocketClient {
     this.socket.off('room-not-found');
     this.socket.on('room-not-found', cb);
   }
+  onLoadoutLoadFailed(cb: (payload: { reason: string }) => void): void {
+    this.socket.off('loadout-load-failed');
+    this.socket.on('loadout-load-failed', cb);
+  }
   onChatMessage(cb: (payload: ChatMessagePayload) => void): void {
     this.socket.off('chat-message');
     this.socket.on('chat-message', cb);

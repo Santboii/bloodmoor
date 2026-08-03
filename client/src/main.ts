@@ -712,6 +712,11 @@ function setupSocketHandlers(_myDisplayName: string): void {
     void freshAccessToken().then(token => socket.rejoinRoom(rejoinRoomId, token));
   });
 
+  socket.onLoadoutLoadFailed(({ reason }) => {
+    console.error('loadout load failed:', reason);
+    lobby.appendSystemMessage('Your gear and skills failed to load — leave the room and re-enter to retry.');
+  });
+
   socket.onRoomNotFound(() => {
     setScene('hall');
     renderLobbyHome();
