@@ -19,7 +19,7 @@ import {
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, MeteorState } from '@arena/shared';
-import { SPELL_BINDINGS, CLASS_DEFAULT_NODE, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
+import { SPELL_BINDINGS, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight, segmentsIntersect } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage, surfaceNormal, reflect } from '../spells/Fireball.ts';
@@ -30,6 +30,7 @@ import { spawnArrow, advanceArrow, isArrowExpired, arrowHitsPlayer, arrowDamage 
 import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
+import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
@@ -70,11 +71,10 @@ function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null
   return inZone ? EXPOSED_DAMAGE_MULT : 1;
 }
 
-function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
-  const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
+function getSpellNodeMap(charClass: CharacterClass): Partial<Record<SpellId, NodeId>> {
   const map: Partial<Record<SpellId, NodeId>> = {};
   for (const b of SPELL_BINDINGS) {
-    if (b.charClass === cls) map[b.spell] = b.node;
+    if (b.charClass === charClass) map[b.spell] = b.node;
   }
   return map;
 }
@@ -137,6 +137,13 @@ export function advanceState(
       const skills = skillSets[id] ?? new Map();
       const isRanger = skills.has('archer.power_shot' as NodeId);
       return [id, isRanger ? buildRangerModifiers(skills) : null];
+    })
+  );
+  const gladMods = Object.fromEntries(
+    Object.keys(players).map(id => {
+      const skills = skillSets[id] ?? new Map();
+      const isGladiator = skills.has('arms.jab' as NodeId);
+      return [id, isGladiator ? buildGladiatorModifiers(skills) : null];
     })
   );
 
@@ -262,10 +269,12 @@ export function advanceState(
     const mods = modifiers[id];
     // Ranger spells need ranger modifiers — bail before burning mana/cooldown.
     if (classOfSpell(spell) === 'ranger' && !rangerMods[id]) continue;
+    // Gladiator spells need gladiator modifiers — bail before burning mana/cooldown.
+    if (classOfSpell(spell) === 'gladiator' && !gladMods[id]) continue;
 
     // Spell availability gate — only applies when player has a skill set registered
     const hasSkillSystem = skillSets[id] !== undefined;
-    const spellNodeMap = getSpellNodeMap(skillSets[id] ?? new Map());
+    const spellNodeMap = getSpellNodeMap(p.charClass);
     const requiredNode = spellNodeMap[spell];
     // Block spells not in this class's spell map entirely
     if (hasSkillSystem && !(spell in spellNodeMap)) continue;
@@ -486,6 +495,10 @@ export function advanceState(
           })];
         }
       }
+    } else if (spell === 12 || spell === 13 || spell === 14 || spell === 15) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      // Mechanics land per-spell in Tasks 6-10.
     }
   }
 
