@@ -279,7 +279,7 @@ describe('vendor rotation clock', () => {
 
   it('turns over exactly one slot each hour', () => {
     for (let hour = 1000; hour < 1024; hour++) {
-      const changed = [0, 1, 2, 3, 4, 5].filter(
+      const changed = Array.from({ length: VENDOR_SLOT_COUNT }, (_, i) => i).filter(
         i => slotGeneration(i, hour) !== slotGeneration(i, hour - 1),
       );
       expect(changed.length).toBe(1);
@@ -287,6 +287,7 @@ describe('vendor rotation clock', () => {
   });
 
   it('gives every slot a six-hour lifetime', () => {
+    expect.hasAssertions();
     for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
       const gen = slotGeneration(i, 1000);
       let hoursAtThisGen = 0;
@@ -296,6 +297,7 @@ describe('vendor rotation clock', () => {
   });
 
   it('never runs a generation backwards as the hour advances', () => {
+    expect.hasAssertions();
     for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
       for (let h = 1000; h < 1050; h++) {
         expect(slotGeneration(i, h + 1)).toBeGreaterThanOrEqual(slotGeneration(i, h));
@@ -304,6 +306,7 @@ describe('vendor rotation clock', () => {
   });
 
   it('slotExpiryHour is the first hour of the next generation', () => {
+    expect.hasAssertions();
     for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
       const gen = slotGeneration(i, 1000);
       const expiry = slotExpiryHour(i, gen);
@@ -313,7 +316,7 @@ describe('vendor rotation clock', () => {
   });
 
   it('staggers the six slots so no two expire in the same hour', () => {
-    const expiries = [0, 1, 2, 3, 4, 5].map(i => slotExpiryHour(i, slotGeneration(i, 1000)));
+    const expiries = Array.from({ length: VENDOR_SLOT_COUNT }, (_, i) => i).map(i => slotExpiryHour(i, slotGeneration(i, 1000)));
     expect(new Set(expiries).size).toBe(VENDOR_SLOT_COUNT);
   });
 
