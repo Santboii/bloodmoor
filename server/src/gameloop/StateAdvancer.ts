@@ -17,6 +17,7 @@ import {
   PERMAFROST_LINGER_TICKS,
   CATACLYSMIC_ORB_DAMAGE, CATACLYSMIC_ORB_RADIUS,
   ABSOLUTE_ZERO_DWELL_TICKS,
+  ICE_RAY_MOVE_MULT, iceRayRamp,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -27,6 +28,7 @@ import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport 
 import { hasLineOfSight } from '../physics/LineOfSight.ts';
 import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, fireballDamage } from '../spells/Fireball.ts';
 import { spawnIceBolt, advanceIceBolt, isIceBoltExpired, iceBoltHitsPlayer, iceBoltDamage } from '../spells/IceBolt.ts';
+import { iceRayEnd, iceRayHitsPlayer } from '../spells/IceRay.ts';
 import { spawnBlizzard } from '../spells/Blizzard.ts';
 import { spawnFrozenOrb, advanceFrozenOrb, isFrozenOrbExpired, orbVolleyDue, spawnOrbVolley } from '../spells/FrozenOrb.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer } from '../spells/FireWall.ts';
@@ -191,8 +193,37 @@ export function advanceState(
     const poisonActive = (p.poisonUntil ?? 0) > tick;
     const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1) * p.statMults.manaRegen;
     const newMana = Math.min(p.maxMana, p.mana + regen);
+
+    // Ice Ray channel. Resolved here rather than in the cast dispatch because a
+    // channel is sustained, not a one-shot — the dispatch clears itself each tick.
+    let channelSpell = p.channelSpell;
+    let channelTicks = p.channelTicks ?? 0;
+    let channelEnd = p.channelEnd;
+    let manaAfterChannel = newMana;
+
+    const wantsChannel = input.channel === 12;
+    // The channel path bypasses the cast dispatch, so it does not inherit that
+    // gate's ownership check — mirror it here or an unowned Ice Ray is castable.
+    const ownsIceRay = skillSets[id] === undefined || (skillSets[id]!.has('frost.ice_ray' as NodeId));
+
+    if (wantsChannel && ownsIceRay && p.hp > 0) {
+      const ramp = iceRayRamp(channelTicks);
+      if (manaAfterChannel >= ramp.manaPerTick) {
+        manaAfterChannel -= ramp.manaPerTick;
+        channelSpell = 12;
+        channelTicks = channelTicks + 1;
+        channelEnd = iceRayEnd(p.position, input.aimTarget);
+      } else {
+        channelSpell = undefined; channelTicks = 0; channelEnd = undefined;
+      }
+    } else {
+      channelSpell = undefined; channelTicks = 0; channelEnd = undefined;
+    }
+
+    const channelSlow = channelSpell !== undefined ? ICE_RAY_MOVE_MULT : 1;
+
     const rooted = (p.rootUntil ?? 0) > tick;
-    const speedMult = rooted ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
+    const speedMult = rooted ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed * channelSlow;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -217,12 +248,15 @@ export function advanceState(
     players[id] = {
       ...p,
       position: dashing.has(id) ? p.position : movePlayer(p.position, input.move, speedMult),
-      mana: newMana,
+      mana: manaAfterChannel,
       facing: newFacing,
       cooldowns: newCooldowns,
       castingSpell: null,
       phantomStepUntil: phantomActive ? p.phantomStepUntil : undefined,
       evadeCharges,
+      channelSpell,
+      channelTicks,
+      channelEnd,
     };
   }
 
@@ -824,6 +858,32 @@ export function advanceState(
     }
   }
   frozenOrbs = survivingOrbs;
+
+  // 3c. Ice Ray beam damage. Re-resolved every tick from the caster's live
+  // position and aim; the ramp is already reflected in channelTicks.
+  for (const [id, p] of Object.entries(players)) {
+    if (p.channelSpell !== 12 || !p.channelEnd || p.hp <= 0) continue;
+    const ramp = iceRayRamp(p.channelTicks ?? 0);
+    for (const [pid, target] of Object.entries(players)) {
+      if (pid === id || target.hp <= 0) continue;
+      if ((target.invulnUntil ?? 0) > tick) continue;
+      if (!iceRayHitsPlayer(p.position, p.channelEnd, target.position, ramp.halfWidth)) continue;
+
+      const sameTeam = resolvedMode.teamsEnabled &&
+        players[id]?.teamId !== undefined &&
+        players[id].teamId === target.teamId;
+
+      const next = { ...target };
+      if (!sameTeam) {
+        const incoming = ICEBOLT_CHILL_FACTOR;
+        const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+        next.slowFactor = Math.min(existing, incoming);
+        next.slowUntil = tick + ICEBOLT_CHILL_TICKS;
+      }
+      next.hp = Math.max(0, next.hp - ramp.damagePerTick * getDamageMultiplier(id, pid, players, resolvedMode));
+      players[pid] = next;
+    }
+  }
 
   // 4. Fire wall / rain zone damage (fireWalls already expiry-filtered and
   // Stormcall-drifted above, before the arrow-hit section)

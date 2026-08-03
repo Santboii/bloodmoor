@@ -69,3 +69,55 @@ describe('pointToSegmentDist (lifted to shared)', () => {
     expect(pointToSegmentDist({ x: 3, y: 4 }, { x1: 0, y1: 0, x2: 0, y2: 0 })).toBeCloseTo(5);
   });
 });
+
+import { iceRayEnd, iceRayHitsPlayer } from '../src/spells/IceRay.ts';
+import { ICE_RAY_MAX_RANGE, PLAYER_HALF_SIZE, ARENA_SIZE } from '@arena/shared';
+
+describe('iceRayEnd', () => {
+  it('reaches max range down an empty lane', () => {
+    const from = { x: 100, y: 1200 };
+    const end = iceRayEnd(from, { x: 900, y: 1200 });
+    expect(end.x - from.x).toBeCloseTo(ICE_RAY_MAX_RANGE, 0);
+    expect(end.y).toBeCloseTo(from.y);
+  });
+
+  it('stops short at a pillar', () => {
+    // A pillar sits at (1000, 1000). Fire along y=1000 from the left.
+    const from = { x: 500, y: 1000 };
+    const end = iceRayEnd(from, { x: 1500, y: 1000 });
+    expect(end.x).toBeLessThan(1000);
+    expect(end.x).toBeGreaterThan(900);
+  });
+
+  it('never leaves the arena', () => {
+    const end = iceRayEnd({ x: 1900, y: 1900 }, { x: 3000, y: 3000 });
+    expect(end.x).toBeLessThanOrEqual(ARENA_SIZE);
+    expect(end.y).toBeLessThanOrEqual(ARENA_SIZE);
+  });
+
+  it('does not divide by zero when aim equals position', () => {
+    const from = { x: 400, y: 400 };
+    expect(() => iceRayEnd(from, { ...from })).not.toThrow();
+  });
+});
+
+describe('iceRayHitsPlayer', () => {
+  const from = { x: 0, y: 1000 };
+  const end = { x: 700, y: 1000 };
+
+  it('hits a target on the beam', () => {
+    expect(iceRayHitsPlayer(from, end, { x: 300, y: 1000 }, 6)).toBe(true);
+  });
+
+  it('misses a target outside the band', () => {
+    expect(iceRayHitsPlayer(from, end, { x: 300, y: 1000 + PLAYER_HALF_SIZE + 40 }, 6)).toBe(false);
+  });
+
+  it('catches that same target once the band widens', () => {
+    expect(iceRayHitsPlayer(from, end, { x: 300, y: 1000 + PLAYER_HALF_SIZE + 15 }, 20)).toBe(true);
+  });
+
+  it('misses a target beyond the end of the beam', () => {
+    expect(iceRayHitsPlayer(from, end, { x: 900, y: 1000 }, 20)).toBe(false);
+  });
+});
