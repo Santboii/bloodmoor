@@ -100,6 +100,7 @@ const STYLES = `
 .sh-vslot-icon{font-size:1.3rem;}
 .sh-vslot-name{font-family:'Press Start 2P',monospace;font-size:6px;text-align:center;line-height:1.4;}
 .sh-vslot-price{font-size:15px;color:var(--px-accent);display:flex;align-items:center;gap:4px;}
+.sh-vslot-timer{font-size:11px;color:var(--px-border-light);opacity:0.7;letter-spacing:0.04em;}
 .sh-crossclass-dim{opacity:0.65;}
 .sh-crossclass{font-size:11px;color:var(--px-accent);opacity:0.85;text-align:center;line-height:1.3;}
 .sh-notice{font-size:12px;color:var(--px-danger);text-align:center;line-height:1.3;}
@@ -143,10 +144,13 @@ export class ShopScreen {
   private noticeBySlot = new Map<number, string>();
   private lootboxNotice = new Map<LootboxTier, string>();
   private reveal: { tier: LootboxTier; item: ItemRow } | null = null;
-  // Set when a buy is aborted by the UTC-day-rollover guard in
-  // handleBuySlot; cleared on the next screen open or successful buy
-  // attempt against fresh stock.
+  // Set when a buy is aborted by the rotation-expiry guard in handleBuySlot;
+  // cleared on the next screen open or successful buy attempt against fresh
+  // stock.
   private staleNotice: string | null = null;
+  // Refetch handle armed at the soonest slot expiry — a shop left open
+  // would otherwise keep offering stock the server has already rotated out.
+  private rotationTimer: number | null = null;
 
   constructor(
     container: HTMLElement,
@@ -175,11 +179,11 @@ export class ShopScreen {
     // Stale-while-revalidate — see GearScreen.show for the rationale, and for
     // why gold specifically is never cached.
     //
-    // The cached vendor view can be a UTC day out of date, which would show
-    // yesterday's stock with stale SOLD overlays for the round trip until
+    // The cached vendor view can have slots that rotated out while the tab
+    // was closed, which would show stale offers for the round trip until
     // reload() lands. That's already a handled case rather than a new one:
-    // handleBuySlot re-checks the day before submitting and aborts into
-    // staleNotice, and the server is the real authority on both.
+    // handleBuySlot re-checks each slot's expiry before submitting and
+    // aborts into staleNotice, and the server is the real authority on both.
     this.gold = null;
     this.loading = this.vendor === null;
     this.render();
@@ -192,6 +196,7 @@ export class ShopScreen {
     this.el.style.display = 'none';
     this.navTeardown?.();
     this.navTeardown = null;
+    if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
@@ -203,6 +208,7 @@ export class ShopScreen {
     this.vendor = null;
     this.gold = null;
     this.selectedSlotIndex = null;
+    if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
   }
 
   /** Fresh vendor + gold read — the only source of truth for purchased
@@ -214,6 +220,19 @@ export class ShopScreen {
     this.gold = gold;
     this.loading = false;
     this.render();
+    this.scheduleRotationRefresh();
+  }
+
+  /** Arms a single refetch at the soonest slot expiry. One timer, not six:
+   * the earliest deadline is the only one that matters, and reload()
+   * re-arms from the fresh view. */
+  private scheduleRotationRefresh(): void {
+    if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
+    if (!this.vendor || this.vendor.slots.length === 0) return;
+    const soonest = Math.min(...this.vendor.slots.map(s => s.expiresAt));
+    // +1s of slack so the refetch lands after the server's own hour boundary.
+    const delay = Math.max(1000, soonest - Date.now() + 1000);
+    this.rotationTimer = window.setTimeout(() => { void this.reload(); }, delay);
   }
 
   private render(): void {
@@ -233,7 +252,11 @@ export class ShopScreen {
         ${this.loading ? `<div class="bm-loading">Loading shop…</div>` : `
         <div class="sh-columns">
           <div class="sh-col-vendor">
-            <div class="sh-col-label">Vendor<span class="sh-countdown">new stock at midnight UTC</span></div>
+            <div class="sh-col-label">Vendor<span class="sh-countdown">${
+              this.vendor && this.vendor.purchasesRemaining !== null
+                ? `${this.vendor.purchasesRemaining} / ${VENDOR_DAILY_PURCHASE_LIMIT} purchases left today`
+                : 'stock rotates hourly'
+            }</span></div>
             ${this.staleNotice ? `<div class="sh-stale-notice">${esc(this.staleNotice)}</div>` : ''}
             <div id="sh-details" class="sh-details px-panel"></div>
             <div class="sh-vendor-grid">${vendorHtml}</div>
@@ -253,7 +276,7 @@ export class ShopScreen {
 
   private renderVendorCard(slot: VendorSlotView): string {
     const color = RARITY_COLORS[slot.rarity];
-    const state = slotDisplayState(slot, this.gold);
+    const state = slotDisplayState(slot, this.gold, this.vendor?.purchasesRemaining ?? null);
     const pendingKey = `vendor:${slot.slotIndex}`;
     const pending = this.pending.has(pendingKey);
     // Deliberately NOT a native `disabled` attribute: a disabled <button>
@@ -262,8 +285,14 @@ export class ShopScreen {
     // unreachable. Instead this stays a plain enabled button, styled to
     // look blocked via a class, and the click handler below recomputes the
     // slot's live state to decide whether to buy or play the deny sound.
+    // 'limit-reached' gets the same blocked-but-clickable treatment as
+    // every other non-'available' state.
     const blocked = state !== 'available' || pending;
-    const label = state === 'sold' ? 'Sold' : pending ? 'Buying…' : state === 'unaffordable' ? "Can't Afford" : 'Buy';
+    const label = state === 'sold' ? 'Sold'
+      : pending ? 'Buying…'
+      : state === 'limit-reached' ? 'Daily Limit'
+      : state === 'unaffordable' ? "Can't Afford"
+      : 'Buy';
     const notice = this.noticeBySlot.get(slot.slotIndex);
 
     const cardClass = `sh-vslot${state === 'sold' ? ' sh-sold' : ''}${slot.crossClass ? ' sh-crossclass-dim' : ''}`;
@@ -273,6 +302,7 @@ export class ShopScreen {
         <div class="sh-vslot-icon"${iconCellAttrs(slot.base)} style="color:${color}"><i class="fa ${slot.base.icon}"></i></div>
         <div class="sh-vslot-name" style="color:${color}">${esc(slot.base.name)}</div>
         <div class="sh-vslot-price"><i class="fa fa-coins"></i> ${slot.price}</div>
+        <div class="sh-vslot-timer">${esc(formatCountdown(slot.expiresAt - Date.now()))}</div>
         ${slot.crossClass ? '<div class="sh-crossclass">⚠ No current class can use this</div>' : ''}
         ${notice ? `<div class="sh-notice">${esc(notice)}</div>` : ''}
         <button class="sh-buy-btn px-btn px-btn-primary${blocked ? ' sh-buy-btn-blocked' : ''}" data-buy-slot="${slot.slotIndex}" aria-disabled="${blocked}">${esc(label)}</button>
@@ -373,7 +403,7 @@ export class ShopScreen {
         const key = `vendor:${slotIndex}`;
         if (this.pending.has(key)) return;
         const slot = this.vendor?.slots.find(s => s.slotIndex === slotIndex);
-        const state = slot ? slotDisplayState(slot, this.gold) : 'unaffordable';
+        const state = slot ? slotDisplayState(slot, this.gold, this.vendor?.purchasesRemaining ?? null) : 'unaffordable';
         if (state !== 'available') { sfx.playDenied(); return; }
         void this.handleBuySlot(slotIndex);
       });
@@ -400,17 +430,14 @@ export class ShopScreen {
     const key = `vendor:${slotIndex}`;
     if (this.pending.has(key)) return;
 
-    // UTC-day-rollover guard: the vendor view on screen was fetched for a
-    // specific day, and stock is stateless/deterministic per (user, day) —
-    // if "now" has crossed into a new UTC day since that fetch, the server
-    // has already (or is about to have) re-derived different stock at the
-    // same slot indices. Buying against a stale view could silently grant a
-    // different item at a different price than what's displayed, so abort
-    // and refetch instead of ever submitting the purchase. This shrinks the
-    // substitution window to the sub-second race between this check and the
-    // request below, which the server's own re-derivation keeps
-    // financially consistent regardless.
-    if (!this.vendor || vendorViewIsStale(this.vendor.utcDay, currentUtcDay())) {
+    // Rotation guard: the card on screen advertises a specific offer, and
+    // slots rotate on staggered 6-hour lives. If this one's deadline has
+    // passed, the server has already re-derived a different offer at the
+    // same index — abort and refetch rather than submit. This only narrows
+    // the window; buyVendorSlot's instanceKey check is the real backstop,
+    // rejecting with 409 rather than ever substituting an item.
+    const slot = this.vendor?.slots.find(s => s.slotIndex === slotIndex);
+    if (!slot || slotExpired(slot.expiresAt, Date.now())) {
       this.staleNotice = 'New stock has arrived — refreshed.';
       await this.reload();
       return;
@@ -420,18 +447,21 @@ export class ShopScreen {
     this.pending.add(key);
     this.noticeBySlot.delete(slotIndex);
 
-    const slot = this.vendor?.slots.find(s => s.slotIndex === slotIndex);
-    if (slot && this.gold !== null) {
-      // DISPLAY-ONLY: flips SOLD and decrements the shown balance immediately
-      // for responsiveness; reload() below always overwrites both from a
-      // fresh server read, win or lose.
+    if (this.gold !== null) {
+      // DISPLAY-ONLY: flips SOLD, decrements the shown balance and burns an
+      // allowance slot immediately for responsiveness; reload() below always
+      // overwrites all three from a fresh server read, win or lose. A null
+      // allowance means "unknown", not zero, so there's nothing to decrement.
       slot.purchased = true;
       this.gold -= slot.price;
+      if (this.vendor && this.vendor.purchasesRemaining !== null) {
+        this.vendor.purchasesRemaining = Math.max(0, this.vendor.purchasesRemaining - 1);
+      }
     }
     this.render();
 
     sfx.playPurchase();
-    const result = await buyVendorSlot(slotIndex);
+    const result = await buyVendorSlot(slotIndex, slot.instanceKey);
     this.pending.delete(key);
     if (!result.ok) {
       this.noticeBySlot.set(slotIndex, noticeForError(result.status, result.error));
