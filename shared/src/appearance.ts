@@ -3,7 +3,7 @@
 // '/<animation>.png' (or '.png' variants per Task 2's vendoring layout).
 import type { CharacterClass } from './types.js';
 
-export type LpcAnimation = 'walk' | 'run' | 'idle' | 'spellcast' | 'shoot' | 'hurt' | 'slash';
+export type LpcAnimation = 'walk' | 'run' | 'idle' | 'spellcast' | 'shoot' | 'hurt' | 'slash' | 'thrust';
 
 /** Frame counts/rows per the LPC universal sheet layout. hurt is 1-row. */
 export const LPC_ANIMATIONS: Record<LpcAnimation, { frames: number; singleRow: boolean; fps: number }> = {
@@ -17,6 +17,7 @@ export const LPC_ANIMATIONS: Record<LpcAnimation, { frames: number; singleRow: b
   // the weapon's own grip hole shows through as a gap; a swing keeps the hand
   // on the staff throughout.
   slash:     { frames: 6,  singleRow: false, fps: 14 },
+  thrust:    { frames: 8,  singleRow: false, fps: 14 },
 };
 
 export type Appearance = {

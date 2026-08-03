@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
-import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow } from '@arena/shared';
+import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow, SkillTree } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
@@ -122,8 +122,24 @@ const ARCHER_UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'archer_utility.acrobatics':   { x: 50, y: ROW * 2 },
 };
 
+const ARMS_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'arms.jab':              { x: 50, y: 0 },
+  'arms.heavy_thrust':     { x: 30, y: ROW },
+  'arms.spear_throw':      { x: 70, y: ROW },
+  'arms.stunning_blow':    { x: 70, y: ROW * 2 },
+  'arms.leap':             { x: 50, y: ROW * 3 },
+  'arms.crushing_landing': { x: 50, y: ROW * 4 },
+};
+
+const BULWARK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'bulwark.bracing':       { x: 50, y: 0 },
+  'bulwark.mobile_guard':  { x: 28, y: ROW },
+  'bulwark.reflect':       { x: 72, y: ROW },
+  'bulwark.perfect_guard': { x: 50, y: ROW * 2 },
+};
+
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, ARMS_ROWS = 5, BULWARK_ROWS = 3;
 /** Tallest node block: a spell circle (52) + gap + one-line name, which just
  *  edges out a mod circle (38) + gap + two-line name. */
 const NODE_BLOCK = 66;
@@ -132,6 +148,21 @@ const treeHeight = (rows: number) => (rows - 1) * ROW + NODE_BLOCK;
 /** Height both columns are pinned to — the deepest tree plus its label, so the
  *  page is exactly as tall for a ranger as for a mage. */
 const WORKSPACE_H = treeHeight(FIRE_ROWS) + 24;
+
+/** Per-class tree layout: which two `SKILL_NODES` trees render in the main
+ *  and side columns, their labels, and their node positions. `mainRows`
+ *  sizes the main column's container; `WORKSPACE_H` above stays pinned to
+ *  the single deepest tree across all classes so the page height never
+ *  depends on which class is open. */
+const TREE_CONFIG: Record<CharacterClass, {
+  main: SkillTree; util: SkillTree; mainLabel: string; utilLabel: string;
+  mainPositions: Partial<Record<NodeId, NodePos>>; utilPositions: Partial<Record<NodeId, NodePos>>;
+  mainRows: number;
+}> = {
+  mage:      { main: 'fire',   util: 'utility',        mainLabel: 'Fire',   utilLabel: 'Shared Utility', mainPositions: FIRE_POSITIONS,   utilPositions: UTIL_POSITIONS,        mainRows: FIRE_ROWS },
+  ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS },
+  gladiator: { main: 'arms',   util: 'bulwark',        mainLabel: 'Arms',   utilLabel: 'Bulwark',        mainPositions: ARMS_POSITIONS,   utilPositions: BULWARK_POSITIONS,     mainRows: ARMS_ROWS },
+};
 
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
@@ -349,24 +380,14 @@ export class SkillTreeUI {
       (data ?? []).map((r: { node_id: string; rank: number }) => [r.node_id as NodeId, r.rank ?? 1])
     );
 
-    if (this.charClass === 'ranger') {
-      if (!this.ranks.has('archer.power_shot' as NodeId)) {
-        await supabase.rpc('unlock_skill_node', {
-          p_character_id: this.characterId,
-          p_node_id: 'archer.power_shot',
-          p_cost: 0,
-        });
-        this.ranks.set('archer.power_shot' as NodeId, 1);
-      }
-    } else {
-      if (!this.ranks.has('fire.fireball' as NodeId)) {
-        await supabase.rpc('unlock_skill_node', {
-          p_character_id: this.characterId,
-          p_node_id: 'fire.fireball',
-          p_cost: 0,
-        });
-        this.ranks.set('fire.fireball' as NodeId, 1);
-      }
+    const starter = CLASS_DEFAULT_NODE[normalizeCharacterClass(this.charClass)];
+    if (!this.ranks.has(starter)) {
+      await supabase.rpc('unlock_skill_node', {
+        p_character_id: this.characterId,
+        p_node_id: starter,
+        p_cost: 0,
+      });
+      this.ranks.set(starter, 1);
     }
 
     this.slotRows = (slotData ?? []) as SpellSlotRow[];
@@ -388,13 +409,13 @@ export class SkillTreeUI {
   private render(): void {
     const pts = this.skillPoints;
 
-    const isRanger = this.charClass === 'ranger';
-    const mainNodes = SKILL_NODES.filter(n => n.tree === (isRanger ? 'archer' : 'fire'));
-    const utilNodes = SKILL_NODES.filter(n => n.tree === (isRanger ? 'archer_utility' : 'utility'));
-    const mainPositions = isRanger ? ARCHER_POSITIONS : FIRE_POSITIONS;
-    const utilPositions = isRanger ? ARCHER_UTIL_POSITIONS : UTIL_POSITIONS;
-    const mainLabel = isRanger ? 'Archer' : 'Fire';
-    const mainContainerHeight = `${treeHeight(isRanger ? ARCHER_ROWS : FIRE_ROWS)}px`;
+    const cfg = TREE_CONFIG[normalizeCharacterClass(this.charClass)];
+    const mainNodes = SKILL_NODES.filter(n => n.tree === cfg.main);
+    const utilNodes = SKILL_NODES.filter(n => n.tree === cfg.util);
+    const mainPositions = cfg.mainPositions;
+    const utilPositions = cfg.utilPositions;
+    const mainLabel = cfg.mainLabel;
+    const mainContainerHeight = `${treeHeight(cfg.mainRows)}px`;
     const utilContainerHeight = `${treeHeight(UTIL_ROWS)}px`;
 
     this.el.innerHTML = `
@@ -424,7 +445,7 @@ export class SkillTreeUI {
           <div class="st-col-side" style="height:${WORKSPACE_H}px">
             <div id="st-details" class="st-details px-panel"></div>
             <div class="st-util-block">
-              <div class="st-util-label">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
+              <div class="st-util-label">${cfg.utilLabel}</div>
               <div class="st-util-container" style="height:${utilContainerHeight}">
                 <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
                 ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}

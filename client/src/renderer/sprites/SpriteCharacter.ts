@@ -53,7 +53,7 @@ export class SpriteCharacter {
     // Mages cast by swinging the staff. A spellcast pose lifts the hand clear
     // of the grip, so the hole weapon art leaves for the fingers shows through
     // as a missing section of staff; a swing keeps the hand on it throughout.
-    this.castAnim = charClass === 'ranger' ? 'shoot' : 'slash';
+    this.castAnim = charClass === 'ranger' ? 'shoot' : charClass === 'gladiator' ? 'thrust' : 'slash';
 
     const size = spriteWorldHeight();
     this.material = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.01 });
