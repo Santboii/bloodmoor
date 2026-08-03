@@ -37,6 +37,14 @@ async function currentUserId(): Promise<string | null> {
   return session?.user?.id ?? null;
 }
 
+/** Access token read fresh at call time — getSession() refreshes an expired
+ * JWT on its own, unlike the login-time copy main.ts caches for the tab's
+ * lifetime. Empty string when signed out. */
+export async function freshAccessToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? '';
+}
+
 export async function fetchProfile(): Promise<UserProfile | null> {
   const userId = await currentUserId();
   if (!userId) return null;
