@@ -70,10 +70,11 @@ function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null
   return inZone ? EXPOSED_DAMAGE_MULT : 1;
 }
 
-function getSpellNodeMap(charClass: CharacterClass, skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
+function getSpellNodeMap(skills: Map<NodeId, number>): Partial<Record<SpellId, NodeId>> {
+  const cls: CharacterClass = skills.has(CLASS_DEFAULT_NODE.ranger) ? 'ranger' : 'mage';
   const map: Partial<Record<SpellId, NodeId>> = {};
   for (const b of SPELL_BINDINGS) {
-    if (b.charClass === charClass) map[b.spell] = b.node;
+    if (b.charClass === cls) map[b.spell] = b.node;
   }
   return map;
 }
@@ -264,7 +265,7 @@ export function advanceState(
 
     // Spell availability gate — only applies when player has a skill set registered
     const hasSkillSystem = skillSets[id] !== undefined;
-    const spellNodeMap = getSpellNodeMap(p.charClass, skillSets[id] ?? new Map());
+    const spellNodeMap = getSpellNodeMap(skillSets[id] ?? new Map());
     const requiredNode = spellNodeMap[spell];
     // Block spells not in this class's spell map entirely
     if (hasSkillSystem && !(spell in spellNodeMap)) continue;

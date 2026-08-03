@@ -33,8 +33,8 @@ export async function loadSkillsForCharacter(
     (data ?? []).map((row: { node_id: string; rank: number }) => [row.node_id as NodeId, row.rank ?? 1])
   );
   const charClass = normalizeCharacterClass(charData.class);
-  const defaultSkill = CLASS_DEFAULT_NODE[charClass];
-  if (defaultSkill && !skills.has(defaultSkill)) skills.set(defaultSkill, 1);
+  const defaultSkill: NodeId = CLASS_DEFAULT_NODE[charClass];
+  if (!skills.has(defaultSkill)) skills.set(defaultSkill, 1);
   const appearance = appearanceFromRow(charData.appearance, charClass);
 
   const { data: itemRows, error: itemsErr } = await supabase

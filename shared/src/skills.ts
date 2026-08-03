@@ -173,9 +173,10 @@ export const SPELL_BINDINGS: SpellBinding[] = [
 export type SpellSlotRow = { slot: number; spell: number };
 
 /** Each class's movement spell, cast by Space regardless of which slot holds it. */
-export const MOBILITY_SPELLS: Partial<Record<CharacterClass, SpellId>> = {
+export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
   mage: 4,    // Teleport
   ranger: 8,  // Evade
+  gladiator: 4,  // placeholder until Task 2 lands the gladiator spells
 };
 
 const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
@@ -248,9 +249,10 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
 }
 
 /** The free starter node every character of a class begins with. */
-export const CLASS_DEFAULT_NODE: Partial<Record<CharacterClass, NodeId>> = {
+export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {
   mage: 'fire.fireball',
   ranger: 'archer.power_shot',
+  gladiator: 'fire.fireball',  // placeholder until Task 2 lands the gladiator spells
 };
 
 export function classOfSpell(spell: SpellId): CharacterClass | undefined {
