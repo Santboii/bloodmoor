@@ -82,6 +82,45 @@ export function seededRng(userId: string, utcDay: string): () => number {
   return mulberry32(fnv1aHash(`${userId}:${utcDay}`));
 }
 
+export const VENDOR_SLOT_COUNT = 6;
+/** Hours a single vendor slot stays on the shelf. Equal to
+ * VENDOR_SLOT_COUNT so that exactly one of the six slots turns over each
+ * hour — change one and the stagger stops being uniform. */
+export const VENDOR_SLOT_LIFETIME_HOURS = 6;
+/** Vendor purchases allowed per account per UTC day. Rotation buys variety,
+ * not supply: this is deliberately unchanged from the pre-rotation
+ * one-buy-per-slot-per-day budget. */
+export const VENDOR_DAILY_PURCHASE_LIMIT = 6;
+
+const MS_PER_HOUR = 3_600_000;
+
+/** Whole UTC hours since the epoch — the vendor's clock. Takes `nowMs` as a
+ * parameter rather than reading the clock so this module stays pure (see
+ * the note on seededRng); callers pass Date.now(). */
+export function utcHourIndex(nowMs: number): number {
+  return Math.floor(nowMs / MS_PER_HOUR);
+}
+
+/** Which instance of `slotIndex` is on the shelf at `hour`. The -slotIndex
+ * offset is what staggers the six slots: slot i rolls over exactly when
+ * hour % 6 === i, so one slot (and only one) turns over every hour. */
+export function slotGeneration(slotIndex: number, hour: number): number {
+  return Math.floor((hour - slotIndex) / VENDOR_SLOT_LIFETIME_HOURS);
+}
+
+/** First hour at which `generation` of `slotIndex` is no longer on offer. */
+export function slotExpiryHour(slotIndex: number, generation: number): number {
+  return (generation + 1) * VENDOR_SLOT_LIFETIME_HOURS + slotIndex;
+}
+
+/** Identifies exactly one item offer. Doubles as the rng seed suffix (so
+ * key and item can never disagree) and as vendor_purchases' primary key.
+ * `band` is the item-level band, not the raw character level — the shelf
+ * reshuffles on band crossings only, not on every level-up. */
+export function vendorInstanceKey(slotIndex: number, generation: number, band: number): string {
+  return `${slotIndex}:${generation}:${band}`;
+}
+
 export type VendorSlot = { base: ItemBase; rarity: 'basic' | 'magic'; affixes: RolledAffix[]; price: number };
 
 /** Deterministic daily vendor stock: 6 slots, each basic or magic (~50/50),

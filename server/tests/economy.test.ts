@@ -6,6 +6,8 @@ import {
   vendorStockFor, rollLootboxItem, rollMatchDropItem,
   fnv1aHash, mulberry32, seededRng,
   UNIQUE_ITEMS,
+  VENDOR_SLOT_COUNT, VENDOR_SLOT_LIFETIME_HOURS,
+  utcHourIndex, slotGeneration, slotExpiryHour, vendorInstanceKey,
 } from '@arena/shared';
 import type { ItemRarity } from '@arena/shared';
 
@@ -259,5 +261,63 @@ describe('sell_price SQL / SELL_PRICES shape-guard contract', () => {
       .toEqual(Object.keys(SELL_PRICES).sort());
 
     expect(sqlPrices).toEqual(SELL_PRICES);
+  });
+});
+
+describe('vendor rotation clock', () => {
+  it('converts epoch ms to whole UTC hours', () => {
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 0, 0, 0))).toBe(0);
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 0, 59, 59, 999))).toBe(0);
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 1, 0, 0))).toBe(1);
+  });
+
+  it('advances by exactly 24 across one calendar day', () => {
+    const a = utcHourIndex(Date.UTC(2026, 7, 2, 12, 30));
+    const b = utcHourIndex(Date.UTC(2026, 7, 3, 12, 30));
+    expect(b - a).toBe(24);
+  });
+
+  it('turns over exactly one slot each hour', () => {
+    for (let hour = 1000; hour < 1024; hour++) {
+      const changed = [0, 1, 2, 3, 4, 5].filter(
+        i => slotGeneration(i, hour) !== slotGeneration(i, hour - 1),
+      );
+      expect(changed.length).toBe(1);
+    }
+  });
+
+  it('gives every slot a six-hour lifetime', () => {
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      const gen = slotGeneration(i, 1000);
+      let hoursAtThisGen = 0;
+      for (let h = 900; h < 1100; h++) if (slotGeneration(i, h) === gen) hoursAtThisGen++;
+      expect(hoursAtThisGen).toBe(VENDOR_SLOT_LIFETIME_HOURS);
+    }
+  });
+
+  it('never runs a generation backwards as the hour advances', () => {
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      for (let h = 1000; h < 1050; h++) {
+        expect(slotGeneration(i, h + 1)).toBeGreaterThanOrEqual(slotGeneration(i, h));
+      }
+    }
+  });
+
+  it('slotExpiryHour is the first hour of the next generation', () => {
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      const gen = slotGeneration(i, 1000);
+      const expiry = slotExpiryHour(i, gen);
+      expect(slotGeneration(i, expiry)).toBe(gen + 1);
+      expect(slotGeneration(i, expiry - 1)).toBe(gen);
+    }
+  });
+
+  it('staggers the six slots so no two expire in the same hour', () => {
+    const expiries = [0, 1, 2, 3, 4, 5].map(i => slotExpiryHour(i, slotGeneration(i, 1000)));
+    expect(new Set(expiries).size).toBe(VENDOR_SLOT_COUNT);
+  });
+
+  it('vendorInstanceKey encodes slot, generation and band', () => {
+    expect(vendorInstanceKey(3, 42, 7)).toBe('3:42:7');
   });
 });
