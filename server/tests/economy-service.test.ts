@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { vendorStockFor, LOOTBOX_WIN_CHANCE, VENDOR_DAILY_PURCHASE_LIMIT, vendorInstanceKey } from '@arena/shared';
 
@@ -15,6 +16,7 @@ import { requireUser, asyncHandler, buyVendorHandler, openLootboxHandler } from 
 import { loadUserFromToken } from '../src/skills/loadSkills.ts';
 import {
   getVendorView, buyVendorSlot, openLootbox, maybeRollMatchDrop, vendorClockNow,
+  nextDailySeq, DAILY_SEQ_UNIQUE_CONSTRAINT,
 } from '../src/economy/service.ts';
 
 // --- Minimal fluent + thenable Supabase query-builder stub -----------------
@@ -73,6 +75,21 @@ function mockBuyerClient(rpcResult: ChainResult): { client: SupabaseClient; rpc:
 
 const ok = (data: unknown = null): ChainResult => ({ data, error: null });
 const fail = (message: string, code?: string): ChainResult => ({ data: null, error: { message, code } });
+
+/** Today's vendor_purchases rows as buyVendorSlot's allowance/daily_seq read
+ * returns them — one row per already-claimed seq. */
+const seqRows = (...seqs: number[]): ChainResult => ok(seqs.map(daily_seq => ({ daily_seq })));
+
+/** What Postgres hands back when a concurrent buy for the same account
+ * claimed this daily_seq first. */
+const seqRaceLost = (): ChainResult => fail(
+  `duplicate key value violates unique constraint "${DAILY_SEQ_UNIQUE_CONSTRAINT}"`,
+  '23505',
+);
+
+/** The reserve insert's payload from a `.from('vendor_purchases')` entry. */
+const insertedRow = (entry: { calls: ChainCall[] }): unknown =>
+  entry.calls.find(c => c.method === 'insert')?.args[0];
 
 // A fixed vendor clock. 2026-08-02T12:00Z is an arbitrary but stable
 // instant; tests derive expected instance keys from it via vendorStockFor
@@ -138,6 +155,82 @@ describe('vendorClockNow', () => {
 });
 
 describe('getVendorView', () => {
+  it('annotates cross-class slots without altering vendorStockFor\'s own stock', async () => {
+    const userId = 'user-vendor-1';
+    const maxLevel = 5;
+
+    // Search forward an hour at a time for a shelf that includes at least one
+    // ranger-restricted base, so the crossClass=true branch is genuinely
+    // exercised against a mage-only account rather than being vacuously
+    // false for all six slots.
+    let clock: typeof CLOCK | null = null;
+    let rawStock: ReturnType<typeof vendorStockFor> = [];
+    for (let h = 0; h < 60; h++) {
+      const candidate = vendorClockNow(Date.UTC(2026, 0, 1, 0, 0, 0) + h * 3_600_000);
+      const stock = vendorStockFor(userId, candidate.hour, maxLevel);
+      if (stock.some(s => s.base.classRestriction === 'ranger')) {
+        clock = candidate;
+        rawStock = stock;
+        break;
+      }
+    }
+    expect(clock, 'expected at least one hour with a ranger-restricted slot in 60 tries').not.toBeNull();
+
+    const purchasedIndex = 1;
+    const { client } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: maxLevel }])], // mage-only account
+      vendor_purchases: [
+        ok([{ instance_key: rawStock[purchasedIndex].instanceKey }]), // current shelf
+        ok([]), // today's allowance
+      ],
+    });
+
+    const view = await getVendorView(client, userId, clock!);
+
+    expect(view.slots.length).toBe(6);
+    // Some slot must actually carry the flag, or the assertions below pass
+    // without the crossClass branch ever having been taken.
+    expect(view.slots.some(s => s.crossClass)).toBe(true);
+    view.slots.forEach((slot, i) => {
+      // The view annotates; it must never substitute or re-price stock.
+      expect(slot.base).toEqual(rawStock[i].base);
+      expect(slot.rarity).toBe(rawStock[i].rarity);
+      expect(slot.price).toBe(rawStock[i].price);
+      expect(slot.instanceKey).toBe(rawStock[i].instanceKey);
+      expect(slot.slotIndex).toBe(i);
+      expect(slot.purchased).toBe(i === purchasedIndex);
+      expect(slot.crossClass).toBe(rawStock[i].base.classRestriction === 'ranger');
+    });
+  });
+
+  it('leaves a class-restricted slot un-annotated when the account owns that class', async () => {
+    const userId = 'user-vendor-1';
+    const maxLevel = 5;
+    let clock: typeof CLOCK | null = null;
+    for (let h = 0; h < 60; h++) {
+      const candidate = vendorClockNow(Date.UTC(2026, 0, 1, 0, 0, 0) + h * 3_600_000);
+      if (vendorStockFor(userId, candidate.hour, maxLevel).some(s => s.base.classRestriction === 'ranger')) {
+        clock = candidate;
+        break;
+      }
+    }
+    expect(clock).not.toBeNull();
+
+    const { client } = mockServiceClient({
+      characters: [ok([{ class: 'ranger', level: maxLevel }])], // the account HAS a ranger
+      vendor_purchases: [ok([]), ok([])],
+    });
+
+    const view = await getVendorView(client, userId, clock!);
+
+    // Same shelf, same slots — only the account's roster differs, so the
+    // ranger-restricted ones must now come back un-flagged. (Other slots may
+    // be restricted to classes this account still lacks; those stay flagged.)
+    const rangerSlots = view.slots.filter(s => s.base.classRestriction === 'ranger');
+    expect(rangerSlots.length).toBeGreaterThan(0);
+    expect(rangerSlots.every(s => !s.crossClass)).toBe(true);
+  });
+
   it('marks a slot sold by instance key, not by slot index', async () => {
     const soldKey = keyFor('u1', 5, 2);
     const { client: service } = mockServiceClient({
@@ -237,13 +330,9 @@ describe('buyVendorSlot', () => {
   });
 
   it('rejects once the daily allowance is spent, before debiting gold', async () => {
-    const rows = Array.from(
-      { length: VENDOR_DAILY_PURCHASE_LIMIT },
-      (_, i) => ({ instance_key: `k${i}` }),
-    );
     const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok(rows)],
+      vendor_purchases: [seqRows(0, 1, 2, 3, 4, 5)],
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
 
@@ -260,14 +349,10 @@ describe('buyVendorSlot', () => {
   // other test in this file (all of which use either 0 or LIMIT rows) while
   // cutting every account to 5 buys a day.
   it('allows the 6th purchase of the day when exactly LIMIT - 1 rows already exist', async () => {
-    const rows = Array.from(
-      { length: VENDOR_DAILY_PURCHASE_LIMIT - 1 },
-      (_, i) => ({ instance_key: `k${i}` }),
-    );
     const insertedItem = { id: 'item-6', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
-    const { client: service } = mockServiceClient({
+    const { client: service, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok(rows), ok(null), ok(null)], // allowance (5 rows), existing check, reserve insert
+      vendor_purchases: [seqRows(0, 1, 2, 3, 4), ok(null), ok(null)], // allowance (5 rows), existing check, reserve insert
       items: [ok(insertedItem)],
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
@@ -276,6 +361,34 @@ describe('buyVendorSlot', () => {
 
     expect(result.ok).toBe(true);
     expect(rpc).toHaveBeenCalledOnce();
+    // The last free seq, not a 6th one that the DB check constraint would
+    // have rejected outright.
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    expect(insertedRow(vpCalls[2])).toMatchObject({ daily_seq: 5 });
+  });
+
+  // The wedge scenario: a purchase whose item insert failed released its row
+  // and left a HOLE in today's sequence. Deriving the seq from the row COUNT
+  // would re-pick an already-taken value forever, 429-ing an account that is
+  // demonstrably below its cap; deriving it from max+1 would overshoot the
+  // 0-5 check constraint. The hole must simply be reused.
+  it('reuses a hole in the daily sequence instead of wedging the account below its cap', async () => {
+    const insertedItem = { id: 'item-7', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
+    const { client: service, callLog } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      // seq 3 was released; 5 rows exist, so a count-derived seq would be 5 —
+      // already taken — and every later buy would collide identically.
+      vendor_purchases: [seqRows(0, 1, 2, 4, 5), ok(null), ok(null)],
+      items: [ok(insertedItem)],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledOnce();
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    expect(insertedRow(vpCalls[2])).toMatchObject({ daily_seq: 3 });
   });
 
   it('rejects an already-purchased offer before debiting gold', async () => {
@@ -293,10 +406,10 @@ describe('buyVendorSlot', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('propagates spend_gold failure (insufficient gold) and never grants an item', async () => {
-    const { client: service, fromCalls } = mockServiceClient({
+  it('propagates spend_gold failure (insufficient gold), releases the reservation, and never grants an item', async () => {
+    const { client: service, fromCalls, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok([]), ok(null)],
+      vendor_purchases: [seqRows(), ok(null), ok(null), ok(null)], // allowance, existing check, reserve, release
     });
     const { client: buyer, rpc } = mockBuyerClient(fail('insufficient gold'));
 
@@ -305,21 +418,32 @@ describe('buyVendorSlot', () => {
     expect(result).toEqual({ ok: false, status: 402, error: 'insufficient gold' });
     expect(rpc).toHaveBeenCalledOnce();
     expect(fromCalls).not.toContain('items');
+    // The reservation is taken BEFORE the debit now, so a failed debit must
+    // hand the offer (and its daily_seq) straight back — otherwise a player
+    // clicking Buy while short on gold would silently burn one of their six
+    // daily purchases and see the slot as SOLD.
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    expect(vpCalls.length).toBe(4);
+    expect(vpCalls[3].calls.some(c => c.method === 'delete')).toBe(true);
+    // Nothing was debited, so nothing may be refunded.
+    expect(fromCalls).not.toContain('profiles');
   });
 
-  it('debits gold BEFORE granting the item, on the happy path, and reserves the exact offer row', async () => {
+  it('reserves the exact offer row BEFORE debiting gold, and debits before granting the item', async () => {
     const insertedItem = { id: 'item-1', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
     const key = keyFor('u1', 5, 0);
     const { client: service, fromCalls, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok([]), ok(null), ok(null)], // allowance, existing check, reserve insert
+      vendor_purchases: [seqRows(), ok(null), ok(null)], // allowance, existing check, reserve insert
       items: [ok(insertedItem)],
     });
     const callOrder: string[] = [];
     const rpc = vi.fn(() => { callOrder.push('spend_gold'); return Promise.resolve(ok()); });
     const buyer = { rpc } as unknown as SupabaseClient;
     const originalFrom = (service as any).from;
+    let vpSeen = 0;
     (service as any).from = vi.fn((table: string) => {
+      if (table === 'vendor_purchases' && ++vpSeen === 3) callOrder.push('reserve-insert');
       if (table === 'items') callOrder.push('items-insert');
       return originalFrom(table);
     });
@@ -329,22 +453,22 @@ describe('buyVendorSlot', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.item).toEqual(insertedItem);
     expect(fromCalls).toContain('vendor_purchases');
-    expect(callOrder).toEqual(['spend_gold', 'items-insert']);
+    // Reserve-then-debit is what keeps a lost daily_seq race free of any
+    // gold movement — see buyVendorSlot's docstring.
+    expect(callOrder).toEqual(['reserve-insert', 'spend_gold', 'items-insert']);
 
     // Pins the reserve insert's exact written row — without this, a
-    // regression that dropped instance_key, wrote utcDayString() instead of
+    // regression that dropped instance_key, wrote a fresh Date() instead of
     // clock.utcDay, or omitted daily_seq would still pass every other
     // assertion in this test, since the mock's insert() otherwise discards
     // its argument.
     const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
-    const reserveCall = vpCalls[2]; // allowance (0), existing check (1), reserve (2)
-    const insertArgs = reserveCall.calls.find(c => c.method === 'insert')?.args[0];
-    expect(insertArgs).toEqual({
+    expect(insertedRow(vpCalls[2])).toEqual({ // allowance (0), existing check (1), reserve (2)
       user_id: 'u1',
       utc_day: CLOCK.utcDay,
       slot_index: 0,
       instance_key: key,
-      daily_seq: 0, // 0 rows read on the allowance check above
+      daily_seq: 0, // no rows read on the allowance check above
     });
   });
 
@@ -352,7 +476,7 @@ describe('buyVendorSlot', () => {
     const key = keyFor('u1', 5, 0);
     const { client: service, fromCalls, callLog } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
-      vendor_purchases: [ok([]), ok(null), ok(null), ok(null)], // allowance, check, reserve, release
+      vendor_purchases: [seqRows(), ok(null), ok(null), ok(null)], // allowance, check, reserve, release
       items: [fail('insert failed')],
       profiles: [ok({ gold: 100 }), ok(null)], // refund read, then update
     });
@@ -380,18 +504,52 @@ describe('buyVendorSlot', () => {
     errorSpy.mockRestore();
   });
 
-  it('treats a concurrent daily_seq unique-violation on the reserve insert as the cap doing its job, not a 500', async () => {
+  // The whole point of finding 1: two buys fired concurrently by one account
+  // (the client's double-submit guard is keyed per SLOT, so clicking slot 0
+  // then slot 1 within one round trip really does race) can pick the same
+  // free daily_seq. The loser is NOT over the cap — it lost a race on
+  // sequence assignment — so it must retry onto the next free seq and
+  // SUCCEED, not 429 an account that still has five buys left.
+  it('retries onto the next free daily_seq and succeeds when a concurrent buy wins the race', async () => {
+    const insertedItem = { id: 'item-8', base_id: 'leather_cap', rarity: 'basic', affixes: [], level_req: 1, equipped_by: null, equipped_slot: null, slot: 'helmet' };
+    const { client: service, fromCalls, callLog } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        seqRows(), // allowance read: no purchases yet today
+        ok(null), // existing check: not already purchased
+        seqRaceLost(), // reserve seq 0 — a concurrent buy for this account got there first
+        seqRows(0), // re-read: the winner's row is now visible
+        ok(null), // reserve seq 1 — lands
+      ],
+      items: [ok(insertedItem)],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result).toEqual({ ok: true, item: insertedItem });
+    expect(rpc).toHaveBeenCalledOnce(); // debited exactly once, after the seq was secured
+    // The lost race happened before any gold moved, so nothing was refunded —
+    // which is what keeps refundGold's non-atomic read-modify-write off the
+    // ordinary concurrent-buy path entirely.
+    expect(fromCalls).not.toContain('profiles');
+
+    const vpCalls = callLog.filter(e => e.table === 'vendor_purchases');
+    expect(insertedRow(vpCalls[2])).toMatchObject({ daily_seq: 0 });
+    expect(insertedRow(vpCalls[4])).toMatchObject({ daily_seq: 1 });
+    errorSpy.mockRestore();
+  });
+
+  it('429s without moving any gold when the retry re-read shows every daily_seq taken', async () => {
     const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
       vendor_purchases: [
-        ok([]), // allowance read: this request's own view still shows room
-        ok(null), // existing check: not already purchased
-        fail(
-          'duplicate key value violates unique constraint "vendor_purchases_user_day_seq_key"',
-          '23505',
-        ), // reserve insert: a concurrent buyer won this daily_seq first
+        seqRows(0, 1, 2, 3, 4), // allowance read: one buy left
+        ok(null), // existing check
+        seqRaceLost(), // reserve seq 5 — a concurrent buy took the last one
+        seqRows(0, 1, 2, 3, 4, 5), // re-read: genuinely capped now
       ],
-      profiles: [ok({ gold: 100 }), ok(null)], // refund read, then update
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -399,23 +557,53 @@ describe('buyVendorSlot', () => {
     const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
 
     expect(result).toEqual({ ok: false, status: 429, error: 'daily purchase limit reached' });
-    expect(rpc).toHaveBeenCalledOnce(); // debited once, refunded via profiles below, never re-debited
-    expect(fromCalls).toContain('profiles');
+    // A genuine over-cap buy still 429s — but because the seq is claimed
+    // before the debit, there is no debit to compensate and no refund at all.
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).not.toContain('profiles');
+    expect(fromCalls).not.toContain('items');
+    errorSpy.mockRestore();
+  });
+
+  it('gives up with a 429 and no gold movement once the reservation retry budget is exhausted', async () => {
+    // Pathological interleave: every attempt loses and the re-read never
+    // reveals a full sequence (rows being released concurrently). The loop
+    // must terminate rather than spin, and must not have debited anything.
+    const vendorPurchases = [seqRows(), ok(null)];
+    for (let i = 0; i < VENDOR_DAILY_PURCHASE_LIMIT; i++) {
+      vendorPurchases.push(seqRaceLost(), seqRows());
+    }
+    const { client: service, fromCalls } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: vendorPurchases,
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result).toEqual({ ok: false, status: 429, error: 'daily purchase limit reached' });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).not.toContain('profiles');
+    // Bounded: allowance + existing check + at most LIMIT (insert, re-read)
+    // pairs. Without the budget this test would hang.
+    expect(fromCalls.filter(t => t === 'vendor_purchases').length)
+      .toBe(2 + 2 * VENDOR_DAILY_PURCHASE_LIMIT);
     errorSpy.mockRestore();
   });
 
   it('falls through to a generic 500 for a reserve-insert unique-violation on a different constraint', async () => {
     // Same offer double-bought concurrently — a violation of the (user_id,
     // instance_key) primary key, not the daily_seq cap constraint. This is
-    // a different race and must not be reported as "daily limit reached".
-    const { client: service } = mockServiceClient({
+    // a different race, is not retryable, and must not be reported as
+    // "daily limit reached".
+    const { client: service, fromCalls } = mockServiceClient({
       characters: [ok([{ class: 'mage', level: 5 }])],
       vendor_purchases: [
-        ok([]),
+        seqRows(),
         ok(null),
         fail('duplicate key value violates unique constraint "vendor_purchases_pkey"', '23505'),
       ],
-      profiles: [ok({ gold: 100 }), ok(null)],
     });
     const { client: buyer, rpc } = mockBuyerClient(ok());
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -426,9 +614,103 @@ describe('buyVendorSlot', () => {
     if (!result.ok) {
       expect(result.status).toBe(500);
       expect(result.error).not.toMatch(/daily purchase limit/);
+      expect(result.error).not.toMatch(/refunded/); // nothing was debited
     }
-    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(fromCalls).not.toContain('profiles');
     errorSpy.mockRestore();
+  });
+
+  // The discrimination is a substring match on PostgREST's message, so it
+  // must key on the QUOTED constraint name. A constraint whose name merely
+  // contains the daily_seq one would otherwise be mistaken for the race and
+  // silently retried.
+  it('does not mistake a different constraint whose name contains the daily_seq one for the seq race', async () => {
+    const { client: service } = mockServiceClient({
+      characters: [ok([{ class: 'mage', level: 5 }])],
+      vendor_purchases: [
+        seqRows(),
+        ok(null),
+        fail(
+          `duplicate key value violates unique constraint "${DAILY_SEQ_UNIQUE_CONSTRAINT}_extra"`,
+          '23505',
+        ),
+      ],
+    });
+    const { client: buyer, rpc } = mockBuyerClient(ok());
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await buyVendorSlot(service, buyer, 'u1', CLOCK, 0, keyFor('u1', 5, 0));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(500);
+    expect(rpc).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
+
+describe('nextDailySeq', () => {
+  it('starts at 0 for an account with no purchases today', () => {
+    expect(nextDailySeq([])).toBe(0);
+    expect(nextDailySeq(null)).toBe(0);
+  });
+
+  it('takes the next value up when the sequence is contiguous', () => {
+    expect(nextDailySeq([{ daily_seq: 0 }, { daily_seq: 1 }])).toBe(2);
+  });
+
+  it('reuses a hole rather than extending past it', () => {
+    expect(nextDailySeq([{ daily_seq: 0 }, { daily_seq: 1 }, { daily_seq: 3 }])).toBe(2);
+  });
+
+  it('is insensitive to row order', () => {
+    expect(nextDailySeq([{ daily_seq: 4 }, { daily_seq: 0 }, { daily_seq: 2 }])).toBe(1);
+  });
+
+  it('returns null — the cap — once every seq in 0..LIMIT-1 is taken', () => {
+    const full = Array.from({ length: VENDOR_DAILY_PURCHASE_LIMIT }, (_, i) => ({ daily_seq: i }));
+    expect(nextDailySeq(full)).toBeNull();
+  });
+
+  it('never returns a value the migration\'s 0-5 check constraint would reject', () => {
+    for (let taken = 0; taken < VENDOR_DAILY_PURCHASE_LIMIT; taken++) {
+      const rows = Array.from({ length: taken }, (_, i) => ({ daily_seq: i }));
+      const seq = nextDailySeq(rows)!;
+      expect(seq).toBeGreaterThanOrEqual(0);
+      expect(seq).toBeLessThan(VENDOR_DAILY_PURCHASE_LIMIT);
+    }
+  });
+});
+
+describe('DAILY_SEQ_UNIQUE_CONSTRAINT / migration shape-guard contract', () => {
+  // Same drift-guard pattern as economy.test.ts's sell_price contract: the
+  // 429-vs-500 discrimination in buyVendorSlot is a string match against a
+  // constraint NAME that only exists in SQL, so renaming it in the migration
+  // without updating the constant would silently turn every lost daily_seq
+  // race into a 500 with no test noticing.
+  it('names a unique constraint the vendor-rotation migration actually creates', () => {
+    const migrationUrl = new URL(
+      '../../supabase/migrations/20260803000000_vendor_rotation.sql',
+      import.meta.url,
+    );
+    const sql = readFileSync(migrationUrl, 'utf8');
+
+    expect(sql).toContain(`add constraint ${DAILY_SEQ_UNIQUE_CONSTRAINT}`);
+    // ...and that it is the (user_id, utc_day, daily_seq) uniqueness the cap
+    // rests on, not some other constraint that happens to carry the name.
+    expect(sql).toMatch(
+      new RegExp(`add constraint ${DAILY_SEQ_UNIQUE_CONSTRAINT}\\s+unique \\(user_id, utc_day, daily_seq\\)`),
+    );
+  });
+
+  it('keeps the 0-5 check constraint that makes a 7th same-day row impossible', () => {
+    const sql = readFileSync(
+      new URL('../../supabase/migrations/20260803000000_vendor_rotation.sql', import.meta.url),
+      'utf8',
+    );
+    expect(sql).toMatch(/check \(daily_seq between 0 and (\d+)\)/);
+    const upper = Number(sql.match(/check \(daily_seq between 0 and (\d+)\)/)![1]);
+    expect(upper).toBe(VENDOR_DAILY_PURCHASE_LIMIT - 1);
   });
 });
 

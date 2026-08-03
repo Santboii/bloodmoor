@@ -32,12 +32,6 @@ export function buyerClient(accessToken: string): SupabaseClient {
   });
 }
 
-/** UTC calendar day string, matching vendorStockFor's expected 'YYYY-MM-DD'
- * format and vendor_purchases.utc_day. */
-export function utcDayString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /** The vendor's two clock readings taken from ONE instant, so a request can
  * never straddle an hour or day boundary mid-flight. Injected into
  * getVendorView/buyVendorSlot rather than read inside them, which keeps
@@ -45,6 +39,7 @@ export function utcDayString(): string {
 export type VendorClock = { hour: number; utcDay: string };
 
 export function vendorClockNow(nowMs: number = Date.now()): VendorClock {
+  // 'YYYY-MM-DD', matching vendor_purchases.utc_day.
   return { hour: utcHourIndex(nowMs), utcDay: new Date(nowMs).toISOString().slice(0, 10) };
 }
 
@@ -56,10 +51,45 @@ const UNIQUE_VIOLATION = '23505';
 /** Name of the migration's (user_id, utc_day, daily_seq) unique constraint —
  * the DB-level backstop for the 6-buys-per-day cap. Matched against the
  * reserve-insert error's message below to tell "a concurrent buyer won the
- * same daily_seq" (expected, cap doing its job) apart from any other unique
+ * same daily_seq" (expected, retryable) apart from any other unique
  * violation (e.g. the (user_id, instance_key) primary key, a different and
- * genuinely unexpected race). */
-const DAILY_SEQ_UNIQUE_CONSTRAINT = 'vendor_purchases_user_day_seq_key';
+ * genuinely unexpected race). Exported for the drift test that pins it
+ * against 20260803000000_vendor_rotation.sql. */
+export const DAILY_SEQ_UNIQUE_CONSTRAINT = 'vendor_purchases_user_day_seq_key';
+
+/** Postgres spells a unique_violation as `... unique constraint "<name>"`.
+ * Matching the quoted form rather than the bare name means a *different*
+ * constraint whose name merely contains ours (or a stray occurrence of the
+ * name elsewhere in the message) can't be mistaken for the daily_seq race. */
+function isDailySeqViolation(err: { code?: string; message: string }): boolean {
+  return err.code === UNIQUE_VIOLATION && err.message.includes(`constraint "${DAILY_SEQ_UNIQUE_CONSTRAINT}"`);
+}
+
+/** Hard ceiling on reservation attempts in buyVendorSlot. One per possible
+ * seq is already more than enough — each lost race removes a value from the
+ * free set — so this only bounds a pathological interleave. */
+const RESERVE_ATTEMPT_BUDGET = VENDOR_DAILY_PURCHASE_LIMIT;
+
+/** The smallest daily_seq in 0..VENDOR_DAILY_PURCHASE_LIMIT-1 that today's
+ * rows don't already occupy, or null when all of them are taken (the account
+ * is genuinely at its cap).
+ *
+ * Deliberately "smallest unused" rather than `rows.length` or
+ * `max(daily_seq) + 1`. `rows.length` collides the moment the sequence has a
+ * HOLE in it — which the release path in buyVendorSlot can create by deleting
+ * a reserved row whose item insert failed — and would then keep colliding on
+ * every subsequent buy, wedging the account below its cap for the rest of the
+ * UTC day. `max + 1` heals the wedge but permanently burns the deleted row's
+ * position, silently costing the account a purchase. Reusing the hole does
+ * neither, and shrinks the free set on every lost race so the retry loop
+ * below converges. */
+export function nextDailySeq(rows: { daily_seq: number }[] | null | undefined): number | null {
+  const taken = new Set((rows ?? []).map(r => r.daily_seq));
+  for (let seq = 0; seq < VENDOR_DAILY_PURCHASE_LIMIT; seq++) {
+    if (!taken.has(seq)) return seq;
+  }
+  return null;
+}
 
 export type AccountCharSummary = { maxLevel: number; ownedClasses: Set<CharacterClass> };
 
@@ -94,7 +124,10 @@ async function loadDropWeights(service: SupabaseClient, context: string): Promis
  * used on the refund-after-debit-failure path below, which is already rare
  * and logged loudly; a concurrent buy racing this read-modify-write could
  * still lose an update, which is the documented tradeoff for not adding a
- * new migration to this task. */
+ * new migration to this task. Kept off the ordinary concurrent-buy path on
+ * purpose: buyVendorSlot resolves a lost daily_seq race BEFORE debiting, so
+ * this only ever fires when something genuinely broke after the debit (a
+ * failed item insert / a missing drop table), never on a routine race. */
 async function refundGold(service: SupabaseClient, userId: string, amount: number): Promise<void> {
   const { data, error } = await service.from('profiles').select('gold').eq('user_id', userId).single();
   if (error || !data) {
@@ -104,6 +137,21 @@ async function refundGold(service: SupabaseClient, userId: string, amount: numbe
   const { error: updateErr } = await service.from('profiles').update({ gold: data.gold + amount }).eq('user_id', userId);
   if (updateErr) {
     console.error(`refundGold: update failed for ${userId} — MANUAL REFUND of ${amount} required:`, updateErr.message);
+  }
+}
+
+/** Hands a reserved offer (and the daily_seq it holds) back, so a purchase
+ * that dies after the reservation doesn't leave the slot showing SOLD or
+ * burn one of the account's six daily buys. A failure here is loud but not
+ * fatal: the row simply survives until the UTC day rolls over. */
+async function releaseReservation(service: SupabaseClient, userId: string, instanceKey: string): Promise<void> {
+  const { error } = await service
+    .from('vendor_purchases')
+    .delete()
+    .eq('user_id', userId)
+    .eq('instance_key', instanceKey);
+  if (error) {
+    console.error(`releaseReservation: could not release ${instanceKey} for ${userId} — slot stays reserved until tomorrow:`, error.message);
   }
 }
 
@@ -179,23 +227,32 @@ export async function getVendorView(
 export type VendorBuyResult = { ok: true; item: ItemRow } | { ok: false; status: number; error: string };
 
 /** Buy one vendor offer. Order: validate -> confirm the offer is still the
- * one the client saw -> daily allowance -> not already bought -> debit gold
- * (buyer's own JWT, so spend_gold's auth.uid() is the buyer) -> reserve the
- * offer -> grant the item. Everything that can be VALIDATED (bad input,
- * stale offer, allowance already spent, already bought) rejects BEFORE the
- * debit. Two things can still fail AFTER it, both compensated by refunding
- * the gold: the reserve insert (a concurrent buyer wins the same daily_seq
- * — the DB's unique constraint enforcing the cap under a race, see
- * DAILY_SEQ_UNIQUE_CONSTRAINT below — or any other insert error) and the
- * item insert.
+ * one the client saw -> daily allowance -> not already bought -> reserve the
+ * offer -> debit gold (buyer's own JWT, so spend_gold's auth.uid() is the
+ * buyer) -> grant the item.
  *
- * The slot is reserved BEFORE the item is granted (rather than after) so a
- * mid-flight failure has only one failure mode to compensate: if the item
- * insert fails, both the reservation and the gold are rolled back; if the
- * reservation itself fails (e.g. a concurrent duplicate-offer race losing to
- * the table's unique constraint), only the gold needs refunding since no
- * item was ever granted. Refunds are the two-step read-then-write in
- * refundGold — see its docstring for the consistency tradeoff. */
+ * The reservation is taken BEFORE the debit, which is what makes the
+ * daily_seq race cheap to resolve. daily_seq is "which of today's at most 6
+ * purchases this is"; the migration's unique (user_id, utc_day, daily_seq)
+ * constraint is the DB-level backstop that makes a 7th same-day row
+ * physically impossible. Two buys fired concurrently by one account (the
+ * client's double-submit guard is per SLOT, so two different slots really do
+ * race) can pick the same free seq; the loser takes a unique_violation. That
+ * is a lost race on sequence assignment, NOT the cap — the account may be
+ * nowhere near 6 — so it re-reads today's rows, takes the next free seq and
+ * retries. Because the loser's re-read now sees the winner's row, the free
+ * set strictly shrinks and the loop converges: it ends either in a
+ * successful insert or in "every seq 0..5 is taken", which IS the cap and
+ * returns 429. Not one gram of gold has moved at that point, so a lost race
+ * costs nothing and needs no compensation.
+ *
+ * That leaves exactly two post-reservation failures:
+ *   - spend_gold fails (e.g. insufficient gold): release the reservation, no
+ *     gold moved, 402.
+ *   - the item insert fails: release the reservation AND refund the gold
+ *     (the two-step read-then-write in refundGold — see its docstring for the
+ *     consistency tradeoff). This is the only path that can leave gold
+ *     debited without an item, and it is the only one that calls refundGold. */
 export async function buyVendorSlot(
   service: SupabaseClient,
   buyer: SupabaseClient,
@@ -224,9 +281,11 @@ export async function buyVendorSlot(
     return { ok: false, status: 409, error: 'stock changed' };
   }
 
+  // daily_seq (not instance_key) because this read serves double duty: the
+  // cheap allowance check just below, and the seq the reservation claims.
   const { data: todayRows, error: todayErr } = await service
     .from('vendor_purchases')
-    .select('instance_key')
+    .select('daily_seq')
     .eq('user_id', userId)
     .eq('utc_day', clock.utcDay);
   if (todayErr) {
@@ -249,36 +308,63 @@ export async function buyVendorSlot(
   }
   if (existing) return { ok: false, status: 400, error: 'slot already purchased' };
 
-  const { error: debitErr } = await buyer.rpc('spend_gold', { p_amount: slot.price });
-  if (debitErr) return { ok: false, status: 402, error: debitErr.message };
+  // Claim a daily_seq. Every attempt costs at most one extra round trip and
+  // happens before any gold moves, so losing the race is free.
+  let seqRows = (todayRows ?? []) as { daily_seq: number }[];
+  let reserved = false;
+  for (let attempt = 0; attempt < RESERVE_ATTEMPT_BUDGET; attempt++) {
+    const dailySeq = nextDailySeq(seqRows);
+    // Every seq 0..5 is spoken for: this is the cap, reached by concurrent
+    // buyers between the allowance read above and now. No gold has moved.
+    if (dailySeq === null) return { ok: false, status: 429, error: 'daily purchase limit reached' };
 
-  // The row's position among today's purchases, independent of
-  // instance_key — what the migration's (user_id, utc_day, daily_seq)
-  // unique constraint enforces the cap on. todayRows was already read above
-  // for the allowance check, so this is free.
-  const dailySeq = todayRows?.length ?? 0;
-  const { error: reserveErr } = await service
-    .from('vendor_purchases')
-    .insert({ user_id: userId, utc_day: clock.utcDay, slot_index: slotIndex, instance_key: instanceKey, daily_seq: dailySeq });
-  if (reserveErr) {
-    // A concurrent buyer can win the same daily_seq in the window between
-    // our allowance read above and this insert; Postgres then rejects this
-    // insert with a unique_violation on DAILY_SEQ_UNIQUE_CONSTRAINT. That's
-    // the DB-level cap doing its job (see this function's docstring), not
-    // an infrastructure failure, so it gets the same 429 the cheap
-    // read-then-check above already returns — the client sees one
-    // consistent outcome regardless of which path caught it. Any other
-    // insert error (including a unique_violation on the (user_id,
-    // instance_key) primary key, which is a different race — the same
-    // offer double-bought — not this one) falls through to the generic 500.
-    if (reserveErr.code === UNIQUE_VIOLATION && reserveErr.message.includes(DAILY_SEQ_UNIQUE_CONSTRAINT)) {
-      console.error('buyVendorSlot: concurrent daily_seq race lost after debit — refunding:', reserveErr.message);
-      await refundGold(service, userId, slot.price);
-      return { ok: false, status: 429, error: 'daily purchase limit reached' };
+    const { error: reserveErr } = await service
+      .from('vendor_purchases')
+      .insert({ user_id: userId, utc_day: clock.utcDay, slot_index: slotIndex, instance_key: instanceKey, daily_seq: dailySeq });
+    if (!reserveErr) { reserved = true; break; }
+
+    if (isDailySeqViolation(reserveErr)) {
+      // A concurrent buy for this same account took the seq first. Re-read
+      // today's rows — which now include the winner's — and try the next
+      // free one. The free set is strictly smaller each time round, so this
+      // terminates well inside the budget.
+      const { data: rereadRows, error: rereadErr } = await service
+        .from('vendor_purchases')
+        .select('daily_seq')
+        .eq('user_id', userId)
+        .eq('utc_day', clock.utcDay);
+      if (rereadErr) {
+        console.error('buyVendorSlot: daily_seq re-read failed after a lost race:', rereadErr.message);
+        return { ok: false, status: 500, error: 'internal error' };
+      }
+      seqRows = (rereadRows ?? []) as { daily_seq: number }[];
+      continue;
     }
-    console.error('buyVendorSlot: vendor_purchases insert failed after debit — refunding:', reserveErr.message);
-    await refundGold(service, userId, slot.price);
-    return { ok: false, status: 500, error: 'purchase failed, gold refunded' };
+
+    // Anything else — including a unique_violation on the (user_id,
+    // instance_key) primary key, which is a different race (the same offer
+    // double-bought) and not retryable — is genuinely unexpected. Nothing
+    // has been debited, so there is nothing to compensate.
+    console.error('buyVendorSlot: vendor_purchases reserve insert failed:', reserveErr.message);
+    return { ok: false, status: 500, error: 'purchase failed' };
+  }
+  if (!reserved) {
+    // Unreachable in practice: with at most 6 seqs and the free set shrinking
+    // on every lost race, the loop exits via a successful insert or via
+    // nextDailySeq returning null long before the budget runs out. Only a
+    // pathological interleave (rows being released concurrently) gets here.
+    // Report it as the cap: no gold moved, and the client's refetch will show
+    // the account's true allowance either way.
+    console.error(`buyVendorSlot: exhausted ${RESERVE_ATTEMPT_BUDGET} daily_seq reservation attempts for ${userId}`);
+    return { ok: false, status: 429, error: 'daily purchase limit reached' };
+  }
+
+  const { error: debitErr } = await buyer.rpc('spend_gold', { p_amount: slot.price });
+  if (debitErr) {
+    // The reservation was taken on credit and the debit didn't land — give
+    // the offer (and the daily_seq) straight back. No gold moved.
+    await releaseReservation(service, userId, instanceKey);
+    return { ok: false, status: 402, error: debitErr.message };
   }
 
   const { data: itemRow, error: itemErr } = await service
@@ -299,7 +385,7 @@ export async function buyVendorSlot(
 
   if (itemErr || !itemRow) {
     console.error('buyVendorSlot: item insert failed after debit — refunding and releasing slot:', itemErr?.message);
-    await service.from('vendor_purchases').delete().eq('user_id', userId).eq('instance_key', instanceKey);
+    await releaseReservation(service, userId, instanceKey);
     await refundGold(service, userId, slot.price);
     return { ok: false, status: 500, error: 'purchase failed, gold refunded' };
   }
