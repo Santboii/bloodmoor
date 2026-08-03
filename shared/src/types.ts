@@ -291,8 +291,9 @@ export const ICE_RAY_HALF_WIDTH_MAX = 20;
 /** Flat while channelling — deliberately not ramped, so the commitment reads
  *  as one decision rather than two variables moving at once. */
 export const ICE_RAY_MOVE_MULT = 0.35;
-/** Pillar sampling step along the beam. Half a pillar's halfSize (28), so a
- *  step can never straddle a pillar without landing inside it. */
+/** Pillar sampling step along the beam. pillarContainsPoint tests a
+ *  FIREBALL_RADIUS (10-unit) circle against the pillar AABB, so any step
+ *  under 10 units can never skip past a pillar without landing inside it. */
 export const ICE_RAY_MARCH_STEP = 8;
 
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {

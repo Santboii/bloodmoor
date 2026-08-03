@@ -48,6 +48,27 @@ describe('frost cast ownership gate', () => {
     const state = advanceState(baseState(), { p1: cast(9), p2: idle() }, {});
     expect(state.projectiles.some(p => p.type === 'icebolt')).toBe(true);
   });
+
+  // The channel path bypasses the normal cast dispatch (and its
+  // hasSkillSystem/spellNodeMap gate above), so it needs its own ownership
+  // check inside the movement/mana section of StateAdvancer. This drives
+  // advanceState with channel: 12 directly so a future edit that deletes
+  // that check would be caught here, not just by a hand-trace.
+  it('refuses to channel Ice Ray for a mage who has not learned it', () => {
+    const skills = skillsOf(['frost.ice_bolt']); // has Ice Bolt, not Ice Ray
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Caster', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'Target', charClass: 'mage', spawnPos: { x: 600, y: 1000 } },
+    ]);
+    const manaBefore = state.players['p1'].mana; // already at max; regen alone can't move it
+    const hpBefore = state.players['p2'].hp;
+    const channelInput: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 600, y: 1000 }, channel: 12 };
+    state = advanceState(state, { p1: channelInput, p2: idle() }, skills);
+
+    expect(state.players['p1'].mana).toBe(manaBefore);
+    expect(state.players['p1'].channelSpell).toBeUndefined();
+    expect(state.players['p2'].hp).toBe(hpBefore);
+  });
 });
 
 describe('frost resource costs', () => {
@@ -114,6 +135,34 @@ describe('chill application', () => {
     });
     const inputs = { p1: idle(), p2: idle(), p3: idle(), p4: idle() };
     for (let i = 0; i < 4; i++) state = advanceState(state, inputs, skills, TEAM_DUEL_MODE);
+
+    expect(state.players['p2'].hp).toBeLessThan(hpBefore);
+    expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+
+  // Ice Ray's beam damage section (3c) has its own sameTeam expression,
+  // separate from the Ice Bolt hit branch above — this exercises it
+  // directly through a real 2v2 state so deleting the `!sameTeam` guard
+  // there would fail here, not just look right on inspection.
+  it('does not chill a teammate hit by an Ice Ray beam, though it still damages them', () => {
+    const skills = {
+      p1: new Map<NodeId, number>([['frost.ice_ray' as NodeId, 1]]),
+    };
+    const teams = { a: ['p1', 'p2'], b: ['p3', 'p4'] };
+    let state = makeInitialState(
+      [
+        { id: 'p1', displayName: 'Caster', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+        { id: 'p2', displayName: 'Ally',   charClass: 'mage', spawnPos: { x: 600, y: 1000 } },
+        { id: 'p3', displayName: 'Ally3',  charClass: 'mage', spawnPos: { x: 1000, y: 200 } },
+        { id: 'p4', displayName: 'Ally4',  charClass: 'mage', spawnPos: { x: 1000, y: 1800 } },
+      ],
+      TEAM_DUEL_MODE,
+      teams,
+    );
+    const hpBefore = state.players['p2'].hp;
+    const channelInput: InputFrame = { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 600, y: 1000 }, channel: 12 };
+    const inputs = { p1: channelInput, p2: idle(), p3: idle(), p4: idle() };
+    state = advanceState(state, inputs, skills, TEAM_DUEL_MODE);
 
     expect(state.players['p2'].hp).toBeLessThan(hpBefore);
     expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
