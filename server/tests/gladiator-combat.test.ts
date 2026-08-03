@@ -197,10 +197,12 @@ describe('Full-kit integration: gladiator vs ranger', () => {
     s.players.A.cooldowns = { ...s.players.A.cooldowns, 12: 20 };
     const manaBeforeFreeJab = s.players.A.mana;
     const freeJabAim = { x: s.players.B.position.x, y: s.players.B.position.y };
+    const jabLandedOnTick = s.tick; // advanceState stamps stunUntil off THIS tick, not the post-call one
     s = advanceState(s, { A: cast(12, freeJabAim), B: idle() }, skills);
     expect(s.players.A.castingSpell).toBe(12);
     expect(s.players.A.mana).toBeGreaterThanOrEqual(manaBeforeFreeJab); // free — regen may add, never spent
     expect(s.players.A.riposteReadyUntil).toBeUndefined();
-    expect((s.players.B.stunUntil ?? 0)).toBeGreaterThanOrEqual(s.tick + RIPOSTE_JAB_STUN_TICKS - 1);
+    // Deterministic: stunUntil = the tick the jab was processed on + RIPOSTE_JAB_STUN_TICKS.
+    expect(s.players.B.stunUntil).toBe(jabLandedOnTick + RIPOSTE_JAB_STUN_TICKS);
   });
 });
