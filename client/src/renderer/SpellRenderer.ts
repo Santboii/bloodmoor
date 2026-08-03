@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
-  iceRayRamp, ICE_RAY_HALF_WIDTH_MIN, ICE_RAY_HALF_WIDTH_MAX,
+  iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL,
 } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
@@ -11,6 +11,10 @@ type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y:
 type ArrowEntry = { mesh: THREE.Group };
 type IceBoltEntry = { mesh: THREE.Group };
 type FrozenOrbEntry = { mesh: THREE.Mesh };
+// spinAngle accumulates every frame so the beam's rotation about its own
+// length axis is continuous even though its base orientation (rotation.set)
+// is recomputed from scratch each frame to track the caster's current aim.
+type IceRayEntry = { mesh: THREE.Mesh; spinAngle: number };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
   arrowMaterial: THREE.MeshBasicMaterial;
@@ -73,6 +77,14 @@ const FROZEN_ORB_VISUAL_RADIUS = 16;
 // (perpendicular to travel) ramps with iceRayRamp's halfWidth.
 const ICE_RAY_THICKNESS = 10;
 const ICE_RAY_COLOR = 0x6fd3f2;
+// At full charge the beam bleaches toward white — a cheap stand-in for
+// heat-death intensity that reads as "hotter" without a soft glow/bloom pass.
+const ICE_RAY_COLOR_BASE = new THREE.Color(ICE_RAY_COLOR);
+const ICE_RAY_COLOR_HOT = new THREE.Color(0xffffff);
+// Spin speed (rad/s) about the beam's own length axis — a fresh, wide beam
+// drifts lazily; a fully charged lance whips around fast enough to blur.
+const ICE_RAY_SPIN_MIN = 1.5;
+const ICE_RAY_SPIN_MAX = 12;
 
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
@@ -129,7 +141,7 @@ export class SpellRenderer {
   private rainZoneArrows = new Map<string, RainArrowVisual>();
   private iceBolts = new Map<string, IceBoltEntry>();
   private frozenOrbs = new Map<string, FrozenOrbEntry>();
-  private iceRays = new Map<string, THREE.Mesh>();
+  private iceRays = new Map<string, IceRayEntry>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
   private clock = new THREE.Clock();
@@ -231,7 +243,7 @@ export class SpellRenderer {
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
     this.syncFrozenOrbs(state);
-    this.syncIceRays(state);
+    this.syncIceRays(state, delta);
     this.particles.update(delta);
 
     for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
@@ -599,17 +611,17 @@ export class SpellRenderer {
     }
   }
 
-  private syncIceRays(state: GameState): void {
+  private syncIceRays(state: GameState, delta: number): void {
     const activeIds = new Set(
       Object.entries(state.players)
         .filter(([, p]) => p.channelSpell === 12 && p.channelEnd)
         .map(([id]) => id),
     );
 
-    for (const [id, mesh] of this.iceRays) {
+    for (const [id, entry] of this.iceRays) {
       if (!activeIds.has(id)) {
-        this.scene.remove(mesh);
-        disposeObject3D(mesh);
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
         this.iceRays.delete(id);
       }
     }
@@ -618,8 +630,8 @@ export class SpellRenderer {
       if (player.channelSpell !== 12 || !player.channelEnd) continue;
 
       if (!this.iceRays.has(id)) {
-        // Per-instance material so opacity can animate independently per
-        // beam; disposeObject3D frees it automatically since it's never
+        // Per-instance material so opacity/color can animate independently
+        // per beam; disposeObject3D frees it automatically since it's never
         // added to sharedMaterials.
         const material = new THREE.MeshBasicMaterial({
           color: ICE_RAY_COLOR,
@@ -628,10 +640,11 @@ export class SpellRenderer {
         });
         const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, material);
         this.scene.add(mesh);
-        this.iceRays.set(id, mesh);
+        this.iceRays.set(id, { mesh, spinAngle: 0 });
       }
 
-      const mesh = this.iceRays.get(id)!;
+      const entry = this.iceRays.get(id)!;
+      const mesh = entry.mesh;
       const ramp = iceRayRamp(player.channelTicks ?? 0);
 
       const dx = player.channelEnd.x - player.position.x;
@@ -645,16 +658,55 @@ export class SpellRenderer {
         30,
         (player.position.y + player.channelEnd.y) / 2,
       );
-      // Same orientation convention as the arrow shaft/ice bolt: local X
+
+      // Charge fraction derived from the already-ramped halfWidth (not a
+      // re-derivation of the ramp curve itself). Width SHRINKS from START to
+      // FULL as charge builds, so both the numerator and denominator here are
+      // negative and t still runs 0 → 1 as the beam narrows.
+      const t = (ramp.halfWidth - ICE_RAY_HALF_WIDTH_START) / (ICE_RAY_HALF_WIDTH_FULL - ICE_RAY_HALF_WIDTH_START);
+
+      // Same base orientation convention as the arrow shaft/ice bolt: local X
       // (the length axis after scaling) ends up pointing from caster to
-      // channelEnd.
+      // channelEnd. Reset to that base every frame (aim can move), then spin
+      // about the same local X axis so the beam visibly twists along its
+      // length — faster as it tightens and intensifies.
       mesh.rotation.set(-Math.PI / 2, 0, -angle);
+      const spinSpeed = ICE_RAY_SPIN_MIN + t * (ICE_RAY_SPIN_MAX - ICE_RAY_SPIN_MIN);
+      entry.spinAngle += delta * spinSpeed;
+      mesh.rotateX(entry.spinAngle);
       mesh.scale.set(Math.max(length, 0.001), fullWidth, ICE_RAY_THICKNESS);
 
-      // Brighten toward full charge — derived from the already-ramped
-      // halfWidth (not a re-derivation of the ramp curve itself).
-      const t = (ramp.halfWidth - ICE_RAY_HALF_WIDTH_MIN) / (ICE_RAY_HALF_WIDTH_MAX - ICE_RAY_HALF_WIDTH_MIN);
-      (mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + t * 0.5;
+      // Brighten and bleach toward white at full charge. t=1 is full charge
+      // (the narrow end), so this maps small half-width to bright/white —
+      // the inverse would make the beam dim as it powers up.
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.35 + t * 0.5;
+      material.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, t);
+
+      if (this.shouldEmitContinuous && length > 0) {
+        const ux = dx / length;
+        const uz = dz / length;
+        // More sample points along the beam as charge builds — rate rises
+        // with intensity even though each individual burst (sized off the
+        // shrinking halfWidth) gets smaller.
+        const sampleCount = 2 + Math.round(t * 8);
+        for (let i = 1; i <= sampleCount; i++) {
+          const frac = i / (sampleCount + 1);
+          this.particles.emitTrail(
+            player.position.x + dx * frac,
+            30,
+            player.position.y + dz * frac,
+            ux, uz,
+            ramp.halfWidth,
+          );
+        }
+        // Impact sparks kicked back off the target, denser at full charge.
+        this.particles.emitTrail(
+          player.channelEnd.x, 30, player.channelEnd.y,
+          -ux, -uz,
+          ramp.halfWidth * (1.5 + t),
+        );
+      }
     }
   }
 
@@ -679,7 +731,7 @@ export class SpellRenderer {
       disposeObject3D(entry.arrowGroup);
     }
     for (const entry of this.frozenOrbs.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
-    for (const mesh of this.iceRays.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
+    for (const entry of this.iceRays.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();

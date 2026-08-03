@@ -3,22 +3,22 @@ import {
   iceRayRamp, pointToSegmentDist, TICK_RATE,
   ICE_RAY_RAMP_TICKS, ICE_RAY_DAMAGE_MIN_PER_SEC, ICE_RAY_DAMAGE_MAX_PER_SEC,
   ICE_RAY_MANA_MIN_PER_SEC, ICE_RAY_MANA_MAX_PER_SEC,
-  ICE_RAY_HALF_WIDTH_MIN, ICE_RAY_HALF_WIDTH_MAX,
+  ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL,
 } from '@arena/shared';
 
 describe('iceRayRamp', () => {
-  it('starts at the minimum on the first tick', () => {
+  it('starts wide on the first tick', () => {
     const r = iceRayRamp(0);
     expect(r.damagePerTick).toBeCloseTo(ICE_RAY_DAMAGE_MIN_PER_SEC / TICK_RATE);
     expect(r.manaPerTick).toBeCloseTo(ICE_RAY_MANA_MIN_PER_SEC / TICK_RATE);
-    expect(r.halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_MIN);
+    expect(r.halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_START);
   });
 
-  it('reaches the maximum exactly at the ramp length', () => {
+  it('tightens to the full-power width exactly at the ramp length', () => {
     const r = iceRayRamp(ICE_RAY_RAMP_TICKS);
     expect(r.damagePerTick).toBeCloseTo(ICE_RAY_DAMAGE_MAX_PER_SEC / TICK_RATE);
     expect(r.manaPerTick).toBeCloseTo(ICE_RAY_MANA_MAX_PER_SEC / TICK_RATE);
-    expect(r.halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_MAX);
+    expect(r.halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_FULL);
   });
 
   it('sits halfway at half the ramp', () => {
@@ -34,17 +34,17 @@ describe('iceRayRamp', () => {
     expect(wayPast.halfWidth).toBeCloseTo(atMax.halfWidth);
   });
 
-  it('clamps negative ticks to the minimum', () => {
-    expect(iceRayRamp(-10).halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_MIN);
+  it('clamps negative ticks to the starting width', () => {
+    expect(iceRayRamp(-10).halfWidth).toBeCloseTo(ICE_RAY_HALF_WIDTH_START);
   });
 
-  it('ramps damage, mana and width monotonically', () => {
+  it('ramps damage and mana up while width narrows monotonically', () => {
     let prev = iceRayRamp(0);
     for (let t = 1; t <= ICE_RAY_RAMP_TICKS; t += 10) {
       const cur = iceRayRamp(t);
       expect(cur.damagePerTick).toBeGreaterThanOrEqual(prev.damagePerTick);
       expect(cur.manaPerTick).toBeGreaterThanOrEqual(prev.manaPerTick);
-      expect(cur.halfWidth).toBeGreaterThanOrEqual(prev.halfWidth);
+      expect(cur.halfWidth).toBeLessThanOrEqual(prev.halfWidth);
       prev = cur;
     }
   });
