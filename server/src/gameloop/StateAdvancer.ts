@@ -17,6 +17,7 @@ import {
   BLOCK_DAMAGE_REDUCTION, BLOCK_MOVE_MULT, BLOCK_RERAISE_TICKS,
   JAB_RANGE, JAB_WIDTH, EXECUTIONER_BONUS,
   SPEAR_STUN_TICKS,
+  LEAP_DURATION_TICKS, LEAP_SLOW_RADIUS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -179,9 +180,10 @@ export function advanceState(
   const dashing = new Set<string>();
   for (const [id, p] of Object.entries(players)) {
     if (p.evadeTarget && p.evadeOrigin && p.evadeEndTick != null) {
-      const startTick = p.evadeEndTick - EVADE_DURATION_TICKS;
+      const duration = p.dashDurationTicks ?? EVADE_DURATION_TICKS;
+      const startTick = p.evadeEndTick - duration;
       const elapsed = tick - startTick + 1;
-      const t = Math.min(elapsed / EVADE_DURATION_TICKS, 1);
+      const t = Math.min(elapsed / duration, 1);
       const nx = p.evadeOrigin.x + (p.evadeTarget.x - p.evadeOrigin.x) * t;
       const ny = p.evadeOrigin.y + (p.evadeTarget.y - p.evadeOrigin.y) * t;
       const done = tick + 1 >= p.evadeEndTick;
@@ -191,8 +193,25 @@ export function advanceState(
         evadeOrigin: done ? undefined : p.evadeOrigin,
         evadeTarget: done ? undefined : p.evadeTarget,
         evadeEndTick: done ? undefined : p.evadeEndTick,
+        dashDurationTicks: done ? undefined : p.dashDurationTicks,
+        leapLanding: done ? undefined : p.leapLanding,
       };
       dashing.add(id);
+      // Leap: the landing shockwave slows nearby enemies the tick the dash ends.
+      if (done && p.leapLanding) {
+        const landPos = players[id].position;
+        for (const [oid, other] of Object.entries(players)) {
+          if (oid === id || other.hp <= 0) continue;
+          if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === p.teamId) continue;
+          const d2 = (other.position.x - landPos.x) ** 2 + (other.position.y - landPos.y) ** 2;
+          if (d2 > (LEAP_SLOW_RADIUS + PLAYER_HALF_SIZE) ** 2) continue;
+          players[oid] = {
+            ...other,
+            slowUntil: tick + p.leapLanding.slowTicks,
+            slowFactor: p.leapLanding.slowFactor,
+          };
+        }
+      }
     }
   }
 
@@ -569,7 +588,29 @@ export function advanceState(
     } else if (spell === 15) {
       const gm = gladMods[id];
       if (!gm) continue;
-      // Mechanics land in Task 10.
+      const dx = input.aimTarget.x - p.position.x;
+      const dy = input.aimTarget.y - p.position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const range = gm.leap.range;
+      const clampedTarget = dist > range
+        ? { x: p.position.x + (dx / dist) * range, y: p.position.y + (dy / dist) * range }
+        : { ...input.aimTarget };
+      const origin = { ...p.position };
+      const t0 = 1 / LEAP_DURATION_TICKS;
+      const firstPos = resolvePlayerPillarCollisions(clampToArena({
+        x: origin.x + (clampedTarget.x - origin.x) * t0,
+        y: origin.y + (clampedTarget.y - origin.y) * t0,
+      }));
+      players[id] = {
+        ...players[id],
+        position: firstPos,
+        evadeOrigin: origin,
+        evadeTarget: clampedTarget,
+        evadeEndTick: tick + LEAP_DURATION_TICKS,
+        dashDurationTicks: LEAP_DURATION_TICKS,
+        invulnUntil: tick + LEAP_DURATION_TICKS,
+        leapLanding: { slowFactor: gm.leap.slowFactor, slowTicks: gm.leap.slowTicks },
+      };
     }
   }
 
