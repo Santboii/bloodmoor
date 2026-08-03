@@ -300,6 +300,15 @@ Per the project's process rule, the migration is **written but not applied
 until the change has passed review**, and is packaged as a script the user runs
 themselves rather than applied agent-side.
 
+### Same-unique equip restriction (approved post-hoc, 2026-08-02)
+
+`equip_item` refuses to equip a second item with the same non-null
+`unique_id`, D2-style, with a matching client-side `canEquip` mirror. Added
+during implementation beyond this spec's original scope because two max-rolled
+copies of a duplicable-slot unique (e.g. Windrunner Bands on both ring slots)
+sum their talent affixes past a node's soft cap and grant its keystone for
+free. Ratified as a design rule by the owner during the post-landing review.
+
 ### Drop pool
 
 `rollDropItem` currently picks uniformly over every unique with
