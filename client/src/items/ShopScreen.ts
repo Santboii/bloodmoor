@@ -4,7 +4,7 @@ import {
   buildNavBar, wireNavBar, injectNavBarCss, NavContext, NavKey, NavAccountHandlers,
 } from '../ui/navBar';
 import type { VendorView, VendorSlotView } from '../supabase';
-import { LOOTBOX_PRICES, affixLabel, uniqueForRow } from '@arena/shared';
+import { LOOTBOX_PRICES, affixLabel, uniqueForRow, VENDOR_DAILY_PURCHASE_LIMIT } from '@arena/shared';
 import type { LootboxTier, ItemRow } from '@arena/shared';
 import { RARITY_COLORS, itemBase, itemDisplayName } from './GearScreen';
 import * as sfx from '../audio/sfx';
@@ -22,43 +22,57 @@ export function canAfford(gold: number | null, price: number): boolean {
   return gold !== null && gold >= price;
 }
 
-export type SlotDisplayState = 'available' | 'sold' | 'unaffordable';
+export type SlotDisplayState = 'available' | 'sold' | 'limit-reached' | 'unaffordable';
 
-/** Derives a vendor card's display state from server-reported `purchased`
- * plus a fresh gold read — purchased always wins over affordability (a slot
- * bought earlier today stays SOLD even if gold has since changed). Exported
- * and unit-tested per the brief's "SOLD-state derivation" callout. */
-export function slotDisplayState(slot: { purchased: boolean; price: number }, gold: number | null): SlotDisplayState {
+/** Derives a vendor card's display state from server-reported `purchased`,
+ * the account's remaining daily allowance, and a fresh gold read. Ordering
+ * is deliberate: an already-bought slot reads SOLD whatever else is true,
+ * and a spent allowance outranks affordability because it is the blocker
+ * the player can actually do something about (come back tomorrow).
+ *
+ * `purchasesRemaining` is nullable — the server's daily-count read can fail
+ * independently of the vendor stock read. null means "unknown", not "zero"
+ * and not "unlimited": an unknown allowance must never block the button, so
+ * it's excluded from the limit-reached check below. The server remains the
+ * authority and rejects with 429 if the player really is capped. */
+export function slotDisplayState(
+  slot: { purchased: boolean; price: number },
+  gold: number | null,
+  purchasesRemaining: number | null,
+): SlotDisplayState {
   if (slot.purchased) return 'sold';
+  if (purchasesRemaining !== null && purchasesRemaining <= 0) return 'limit-reached';
   if (!canAfford(gold, slot.price)) return 'unaffordable';
   return 'available';
 }
 
-/** Insufficient-gold (402) rejections get a fixed, friendly notice; every
- * other failure (already purchased, invalid tier, server error, network)
- * surfaces the server's own message so it stays specific and doesn't drift
- * from service.ts's actual error strings. */
+/** True once a slot's rotation deadline has passed. Slots rotate on
+ * staggered 6-hour lifetimes, so a shop left open will outlive its stock;
+ * this is what the buy handler checks before submitting. Takes `nowMs` as a
+ * parameter so it stays deterministic in tests. */
+export function slotExpired(expiresAt: number, nowMs: number): boolean {
+  return nowMs >= expiresAt;
+}
+
+/** Per-card rotation countdown: "5h 02m" / "42m" / "<1m". */
+export function formatCountdown(msRemaining: number): string {
+  if (msRemaining <= 0) return 'rotating…';
+  const totalMinutes = Math.floor(msRemaining / 60_000);
+  if (totalMinutes < 1) return '<1m';
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
+}
+
+/** Insufficient-gold (402), rotated-out (409) and allowance-spent (429)
+ * rejections get fixed, friendly notices; every other failure surfaces the
+ * server's own message so it stays specific and doesn't drift from
+ * service.ts's actual error strings. */
 function noticeForError(status: number, error: string): string {
-  return status === 402 ? 'Not enough gold.' : error;
-}
-
-/** Client-side UTC calendar day, matching the server's utcDayString()
- * format ('YYYY-MM-DD') and VendorView.utcDay — used only to detect a
- * midnight-UTC rollover, never to compute gold/prices (those stay
- * server-only). Takes `now` as a parameter (default real Date.now()) so the
- * rollover check below is deterministic in tests. */
-export function currentUtcDay(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
-}
-
-/** True once the vendor view's utcDay no longer matches "now": the vendor
- * stock has been (or is about to be) silently re-derived server-side for a
- * new day (stock is stateless and deterministic per (user, day) — Task 3
- * scope). Buying against a stale view risks paying for/receiving a
- * different item than what's on screen at the exact midnight-UTC boundary;
- * callers must abort and refetch instead of submitting the purchase. */
-export function vendorViewIsStale(vendorUtcDay: string, nowUtcDay: string): boolean {
-  return vendorUtcDay !== nowUtcDay;
+  if (status === 402) return 'Not enough gold.';
+  if (status === 409) return 'That item just rotated out.';
+  if (status === 429) return 'Daily purchase limit reached.';
+  return error;
 }
 
 const STYLES = `
