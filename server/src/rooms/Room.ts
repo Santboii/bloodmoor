@@ -132,8 +132,8 @@ export class Room {
       let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
       const staleness = this.ticksSinceInput.get(id) ?? 0;
       this.ticksSinceInput.set(id, staleness + 1);
-      if (staleness > Room.INPUT_GRACE_TICKS && (pending.move.x !== 0 || pending.move.y !== 0)) {
-        pending = { ...pending, move: { x: 0, y: 0 } };
+      if (staleness > Room.INPUT_GRACE_TICKS && (pending.move.x !== 0 || pending.move.y !== 0 || pending.blocking)) {
+        pending = { ...pending, move: { x: 0, y: 0 }, blocking: undefined };
         this.pendingInputs.set(id, pending);
       }
       if (pending.seq !== undefined) {

@@ -14,6 +14,7 @@ import {
   METEOR_DELAY_TICKS, SHOWER_SPREAD, SHOWER_RADIUS_RATIO, SHOWER_DAMAGE_RATIO,
   METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS, SMOLDER_DURATION_TICKS,
   REST_CAST_TICKS, REST_REGEN_FRACTION_PER_SEC, REST_COOLDOWN_TICKS,
+  BLOCK_DAMAGE_REDUCTION, BLOCK_MOVE_MULT, BLOCK_RERAISE_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -146,6 +147,7 @@ export function advanceState(
       return [id, isGladiator ? buildGladiatorModifiers(skills) : null];
     })
   );
+  const blockDR = (pid: string) => gladMods[pid]?.block.damageReduction ?? BLOCK_DAMAGE_REDUCTION;
 
   const tick = state.tick;
 
@@ -206,6 +208,7 @@ export function advanceState(
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
     if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
     if ((p.stunUntil ?? 0) <= tick) p.stunUntil = undefined;
+    if ((p.blockCooldownUntil ?? 0) <= tick && p.blockCooldownUntil !== undefined) p.blockCooldownUntil = undefined;
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
   }
@@ -219,7 +222,14 @@ export function advanceState(
     const newMana = Math.min(p.maxMana, p.mana + regen);
     const rooted = (p.rootUntil ?? 0) > tick;
     const stunned = (p.stunUntil ?? 0) > tick;
-    const speedMult = rooted || stunned ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
+    const wantsBlock = !!input.blocking && p.charClass === 'gladiator';
+    const blockReady = (p.blockCooldownUntil ?? 0) <= tick;
+    const blocking = wantsBlock && !stunned && blockReady;
+    // Any release — voluntary, stun, or (later this tick) a cast — starts the re-raise gate.
+    const blockCooldownUntil = p.blocking && !blocking ? tick + BLOCK_RERAISE_TICKS : p.blockCooldownUntil;
+    const blockMove = blocking ? (gladMods[id]?.block.moveMult ?? BLOCK_MOVE_MULT) : 1;
+    const speedMult = rooted || stunned ? 0
+      : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * blockMove * p.statMults.moveSpeed;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -253,6 +263,8 @@ export function advanceState(
       evadeCharges,
       restCastEndTick: isMoving ? undefined : p.restCastEndTick,
       resting: isMoving ? undefined : p.resting,
+      blocking,
+      blockCooldownUntil,
     };
   }
 
@@ -308,6 +320,8 @@ export function advanceState(
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
       restCastEndTick: undefined,
       resting: undefined,
+      blocking: false,
+      blockCooldownUntil: p.blocking ? tick + BLOCK_RERAISE_TICKS : p.blockCooldownUntil,
     };
 
     if (spell === 1) {
@@ -627,7 +641,11 @@ export function advanceState(
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
-            const next = { ...player, hp: Math.max(0, player.hp - arrowDamage(moved.damageMin, moved.damageMax) * momentum * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode) * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls)) };
+            const rawArrow = arrowDamage(moved.damageMin, moved.damageMax) * momentum
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)
+              * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls);
+            const mit = mitigateDamage(player, moved.position, rawArrow, blockDR(pid));
+            const next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
             // Elemental arrows apply the shooter's status effect on hit —
             // but never full-strength slows/DoTs on teammates (friendly fire
             // is deliberately reduced; a full 2s slow would undercut that).
@@ -730,7 +748,9 @@ export function advanceState(
           if (!fireballHitsPlayer(moved, player.position, pid)) continue;
           if ((player.invulnUntil ?? 0) > tick) continue;
           const bonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
-          players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+          const rawDoom = fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
+          const mit = mitigateDamage(player, moved.position, rawDoom, blockDR(pid));
+          players[pid] = { ...player, hp: Math.max(0, player.hp - mit.damage) };
         }
         survivingProjectiles.push({ ...moved, noHitUntil: tick + 12 });
         continue;
@@ -751,7 +771,9 @@ export function advanceState(
           if (!invuln) {
             const falloff = 1 - Math.min(dist / blastRadius, 1);
             const bounceBonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
-            players[pid] = { ...player, hp: Math.max(0, player.hp - fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)) };
+            const rawBlast = fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
+            const mit = mitigateDamage(player, moved.position, rawBlast, blockDR(pid));
+            players[pid] = { ...player, hp: Math.max(0, player.hp - mit.damage) };
           }
         }
         // Volatile Ember: the blast bursts into homing embers. Chain Reaction
@@ -998,4 +1020,26 @@ function getDamageMultiplier(
     return atkMult * mode.friendlyFireMultiplier;
   }
   return atkMult;
+}
+
+/**
+ * Directional Block mitigation. Applies only to directional hits — the
+ * arrow/spear/fireball/jab call sites. Ground zones, meteors, and DoTs do
+ * not call this (no meaningful incoming direction). Returns the mitigated
+ * damage plus whether the hit was blocked (Riposte's trigger).
+ */
+function mitigateDamage(
+  target: PlayerState,
+  sourcePos: Vec2,
+  raw: number,
+  damageReduction: number,
+): { damage: number; blocked: boolean } {
+  if (!target.blocking) return { damage: raw, blocked: false };
+  const dx = sourcePos.x - target.position.x;
+  const dy = sourcePos.y - target.position.y;
+  // 180° front arc: source direction within a right angle of facing on
+  // either side ⇔ non-negative dot product with the facing unit vector.
+  const inArc = dx * Math.cos(target.facing) + dy * Math.sin(target.facing) >= 0;
+  if (!inArc) return { damage: raw, blocked: false };
+  return { damage: raw * (1 - damageReduction), blocked: true };
 }
