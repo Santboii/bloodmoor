@@ -78,9 +78,11 @@ const FROZEN_ORB_VISUAL_RADIUS = 16;
 // (perpendicular to travel) ramps with iceRayRamp's halfWidth.
 const ICE_RAY_THICKNESS = 10;
 const ICE_RAY_COLOR = 0x6fd3f2;
-// At full charge the outer glow bleaches toward white — a cheap stand-in for
-// heat-death intensity that reads as "more powerful" without a soft glow/
-// bloom pass.
+// As charge builds the outer glow bleaches partway toward white — a cheap
+// stand-in for heat-death intensity that reads as "more powerful" without a
+// soft glow/bloom pass. Capped well short of pure white (see
+// ICE_RAY_COLOR_LERP_MAX below) so full charge stays recognisably frost-blue
+// instead of washing out.
 const ICE_RAY_COLOR_BASE = new THREE.Color(ICE_RAY_COLOR);
 const ICE_RAY_COLOR_HOT = new THREE.Color(0xffffff);
 // Pale icy white for the hot inner core — brighter than the frost-blue glow
@@ -104,6 +106,26 @@ const ICE_RAY_GLOW_REL_SCALE_Z = ICE_RAY_GLOW_THICKNESS_FRAC / ICE_RAY_CORE_THIC
 // drifts lazily; a fully charged one whips around fast enough to blur.
 const ICE_RAY_SPIN_MIN = 1.5;
 const ICE_RAY_SPIN_MAX = 9;
+
+// Brightness ceilings for full charge. A first pass ramped opacity and the
+// white color-lerp all the way to their natural maximums (opacity ~0.95,
+// color 100% white) — at full charge the beam blew out into a white-out that
+// hid the arena behind it. These caps keep the top end reading as an intense
+// frost-blue lance instead of a flash of white; the *ramp* (min values, and
+// the ease curve below) is unchanged so charging up still visibly brightens
+// the beam, it just tops out sooner.
+const ICE_RAY_CORE_OPACITY_MIN = 0.45;
+const ICE_RAY_CORE_OPACITY_MAX = 0.7;
+const ICE_RAY_GLOW_OPACITY_MIN = 0.18;
+const ICE_RAY_GLOW_OPACITY_MAX = 0.38;
+// Cap on how far the glow's color lerps toward white at full charge — 1.0
+// (the old value) washes it out to near-pure white; this keeps full charge
+// recognizably frost-blue.
+const ICE_RAY_COLOR_LERP_MAX = 0.35;
+// Cap on the white-bias passed to ParticleSystem.emitIceRayTrail's
+// `intensity` param — 1.0 (the old value) biased the spray to solid white at
+// full charge; this keeps the sprayed particles frost-tinted.
+const ICE_RAY_PARTICLE_INTENSITY_MAX = 0.5;
 
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
@@ -655,7 +677,7 @@ export class SpellRenderer {
         const coreMaterial = new THREE.MeshBasicMaterial({
           color: ICE_RAY_CORE_COLOR,
           transparent: true,
-          opacity: 0.45,
+          opacity: ICE_RAY_CORE_OPACITY_MIN,
         });
         const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, coreMaterial);
 
@@ -665,7 +687,7 @@ export class SpellRenderer {
         const glowMaterial = new THREE.MeshBasicMaterial({
           color: ICE_RAY_COLOR,
           transparent: true,
-          opacity: 0.18,
+          opacity: ICE_RAY_GLOW_OPACITY_MIN,
           depthWrite: false,
         });
         const glow = new THREE.Mesh(ICE_RAY_BEAM_GEO, glowMaterial);
@@ -714,16 +736,25 @@ export class SpellRenderer {
         ICE_RAY_THICKNESS * ICE_RAY_CORE_THICKNESS_FRAC,
       );
 
-      // Hot core brightens toward full opacity as charge builds; the outer
-      // glow stays translucent throughout but bleaches from frost blue toward
-      // white the same way, so the whole beam reads as a bright lance
-      // wrapped in a cold haze rather than one flat-colored slab. t=1 is full
-      // charge (the wide end).
+      // Ease the brightness ramp (opacity/color/particle bias below) so most
+      // of the intensification happens early and it flattens near full
+      // charge, rather than climbing linearly all the way to the (now
+      // capped) ceiling. Spin speed and particle sample count above still
+      // track the raw, linear `t` — only brightness is eased/capped here.
+      const brightnessT = 1 - (1 - t) * (1 - t);
+
+      // Hot core brightens toward its capped opacity as charge builds; the
+      // outer glow stays translucent throughout but bleaches from frost blue
+      // partway toward white the same way, so the whole beam reads as a
+      // bright lance wrapped in a cold haze rather than one flat-colored
+      // slab — without either layer blowing out to solid white at t=1.
       const coreMaterial = mesh.material as THREE.MeshBasicMaterial;
-      coreMaterial.opacity = 0.45 + t * 0.5;
+      coreMaterial.opacity = ICE_RAY_CORE_OPACITY_MIN
+        + brightnessT * (ICE_RAY_CORE_OPACITY_MAX - ICE_RAY_CORE_OPACITY_MIN);
       const glowMaterial = glow.material as THREE.MeshBasicMaterial;
-      glowMaterial.opacity = 0.18 + t * 0.32;
-      glowMaterial.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, t);
+      glowMaterial.opacity = ICE_RAY_GLOW_OPACITY_MIN
+        + brightnessT * (ICE_RAY_GLOW_OPACITY_MAX - ICE_RAY_GLOW_OPACITY_MIN);
+      glowMaterial.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, brightnessT * ICE_RAY_COLOR_LERP_MAX);
 
       if (this.shouldEmitContinuous && length > 0) {
         const ux = dx / length;
@@ -734,9 +765,12 @@ export class SpellRenderer {
         const pz = ux;
         // Stratified sampling: one random point per length-slice, so frost
         // sheds off the whole beam instead of bunching at a single spot,
-        // while still covering it evenly tip-to-tip. Sample count and
-        // brightness both rise with charge.
+        // while still covering it evenly tip-to-tip. Sample count rises
+        // linearly with charge; the white-bias passed in (below) uses the
+        // same eased, capped brightnessT as the beam material so the spray
+        // doesn't read whiter than the beam it's shedding from.
         const sampleCount = 3 + Math.round(t * 7);
+        const particleIntensity = brightnessT * ICE_RAY_PARTICLE_INTENSITY_MAX;
         for (let i = 0; i < sampleCount; i++) {
           const frac = (i + Math.random()) / sampleCount;
           const jitter = (Math.random() - 0.5) * ramp.halfWidth * 1.6;
@@ -746,7 +780,7 @@ export class SpellRenderer {
             player.position.y + dz * frac + pz * jitter,
             ux, uz,
             ramp.halfWidth * 0.6,
-            t,
+            particleIntensity,
           );
         }
         // Impact spray kicked back off the target where the beam terminates,
@@ -755,7 +789,7 @@ export class SpellRenderer {
           player.channelEnd.x, 28, player.channelEnd.y,
           -ux, -uz,
           ramp.halfWidth * (1.2 + t * 0.8),
-          t,
+          particleIntensity,
         );
       }
     }
