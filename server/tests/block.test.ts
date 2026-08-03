@@ -97,3 +97,49 @@ describe('Block', () => {
     expect((s.players.A.blockCooldownUntil ?? 0)).toBeGreaterThan(s.tick);
   });
 });
+
+import { RIPOSTE_STACKS_REQUIRED, RIPOSTE_JAB_STUN_TICKS, SPELL_CONFIG } from '@arena/shared';
+
+describe('Riposte keystone', () => {
+  const RIPOSTE_GLAD = new Map<NodeId, number>([['arms.jab', 1], ['bulwark.bracing', 6]]); // past softCap 5
+  const rSkills = { A: RIPOSTE_GLAD, B: RANGER };
+
+  function blockOneArrow(s: ReturnType<typeof duel>) {
+    let cur = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }),
+                                B: frame({ castSpell: 5, aimTarget: { x: 600, y: 600 } }) }, rSkills);
+    const hp0 = cur.players.A.hp;
+    for (let i = 0; i < 120; i++) {
+      cur = advanceState(cur, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
+      if (cur.players.A.hp < hp0) return cur;
+    }
+    throw new Error('arrow never landed');
+  }
+
+  it('banks a stack per blocked hit and arms after 3', () => {
+    let s = duel();
+    for (let n = 1; n <= RIPOSTE_STACKS_REQUIRED; n++) {
+      s = blockOneArrow(s);
+      // wait out B's arrow cooldown between shots
+      for (let i = 0; i < SPELL_CONFIG[5].cooldownTicks; i++) {
+        s = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
+      }
+      if (n < RIPOSTE_STACKS_REQUIRED) expect(s.players.A.riposteStacks).toBe(n);
+    }
+    expect(s.players.A.riposteStacks).toBe(0);
+    expect((s.players.A.riposteReadyUntil ?? 0)).toBeGreaterThan(s.tick);
+  });
+
+  it('the armed Jab is free, skips cooldown, and stuns 0.5s', () => {
+    let s = duel();
+    // walk B into jab range and arm riposte manually (unit-arming keeps the test focused)
+    s.players.B.position = { x: 660, y: 600 };
+    s.players.A.riposteReadyUntil = s.tick + 60;
+    s.players.A.cooldowns = { 12: 20 };   // even a cooling jab fires
+    const mana0 = s.players.A.mana;
+    s = advanceState(s, { A: frame({ castSpell: 12, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
+    expect(s.players.A.castingSpell).toBe(12);
+    expect(s.players.A.mana).toBeGreaterThanOrEqual(mana0); // free (regen may add)
+    expect(s.players.A.riposteReadyUntil).toBeUndefined();
+    expect((s.players.B.stunUntil ?? 0)).toBeGreaterThanOrEqual(s.tick + RIPOSTE_JAB_STUN_TICKS - 1);
+  });
+});

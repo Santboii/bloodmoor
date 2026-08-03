@@ -18,6 +18,7 @@ import {
   JAB_RANGE, JAB_WIDTH, EXECUTIONER_BONUS,
   SPEAR_STUN_TICKS,
   LEAP_DURATION_TICKS, LEAP_SLOW_RADIUS,
+  RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -255,6 +256,7 @@ export function advanceState(
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
     if ((p.reflectUntil ?? 0) <= tick) p.reflectUntil = undefined;
+    if ((p.riposteReadyUntil ?? 0) <= tick) p.riposteReadyUntil = undefined;
   }
 
   // 1. Move players and apply mana regen
@@ -341,11 +343,12 @@ export function advanceState(
 
     const cfg = SPELL_CONFIG[spell];
     const phantomActive = (p.phantomStepUntil ?? 0) > tick;
-    const effectiveManaCost = phantomActive ? 0 : cfg.manaCost;
+    const riposteJab = spell === 12 && (p.riposteReadyUntil ?? 0) > tick && !!gladMods[id]?.block.riposte;
+    const effectiveManaCost = phantomActive || riposteJab ? 0 : cfg.manaCost;
     const secondWind = spell === 8 && !!rangerMods[id]?.evade.secondWind;
     const charges = secondWind ? (p.evadeCharges ?? EVADE_MAX_CHARGES) : 0;
     if (p.mana < effectiveManaCost) continue;
-    if (secondWind ? charges <= 0 : (p.cooldowns[spell] ?? 0) > 0) continue;
+    if (riposteJab ? false : secondWind ? charges <= 0 : (p.cooldowns[spell] ?? 0) > 0) continue;
 
     let cooldownMultiplier = 1;
     if (spell === 8 && rangerMods[id]) {
@@ -356,12 +359,13 @@ export function advanceState(
     players[id] = {
       ...p,
       mana: p.mana - effectiveManaCost,
-      cooldowns: phantomActive ? { ...p.cooldowns }
+      cooldowns: phantomActive || riposteJab ? { ...p.cooldowns }
         : secondWind && (p.cooldowns[8] ?? 0) > 0 ? { ...p.cooldowns }   // refill already ticking
         : { ...p.cooldowns, [spell]: cooldownTicks },
       evadeCharges: secondWind ? charges - 1 : p.evadeCharges,
       castingSpell: spell,
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
+      riposteReadyUntil: riposteJab ? undefined : p.riposteReadyUntil,
       restCastEndTick: undefined,
       resting: undefined,
       blocking: false,
@@ -570,7 +574,14 @@ export function advanceState(
             * gm.jab.damageMultiplier * execMult
             * getDamageMultiplier(id, targetId, players, resolvedMode);
           const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
-          players[targetId] = { ...target, hp: Math.max(0, target.hp - mit.damage) };
+          const sameTeamJab = resolvedMode.teamsEnabled &&
+            players[id]?.teamId !== undefined &&
+            players[id].teamId === target.teamId;
+          const stunFromRiposte = riposteJab && !sameTeamJab;
+          let nextT = { ...target, hp: Math.max(0, target.hp - mit.damage) };
+          if (mit.blocked) nextT = bankRiposte(nextT, !!gladMods[targetId]?.block.riposte, tick);
+          if (stunFromRiposte && nextT.hp > 0) nextT.stunUntil = tick + RIPOSTE_JAB_STUN_TICKS;
+          players[targetId] = nextT;
         }
       }
     } else if (spell === 13) {
@@ -749,7 +760,8 @@ export function advanceState(
               * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode)
               * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls);
             const mit = mitigateDamage(player, moved.position, rawArrow, blockDR(pid));
-            const next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
             // Elemental arrows apply the shooter's status effect on hit —
             // but never full-strength slows/DoTs on teammates (friendly fire
             // is deliberately reduced; a full 2s slow would undercut that).
@@ -802,7 +814,8 @@ export function advanceState(
             const raw = spearDamage(moved.damageMin, moved.damageMax)
               * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
             const mit = mitigateDamage(player, moved.position, raw, blockDR(pid));
-            const next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
             // The stun pierces Block (spec) but never applies to teammates —
             // full CC through reduced friendly fire would undercut the FF rule.
             const sameTeam = resolvedMode.teamsEnabled &&
@@ -902,7 +915,9 @@ export function advanceState(
           const bonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
           const rawDoom = fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
           const mit = mitigateDamage(player, moved.position, rawDoom, blockDR(pid));
-          players[pid] = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+          let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+          if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
+          players[pid] = next;
         }
         survivingProjectiles.push({ ...moved, noHitUntil: tick + 12 });
         continue;
@@ -925,7 +940,9 @@ export function advanceState(
             const bounceBonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
             const rawBlast = fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode);
             const mit = mitigateDamage(player, moved.position, rawBlast, blockDR(pid));
-            players[pid] = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
+            players[pid] = next;
           }
         }
         // Volatile Ember: the blast bursts into homing embers. Chain Reaction
@@ -1194,4 +1211,15 @@ function mitigateDamage(
   const inArc = dx * Math.cos(target.facing) + dy * Math.sin(target.facing) >= 0;
   if (!inArc) return { damage: raw, blocked: false };
   return { damage: raw * (1 - damageReduction), blocked: true };
+}
+
+/** Riposte keystone: bank a stack per blocked hit; at the threshold, arm the
+ *  free-Jab window and reset. No-op unless the keystone is owned. */
+function bankRiposte(target: PlayerState, riposte: boolean, tick: number): PlayerState {
+  if (!riposte) return target;
+  const stacks = (target.riposteStacks ?? 0) + 1;
+  if (stacks >= RIPOSTE_STACKS_REQUIRED) {
+    return { ...target, riposteStacks: 0, riposteReadyUntil: tick + RIPOSTE_WINDOW_TICKS };
+  }
+  return { ...target, riposteStacks: stacks };
 }
