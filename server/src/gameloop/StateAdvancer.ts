@@ -205,6 +205,7 @@ export function advanceState(
     if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
     if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
+    if ((p.stunUntil ?? 0) <= tick) p.stunUntil = undefined;
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
   }
@@ -217,7 +218,8 @@ export function advanceState(
     const regen = MANA_REGEN_PER_TICK * (poisonActive ? Math.max(0, 1 - (p.poisonManaReduction ?? 0)) : 1) * p.statMults.manaRegen;
     const newMana = Math.min(p.maxMana, p.mana + regen);
     const rooted = (p.rootUntil ?? 0) > tick;
-    const speedMult = rooted ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
+    const stunned = (p.stunUntil ?? 0) > tick;
+    const speedMult = rooted || stunned ? 0 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * p.statMults.moveSpeed;
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -265,6 +267,7 @@ export function advanceState(
     const p = players[id];
     if (!p || p.hp <= 0 || !input.castSpell) continue;
     if (dashing.has(id)) continue;
+    if ((p.stunUntil ?? 0) > tick) continue;   // true stun: no casting
     const spell = input.castSpell;
     const mods = modifiers[id];
     // Ranger spells need ranger modifiers — bail before burning mana/cooldown.
@@ -507,6 +510,7 @@ export function advanceState(
     const p = players[id];
     if (!p || p.hp <= 0 || !input.rest) continue;
     if (dashing.has(id)) continue;
+    if ((p.stunUntil ?? 0) > tick) continue;
     if (p.castingSpell !== null) continue;                  // cast something this tick instead
     if (input.move.x !== 0 || input.move.y !== 0) continue; // must be stationary
     if ((p.restCooldownUntil ?? 0) > tick) continue;
