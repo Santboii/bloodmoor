@@ -1,4 +1,4 @@
-// Phase 2 economy: pricing, deterministic daily vendor stock, and
+// Phase 2 economy: pricing, staggered hourly vendor stock, and
 // lootbox/match-drop rolls. Composes with items.ts's roll engine (rollItem,
 // rollRarity, ITEM_BASES, UNIQUE_ITEMS) rather than duplicating any of it.
 import type { ItemBase, ItemRarity, RolledAffix } from './items.js';
@@ -52,7 +52,7 @@ export function levelToBand(level: number): ItemBase['itemLevel'] {
 
 // --- Deterministic PRNG: mulberry32 seeded from a string hash (FNV-1a). ---
 // Pure by construction — no Date.now()/new Date() anywhere in this module;
-// callers (vendorStockFor) pass utcDay as a plain 'YYYY-MM-DD' string.
+// callers (vendorStockFor) pass a UTC hour index as a number.
 
 /** FNV-1a 32-bit string hash — deterministic, exported for test coverage of
  * the seeding scheme itself. */

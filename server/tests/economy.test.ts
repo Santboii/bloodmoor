@@ -110,6 +110,7 @@ describe('vendorStockFor', () => {
   });
 
   it('stamps each slot with its index, instance key and expiry', () => {
+    expect.hasAssertions();
     const stock = vendorStockFor('userK', HOUR, 5); // level 5 -> band 4
     stock.forEach((slot, i) => {
       const gen = slotGeneration(i, HOUR);
@@ -136,6 +137,7 @@ describe('vendorStockFor', () => {
   });
 
   it('picks bases within ±1 band-step of the level band (mid band)', () => {
+    expect.hasAssertions();
     // level 5 -> band 4 (index 1); allowed bands: 1, 4, 7
     for (const slot of vendorStockFor('userY', HOUR, 5)) {
       expect([1, 4, 7]).toContain(slot.base.itemLevel);
@@ -143,12 +145,14 @@ describe('vendorStockFor', () => {
   });
 
   it('does not go below band 1 at the lowest band', () => {
+    expect.hasAssertions();
     for (const slot of vendorStockFor('userZ', HOUR, 2)) {
       expect([1, 4]).toContain(slot.base.itemLevel);
     }
   });
 
   it('does not go above band 10 at the highest band', () => {
+    expect.hasAssertions();
     for (const slot of vendorStockFor('userW', HOUR, 12)) {
       expect([7, 10]).toContain(slot.base.itemLevel);
     }
