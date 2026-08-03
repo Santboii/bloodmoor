@@ -80,6 +80,10 @@ export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): bool
 }
 
 export const SKILL_NODES: SkillNode[] = [
+  // Node ids are persisted in skill_unlocks rows, so the fire rework kept the
+  // old ids under new names: fire.pyroclasm is now Ricochet, fire.blind_strike
+  // is Guided Descent, fire.cataclysm is the meteor shower. Match on id, but
+  // trust `name` for what a node does.
   { id: 'fire.fireball',        name: 'Fireball',        tree: 'fire',    tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile. 80–120 damage.' },
   { id: 'fire.volatile_ember',  name: 'Volatile Ember',  tree: 'fire',    tier: 2, cost: 1, isSpell: false, description: 'The blast bursts into homing embers. +1 ember per rank.', stackable: { softCap: 5, baseEffect: 1 },
     keystone: { name: 'Chain Reaction', description: 'An ember that hits bursts into 2 more.' } },

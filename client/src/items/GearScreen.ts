@@ -93,8 +93,8 @@ export function canEquip(
  * aura rather than the fixed rarity orange — the design spec's compensation
  * for not running a particle emitter on the 2D paperdoll. Falls back to the
  * rarity color for the (currently nonexistent) unique with no aura defined.
- * Returned as a full inline style string since inline styles are what beat
- * gr-card-unique's stylesheet box-shadow — see the callers below. */
+ * This inline style is the card's only glow; gr-card-unique stays as a
+ * non-color hook. */
 export function uniqueAuraGlowStyle(item: ItemRow): string {
   const aura = uniqueForRow(item)?.aura;
   if (!aura) return `box-shadow:inset 0 0 0 2px ${RARITY_COLORS.unique};`;
@@ -136,7 +136,6 @@ const STYLES = `
 .gr-stash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;padding:4px;}
 .gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
 .gr-card:hover{transform:scale(1.04);}
-.gr-card-unique{box-shadow:inset 0 0 0 2px #ffb347,0 0 12px rgba(255,179,71,0.35);}
 .gr-empty{grid-column:1 / -1;color:var(--px-border-light);font-size:15px;text-align:center;padding:20px 0;}
 .gr-details{padding:16px 18px;min-height:220px;box-sizing:border-box;}
 .gr-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}

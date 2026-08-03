@@ -104,7 +104,9 @@ export function buildSpellModifiers(skills: Map<string, number>): SpellModifiers
       lengthMultiplier:   ieRank > 0 ? 1 + effectAtRank(0.25, ieRank) : 1,
       widthMultiplier:    ieRank > 0 ? 1 + effectAtRank(0.25, ieRank) : 1,
       ramp:            efRank > 0,
-      growth:          ieRank > 0,
+      // Firestorm (the Inferno Expanse keystone) rotates the wall INSTEAD of
+      // growing it — the spec replaces straight growth with rotation.
+      growth:          ieRank > 0 && !keystone('fire.inferno_expanse'),
       empowerFireball: shRank > 0,
       eternalPyre:     keystone('fire.enduring_flames'),
       firestorm:       keystone('fire.inferno_expanse'),

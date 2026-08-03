@@ -46,6 +46,7 @@ export class RestAuraRenderer {
   // legacy 360p grid (INTERNAL_HEIGHT). Scale by the drawing-buffer height so
   // particles keep their intended screen proportion at native resolution.
   private onResize = () => {
+    if (typeof window === 'undefined') return;
     this.material.uniforms.uSizeScale.value =
       (window.innerHeight * Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)) / INTERNAL_HEIGHT;
   };
@@ -93,7 +94,7 @@ export class RestAuraRenderer {
     scene.add(this.points);
 
     this.onResize();
-    window.addEventListener('resize', this.onResize);
+    if (typeof window !== 'undefined') window.addEventListener('resize', this.onResize);
   }
 
   update(state: GameState, delta: number): void {
@@ -199,7 +200,7 @@ export class RestAuraRenderer {
   }
 
   dispose(): void {
-    window.removeEventListener('resize', this.onResize);
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
     this.scene.remove(this.points);
     this.geometry.dispose();
     (this.points.material as THREE.ShaderMaterial).dispose();

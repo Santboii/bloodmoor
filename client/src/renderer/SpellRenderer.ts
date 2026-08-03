@@ -387,8 +387,10 @@ export class SpellRenderer {
 
       // Firestorm rotation and Inferno Expanse growth mutate segments every
       // tick, so a straight wall rebuilds its meshes whenever the server's
-      // geometry actually changed.
-      if (fw.shape !== 'circle') {
+      // geometry actually changed. Checked on the 60Hz emit cadence: the
+      // server ticks at 60Hz, so per-render-frame signature strings would
+      // only allocate more on high-refresh displays, never detect sooner.
+      if (fw.shape !== 'circle' && this.shouldEmitContinuous) {
         const sig = wallSignature(fw);
         if (sig !== this.wallSignatures.get(fw.id)) {
           this.wallSignatures.set(fw.id, sig);
