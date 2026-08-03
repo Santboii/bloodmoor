@@ -3,6 +3,15 @@
 **Date:** 2026-08-03
 **Status:** Approved
 
+> **Addendum (plan-time corrections):** this spec was drafted against the
+> `menu-moor` checkout; `main` has since landed the six-slot spell bar and the
+> fire talent rework, and the in-flight frost class reserves spell ids 9–11.
+> The implementation plan (`docs/superpowers/plans/2026-08-03-gladiator-class.md`)
+> supersedes this spec on: spell ids (12–15), slot bindings (`defaultSlot` +
+> `MOBILITY_SPELLS`, not fixed keys), Block scope (directional hits only —
+> ground zones and meteors bypass it), and Leap's slow applying at landing
+> rather than at cast.
+
 ## Summary
 
 A third playable class: a close-range duelist who wins by absorbing and answering damage rather than out-bursting. Uses one-handed spears. Ships with four new combat systems the game does not have yet — melee hitboxes, true stun, directional damage reduction (Block), and projectile reflection — all built as shared mechanics that future classes can inherit.
