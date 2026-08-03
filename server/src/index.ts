@@ -31,7 +31,7 @@ const rematchTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const AIM_LIMIT = 100_000;
 function sanitizeInput(raw: unknown): InputFrame | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; channel?: unknown };
+  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; channel?: unknown; rest?: unknown };
 
   const rawMove = r.move as { x?: unknown; y?: unknown } | undefined;
   const clampAxis = (v: unknown): number =>
@@ -61,6 +61,7 @@ function sanitizeInput(raw: unknown): InputFrame | null {
     channel: channelValid ? ((r.channel ?? null) as InputFrame['channel']) : null,
   };
   if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
+  if (r.rest === true) input.rest = true;
   return input;
 }
 

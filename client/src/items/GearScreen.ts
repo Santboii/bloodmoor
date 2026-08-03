@@ -1,9 +1,10 @@
 import { fetchItems, equipItem, unequipItem, sellItem, fetchGold } from '../supabase';
 import {
-  ITEM_BASES, UNIQUE_ITEMS, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
+  ITEM_BASES, SKILL_NODES, classOwnsTree, sellPriceFor, gearVisualsFor, CLASS_DEFAULT_APPEARANCE,
+  uniqueForRow, affixLabel, isDrawback, rollQuality, affixRangeText,
 } from '@arena/shared';
 import type {
-  ItemRow, ItemBase, UniqueItem, ItemBaseSlot, EquipSlot, RolledAffix, AffixId, CharacterClass, Appearance,
+  ItemRow, ItemBase, ItemBaseSlot, EquipSlot, CharacterClass, Appearance,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -42,33 +43,12 @@ const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
   weapon: 'Weapon', helmet: 'Helmet', armor: 'Armor', leggings: 'Leggings', ring: 'Ring', amulet: 'Amulet',
 };
 
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (v: number) => string> = {
-  max_health: v => `+${v} Max Health`,
-  max_mana: v => `+${v} Max Mana`,
-  damage_pct: v => `+${v}% Damage`,
-  cast_speed_pct: v => `+${v}% Cast Speed`,
-  move_speed_pct: v => `+${v}% Move Speed`,
-  mana_regen_pct: v => `+${v}% Mana Regen`,
-};
-
-function affixLabel(a: RolledAffix): string {
-  if (a.id === 'talent') return `+${a.value} Talent Rank`;
-  return AFFIX_LABELS[a.id](a.value);
-}
-
 export function itemBase(item: ItemRow): ItemBase | undefined {
   return ITEM_BASES.find(b => b.id === item.base_id);
 }
 
-// Every current unique manifest entry has a distinct baseId (see items.ts),
-// so matching on baseId alone is unambiguous today; if a base ever grows a
-// second unique, this needs an affix-shape tiebreak.
-function findUniqueItem(item: ItemRow): UniqueItem | undefined {
-  return UNIQUE_ITEMS.find(u => u.baseId === item.base_id);
-}
-
 export function itemDisplayName(item: ItemRow, base: ItemBase): string {
-  if (item.rarity === 'unique') return findUniqueItem(item)?.name ?? base.name;
+  if (item.rarity === 'unique') return uniqueForRow(item)?.name ?? base.name;
   return base.name;
 }
 
@@ -80,9 +60,15 @@ export function ringTargetSlot(occupiedSlots: EquipSlot[]): 'ring1' | 'ring2' {
   return 'ring2';
 }
 
-/** Pure gate for whether an item can be equipped right now — level and
- * class checks only; slot targeting is handled separately by the caller. */
-export function canEquip(item: ItemRow, charLevel: number, charClass: CharacterClass): { ok: boolean; reason?: string } {
+/** Pure gate for whether an item can be equipped right now — level, class,
+ * and same-unique checks; slot targeting (beyond what's needed to evaluate
+ * the same-unique check) is handled separately by the caller. `equipped` is
+ * the character's currently-equipped rows, used only for the same-unique
+ * gate below — mirrors the equip_item RPC's guard, so a player never sees
+ * "Click to equip" for a second copy the server would then reject. */
+export function canEquip(
+  item: ItemRow, charLevel: number, charClass: CharacterClass, equipped: ItemRow[],
+): { ok: boolean; reason?: string } {
   if (charLevel < item.level_req) {
     return { ok: false, reason: `Requires level ${item.level_req}` };
   }
@@ -90,7 +76,31 @@ export function canEquip(item: ItemRow, charLevel: number, charClass: CharacterC
   if (base?.classRestriction && base.classRestriction !== charClass) {
     return { ok: false, reason: `Restricted to ${base.classRestriction}` };
   }
+  if (item.unique_id) {
+    const targetSlot: EquipSlot = item.slot === 'ring'
+      ? ringTargetSlot(equipped.filter(e => e.equipped_slot !== null).map(e => e.equipped_slot as EquipSlot))
+      : (item.slot as EquipSlot);
+    const dup = equipped.some(e =>
+      e.id !== item.id && e.unique_id === item.unique_id && e.equipped_slot !== targetSlot);
+    if (dup) {
+      return { ok: false, reason: 'Already equipped' };
+    }
+  }
   return { ok: true };
+}
+
+/** Inline box-shadow for a unique card's glow, colored from the item's own
+ * aura rather than the fixed rarity orange — the design spec's compensation
+ * for not running a particle emitter on the 2D paperdoll. Falls back to the
+ * rarity color for the (currently nonexistent) unique with no aura defined.
+ * Returned as a full inline style string since inline styles are what beat
+ * gr-card-unique's stylesheet box-shadow — see the callers below. */
+export function uniqueAuraGlowStyle(item: ItemRow): string {
+  const aura = uniqueForRow(item)?.aura;
+  if (!aura) return `box-shadow:inset 0 0 0 2px ${RARITY_COLORS.unique};`;
+  const [r, g, b] = aura.color;
+  const rgb = `${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}`;
+  return `box-shadow:inset 0 0 0 2px rgba(${rgb}, 1), 0 0 12px rgba(${rgb}, 0.35);`;
 }
 
 export type SellState = { sellable: true; price: number } | { sellable: false; reason: string };
@@ -126,6 +136,7 @@ const STYLES = `
 .gr-stash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;padding:4px;}
 .gr-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;cursor:pointer;background:#15161c;box-shadow:inset 0 0 0 2px var(--px-border-dark);transition:filter 0.14s,transform 0.1s;}
 .gr-card:hover{transform:scale(1.04);}
+.gr-card-unique{box-shadow:inset 0 0 0 2px #ffb347,0 0 12px rgba(255,179,71,0.35);}
 .gr-empty{grid-column:1 / -1;color:var(--px-border-light);font-size:15px;text-align:center;padding:20px 0;}
 .gr-details{padding:16px 18px;min-height:220px;box-sizing:border-box;}
 .gr-details-empty{color:var(--px-border-light);font-size:16px;line-height:1.6;text-align:center;padding-top:24px;}
@@ -138,6 +149,9 @@ const STYLES = `
 .gr-dim{color:var(--px-border-light);opacity:0.7;}
 .gr-ok{color:var(--px-success);}
 .gr-bad{color:var(--px-danger);}
+.gr-range{color:var(--px-text-dim,#8a8f9c);font-size:14px;}
+.gr-quality{color:var(--px-text-dim,#8a8f9c);letter-spacing:1px;}
+.gr-perfect{color:var(--px-accent);letter-spacing:1px;}
 .gr-details-status{margin-top:10px;font-size:16px;}
 .gr-sell-price{color:var(--px-accent);margin-top:10px;}
 .gr-sell-btn{width:100%;font-size:6px;padding:8px 6px;margin-top:6px;}
@@ -259,6 +273,12 @@ export class GearScreen {
       .map(i => i.equipped_slot as EquipSlot);
   }
 
+  /** Rows currently equipped by the open character — canEquip's same-unique
+   * gate needs the whole row (for unique_id), not just the occupied slots. */
+  private equippedItems(): ItemRow[] {
+    return this.items.filter(i => i.equipped_by === this.characterId);
+  }
+
   private render(): void {
     const dollHtml = SLOT_ORDER.map(slot => this.renderDollSlot(slot)).join('');
     const stashItems = this.items.filter(i => i.equipped_by === null);
@@ -323,8 +343,15 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    return `<div class="gr-slot${selected}" style="grid-area:${slot};box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}" data-equipped="1">
-      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+    // Uniques get gr-card-unique's class (for non-color hooks) plus an inline
+    // box-shadow in the item's own aura color instead of the per-rarity one —
+    // an inline style attribute always beats a stylesheet class for the same
+    // property, so setting both would silently discard the glow.
+    const isUnique = item.rarity === 'unique';
+    const uniqueClass = isUnique ? ' gr-card-unique' : '';
+    const borderStyle = isUnique ? uniqueAuraGlowStyle(item) : `box-shadow:inset 0 0 0 2px ${color};`;
+    return `<div class="gr-slot${selected}${uniqueClass}" style="grid-area:${slot};${borderStyle}" data-item="${item.id}" data-equipped="1">
+      <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -335,8 +362,14 @@ export class GearScreen {
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
     const selected = item.id === this.selectedId ? ' gr-selected' : '';
-    return `<div class="gr-card${selected}" style="box-shadow:inset 0 0 0 2px ${color}" data-item="${item.id}">
-      <div class="gr-slot-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+    // See renderDollSlot for why uniques get an inline aura-colored
+    // box-shadow alongside the gr-card-unique class rather than the
+    // per-rarity one.
+    const isUnique = item.rarity === 'unique';
+    const uniqueClass = isUnique ? ' gr-card-unique' : '';
+    const borderStyle = isUnique ? uniqueAuraGlowStyle(item) : `box-shadow:inset 0 0 0 2px ${color};`;
+    return `<div class="gr-card${selected}${uniqueClass}" style="${borderStyle}" data-item="${item.id}">
+      <div class="gr-slot-icon"${iconCellAttrs(base, isUnique ? uniqueForRow(item) : undefined)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
       <div class="gr-slot-name" style="color:${color}">${esc(name)}</div>
     </div>`;
   }
@@ -357,7 +390,7 @@ export class GearScreen {
           this.handleUnequip(item);
           return;
         }
-        const check = canEquip(item, this.charLevel, this.charClass);
+        const check = canEquip(item, this.charLevel, this.charClass, this.equippedItems());
         if (!check.ok) {
           this.selectItem(id);
           return;
@@ -438,22 +471,32 @@ export class GearScreen {
 
     const color = RARITY_COLORS[item.rarity];
     const name = itemDisplayName(item, base);
-    const unique = item.rarity === 'unique' ? findUniqueItem(item) : undefined;
+    const unique = item.rarity === 'unique' ? uniqueForRow(item) : undefined;
     const isEquippedHere = item.equipped_by === this.characterId;
 
     const flavorHtml = unique ? `<div class="gr-flavor">${esc(unique.flavor)}</div>` : '';
     const implicitHtml = `<div class="gr-details-row">${esc(affixLabel(base.implicit))} <span class="gr-dim">(implicit)</span></div>`;
 
     const affixHtml = item.affixes.map(a => {
+      const spec = unique?.affixes.find(s => s.id === a.id && s.node === a.node);
+      const range = spec ? affixRangeText(spec) : null;
+      const rangeHtml = range ? ` <span class="gr-range">(${esc(range)})</span>` : '';
       if (a.id === 'talent' && a.node) {
         const node = SKILL_NODES.find(n => n.id === a.node);
         const nodeName = node?.name ?? a.node;
         const owned = classOwnsTree(this.charClass, a.node);
         const label = `+${a.value} ${nodeName}${owned ? '' : ' (inert for this class)'}`;
-        return `<div class="gr-details-row${owned ? '' : ' gr-dim'}">${esc(label)}</div>`;
+        return `<div class="gr-details-row${owned ? '' : ' gr-dim'}">${esc(label)}${rangeHtml}</div>`;
       }
-      return `<div class="gr-details-row">${esc(affixLabel(a))}</div>`;
+      return `<div class="gr-details-row${isDrawback(a) ? ' gr-bad' : ''}">${esc(affixLabel(a))}${rangeHtml}</div>`;
     }).join('');
+
+    const quality = unique ? rollQuality(unique, item.affixes) : null;
+    const qualityHtml = quality === null ? '' : (quality === 1
+      ? `<div class="gr-details-row gr-perfect">PERFECT ROLL</div>`
+      // min(99, ...) rather than a plain round: a 0.996 roll rounds to 100,
+      // which would read as perfect without earning the PERFECT marker above.
+      : `<div class="gr-details-row gr-quality">Roll quality ${Math.min(99, Math.round(quality * 100))}%</div>`);
 
     const levelBad = this.charLevel < item.level_req;
     const levelReqHtml = `<div class="gr-details-row ${levelBad ? 'gr-bad' : 'gr-ok'}">Requires Level ${item.level_req}</div>`;
@@ -464,7 +507,7 @@ export class GearScreen {
       classHtml = `<div class="gr-details-row ${mismatched ? 'gr-bad' : 'gr-ok'}">Class: ${esc(base.classRestriction)}</div>`;
     }
 
-    const check = canEquip(item, this.charLevel, this.charClass);
+    const check = canEquip(item, this.charLevel, this.charClass, this.equippedItems());
     const statusHtml = isEquippedHere
       ? `<div class="gr-details-status gr-ok">Equipped — click to unequip</div>`
       : check.ok
@@ -493,13 +536,14 @@ export class GearScreen {
 
     panel.innerHTML = `
       <div class="gr-details-head">
-        <div class="gr-details-icon"${iconCellAttrs(base)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
+        <div class="gr-details-icon"${iconCellAttrs(base, unique)} style="color:${color}"><i class="fa ${base.icon}"></i></div>
         <div>
           <div class="gr-details-name" style="color:${color}">${esc(name)}</div>
           <div class="gr-details-kind">${esc(base.name)} · ${esc(BASE_SLOT_LABELS[base.slot])}</div>
         </div>
       </div>
       ${flavorHtml}
+      ${qualityHtml}
       ${implicitHtml}
       ${affixHtml}
       ${levelReqHtml}

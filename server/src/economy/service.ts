@@ -37,7 +37,7 @@ export function utcDayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-const ITEM_ROW_COLUMNS = 'id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot';
+const ITEM_ROW_COLUMNS = 'id, base_id, rarity, affixes, level_req, equipped_by, equipped_slot, slot, unique_id';
 
 export type AccountCharSummary = { maxLevel: number; ownedClasses: Set<CharacterClass> };
 
@@ -191,6 +191,7 @@ export async function buyVendorSlot(
       slot: slot.base.slot,
       class_restriction: slot.base.classRestriction ?? null,
       source: 'vendor',
+      unique_id: null,
     })
     .select(ITEM_ROW_COLUMNS)
     .single();
@@ -247,6 +248,7 @@ export async function openLootbox(
       slot: roll.base.slot,
       class_restriction: roll.base.classRestriction ?? null,
       source: 'lootbox',
+      unique_id: roll.uniqueId ?? null,
     })
     .select(ITEM_ROW_COLUMNS)
     .single();
@@ -295,6 +297,7 @@ export async function maybeRollMatchDrop(
       slot: roll.base.slot,
       class_restriction: roll.base.classRestriction ?? null,
       source: 'drop',
+      unique_id: roll.uniqueId ?? null,
     })
     .select(ITEM_ROW_COLUMNS)
     .single();

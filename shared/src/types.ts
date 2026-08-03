@@ -61,6 +61,10 @@ export type PlayerState = {
   channelSpell?: SpellId;   // active channel, if any
   channelTicks?: number;    // ticks held; drives the ramp
   channelEnd?: Vec2;        // server-computed beam terminus, for rendering
+  // Rest — universal recovery action (ticks are absolute server ticks)
+  restCastEndTick?: number;   // set while the 2s wind-up runs
+  resting?: boolean;          // regen active
+  restCooldownUntil?: number;
 };
 
 export type Projectile = {
@@ -184,6 +188,7 @@ export type InputFrame = {
    *  this is NOT cleared each tick by Room.tick — that is what makes a channel
    *  a channel. */
   channel: SpellId | null;
+  rest?: boolean;
 };
 
 export type Pillar = { x: number; y: number; halfSize: number };
@@ -200,6 +205,9 @@ export const MAX_MANA = 500;
 export const MAX_SPELL_SLOTS = 6;
 export type SlotIndex = 1 | 2 | 3 | 4 | 5 | 6;
 export const MANA_REGEN_PER_TICK = 18 / TICK_RATE;
+export const REST_CAST_TICKS = 2 * TICK_RATE;      // 120 — rest wind-up
+export const REST_REGEN_FRACTION_PER_SEC = 0.10;   // of maxHp AND maxMana while resting
+export const REST_COOLDOWN_TICKS = 3 * TICK_RATE;  // 180 — stamped at wind-up start, no refund
 
 export const PILLARS: Pillar[] = [
   { x: 350,  y: 300,  halfSize: 28 },

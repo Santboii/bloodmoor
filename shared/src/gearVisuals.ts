@@ -3,11 +3,16 @@
 // paperdoll, icons).
 import type { Appearance, LpcLayer } from './appearance.js';
 import { layersFor } from './appearance.js';
-import type { ItemRow } from './items.js';
-import { ITEM_BASES } from './items.js';
+import type { EquipSlot, ItemRow, UniqueAura, UniqueItem } from './items.js';
+import { ITEM_BASES, UNIQUE_ITEMS, uniqueForRow } from './items.js';
 
 export type GearVisualSlot = 'helmet' | 'armor' | 'leggings' | 'weapon';
-export type GearVisuals = Partial<Record<GearVisualSlot, string>>;
+
+/** What one equipped slot contributes. `unique` drives both the sprite tint
+ * and the item's aura, so tinting and auras share one source of truth —
+ * a ring's aura has no sprite to hang off otherwise. */
+export type GearVisualEntry = { base: string; unique?: string };
+export type GearVisuals = Partial<Record<EquipSlot, GearVisualEntry>>;
 
 const VISUAL_SLOTS: GearVisualSlot[] = ['helmet', 'armor', 'leggings', 'weapon'];
 
@@ -18,17 +23,19 @@ const REPLACED_Z: Record<GearVisualSlot, number | null> = {
 };
 const ABOVE_HEAD_HAIR_Z = 30;
 
-/** Visible equipped items → slot→base_id map. Rows in non-visual slots or
- * with no lpc manifest entry contribute nothing. */
+/** Equipped items → slot→entry map. A slot is carried when it either draws a
+ * sprite (has an lpc manifest) or holds a unique (whose aura needs it);
+ * everything else contributes nothing and stays off the wire. */
 export function gearVisualsFor(items: ItemRow[]): GearVisuals {
   const gear: GearVisuals = {};
   for (const item of items) {
     const slot = item.equipped_slot;
     if (item.equipped_by === null || slot === null) continue;
-    if (!(VISUAL_SLOTS as string[]).includes(slot)) continue;
     const base = ITEM_BASES.find(b => b.id === item.base_id);
-    if (!base?.lpc) continue;
-    gear[slot as GearVisualSlot] = base.id;
+    if (!base) continue;
+    const unique = item.rarity === 'unique' ? uniqueForRow(item) : undefined;
+    if (!base.lpc && !unique) continue;
+    gear[slot] = unique ? { base: base.id, unique: unique.id } : { base: base.id };
   }
   return gear;
 }
@@ -41,15 +48,17 @@ function substitute(path: string, a: Appearance): string {
 
 /** layersFor + equipped gear: helmet/armor/leggings replace their appearance
  * layer, weapons append bg/fg layers. Unknown or non-visual base ids are
- * ignored (defensive — same posture as validateItemRow). */
+ * ignored (defensive — same posture as validateItemRow). A unique's lpcTint
+ * overrides the base layers' own tint. */
 export function layersForLoadout(a: Appearance, gear: GearVisuals): LpcLayer[] {
   let layers = layersFor(a);
   for (const slot of VISUAL_SLOTS) {
-    const baseId = gear[slot];
-    if (!baseId) continue;
-    const base = ITEM_BASES.find(b => b.id === baseId);
+    const entry = gear[slot];
+    if (!entry) continue;
+    const base = ITEM_BASES.find(b => b.id === entry.base);
     if (!base?.lpc || (slot !== 'weapon' && base.slot !== slot)) continue;
     if (slot === 'weapon' && base.slot !== 'weapon') continue;
+    const tint = entry.unique ? UNIQUE_ITEMS.find(u => u.id === entry.unique)?.lpcTint : undefined;
     const replaced = REPLACED_Z[slot];
     if (replaced !== null) layers = layers.filter(l => l.z !== replaced);
     if (slot === 'helmet' && base.lpc.hidesHair) {
@@ -57,7 +66,9 @@ export function layersForLoadout(a: Appearance, gear: GearVisuals): LpcLayer[] {
     }
     for (const gl of base.lpc.layers) {
       layers.push({
-        path: substitute(gl.path, a), z: gl.z, tint: gl.tint, tintMode: gl.tintMode,
+        path: substitute(gl.path, a), z: gl.z,
+        tint: tint?.color ?? gl.tint,
+        tintMode: tint ? tint.mode : gl.tintMode,
         ...(slot === 'weapon'
           ? { weapon: base.id, weaponRole: gl.weaponRole, weaponNativeAnims: base.lpc.nativeAnims ?? [] }
           : {}),
@@ -65,4 +76,25 @@ export function layersForLoadout(a: Appearance, gear: GearVisuals): LpcLayer[] {
     }
   }
   return layers.sort((x, y) => x.z - y.z);
+}
+
+/** How many unique auras one player may show at once. A character wearing
+ * seven uniques would be unreadable, so the loudest win. */
+export const MAX_AURAS_PER_PLAYER = 2;
+
+export type ActiveAura = { unique: UniqueItem; aura: UniqueAura };
+
+/** The auras a loadout actually shows: deduplicated (the same unique can sit
+ * in both ring slots), sorted by levelReq descending with manifest order as
+ * the tiebreak, capped at MAX_AURAS_PER_PLAYER. */
+export function aurasForGear(gear: GearVisuals, max = MAX_AURAS_PER_PLAYER): ActiveAura[] {
+  const found: UniqueItem[] = [];
+  for (const entry of Object.values(gear)) {
+    if (!entry?.unique) continue;
+    const u = UNIQUE_ITEMS.find(x => x.id === entry.unique);
+    if (u?.aura && !found.includes(u)) found.push(u);
+  }
+  found.sort((x, y) =>
+    y.levelReq - x.levelReq || UNIQUE_ITEMS.indexOf(x) - UNIQUE_ITEMS.indexOf(y));
+  return found.slice(0, max).map(u => ({ unique: u, aura: u.aura! }));
 }

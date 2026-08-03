@@ -17,7 +17,7 @@ describe('gear stamping', () => {
       [{ id: 'a', displayName: 'A', charClass: 'mage', spawnPos: { x: 200, y: 1000 }, items: [helm, ring] }],
       undefined, undefined,
     );
-    expect(state.players.a.gear).toEqual({ helmet: 'iron_helm' });
+    expect(state.players.a.gear).toEqual({ helmet: { base: 'iron_helm' } });
   });
   it('stamps an empty gear object for guests (no items)', () => {
     const state = makeInitialState(

@@ -1,4 +1,5 @@
 import type { Appearance, GearVisuals, ItemRow } from '@arena/shared';
+import { uniqueForRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
   buildNavBar, wireNavBar, setNavGold, injectNavBarCss,
@@ -486,9 +487,10 @@ export class LobbyUI {
       spoilsDelay = rewardDelay;
       const color = RARITY_COLORS[droppedItem.rarity];
       const name = itemDisplayName(droppedItem, droppedBase);
+      const unique = droppedItem.rarity === 'unique' ? uniqueForRow(droppedItem) : undefined;
       spoilsHtml = `<div class="bm-result-spoils" style="animation-delay:${rewardDelay}s;box-shadow:inset 0 0 0 2px ${color}">
         <div class="bm-result-spoils-label">War Spoils</div>
-        <div class="bm-result-spoils-item"><span class="bm-result-spoils-icon"${iconCellAttrs(droppedBase)} style="color:${color}"><i class="fa ${droppedBase.icon}"></i></span><span style="color:${color}">${escapeHtml(name)}</span></div>
+        <div class="bm-result-spoils-item"><span class="bm-result-spoils-icon"${iconCellAttrs(droppedBase, unique)} style="color:${color}"><i class="fa ${droppedBase.icon}"></i></span><span style="color:${color}">${escapeHtml(name)}</span></div>
       </div>`;
       rewardDelay += 0.3;
     }

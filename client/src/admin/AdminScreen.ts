@@ -3,9 +3,12 @@ import {
   adminFetchUsernames, adminFindUserByUsername, adminFetchCharacterNames,
 } from '../supabase';
 import type { AdminItemRow, DropTableWeights } from '../supabase';
-import { ITEM_BASES, UNIQUE_ITEMS, rollItem } from '@arena/shared';
+import {
+  ITEM_BASES, UNIQUE_ITEMS, rollItem, rollUnique, affixLabel, affixValueText, affixRangeText, affixStatName,
+  SKILL_NODES,
+} from '@arena/shared';
 import type {
-  ItemBaseSlot, ItemRarity, RolledAffix, AffixId, CharacterClass,
+  ItemBaseSlot, ItemRarity, RolledAffix, CharacterClass, UniqueAffixSpec,
 } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -33,18 +36,28 @@ const BASE_SLOT_LABELS: Record<ItemBaseSlot, string> = {
   weapon: 'Weapon', helmet: 'Helmet', armor: 'Armor', leggings: 'Leggings', ring: 'Ring', amulet: 'Amulet',
 };
 
-const AFFIX_LABELS: Record<Exclude<AffixId, 'talent'>, (v: number) => string> = {
-  max_health: v => `+${v} Max Health`,
-  max_mana: v => `+${v} Max Mana`,
-  damage_pct: v => `+${v}% Damage`,
-  cast_speed_pct: v => `+${v}% Cast Speed`,
-  move_speed_pct: v => `+${v}% Move Speed`,
-  mana_regen_pct: v => `+${v}% Mana Regen`,
-};
+/** Admin manifest tables show which node a talent affix targets — the shared
+ * affixLabel deliberately omits it, since players see the rank, not the id. */
+function adminAffixLabel(a: RolledAffix): string {
+  return a.id === 'talent' && a.node ? `${affixLabel(a)} (${a.node})` : affixLabel(a);
+}
 
-function affixLabel(a: RolledAffix): string {
-  if (a.id === 'talent') return `+${a.value} Talent Rank${a.node ? ` (${a.node})` : ''}`;
-  return AFFIX_LABELS[a.id](a.value);
+/** Manifest tables show the authored window, not a roll. */
+function adminSpecLabel(spec: UniqueAffixSpec): string {
+  const value = affixRangeText(spec) ?? affixValueText(spec.id, spec.min);
+  if (spec.id === 'talent') {
+    const nodeName = SKILL_NODES.find(n => n.id === spec.node)?.name ?? spec.node ?? 'Talent';
+    return `${value} ${nodeName}`;
+  }
+  return `${value} ${affixStatName(spec.id)}`;
+}
+
+/** The specific unique variant of a row, or null for non-unique items. Two
+ * uniques (e.g. the amulets) can share a base_id, so the base name alone
+ * can't tell them apart in this audit table. */
+export function adminUniqueName(item: Pick<AdminItemRow, 'unique_id'>): string | null {
+  if (!item.unique_id) return null;
+  return UNIQUE_ITEMS.find(u => u.id === item.unique_id)?.name ?? item.unique_id;
 }
 
 /** This tool's server-side counterpart (`admin_update_drop_table`) enforces
@@ -328,8 +341,9 @@ export class AdminScreen {
       if (q) {
         const base = ITEM_BASES.find(b => b.id === item.base_id);
         const baseName = (base?.name ?? item.base_id).toLowerCase();
+        const uniqueName = (adminUniqueName(item) ?? '').toLowerCase();
         const owner = (this.usernames.get(item.user_id) ?? item.user_id).toLowerCase();
-        if (!baseName.includes(q) && !owner.includes(q)) return false;
+        if (!baseName.includes(q) && !uniqueName.includes(q) && !owner.includes(q)) return false;
       }
       return true;
     });
@@ -341,7 +355,7 @@ export class AdminScreen {
     const capNote = filtered.length > ITEM_ROW_CAP ? `Showing ${ITEM_ROW_CAP} of ${filtered.length}` : '';
     const rows = shown.length
       ? shown.map(i => this.renderItemRow(i)).join('')
-      : `<tr><td colspan="7" class="ad-empty">No items match.</td></tr>`;
+      : `<tr><td colspan="8" class="ad-empty">No items match.</td></tr>`;
 
     const rarityOptions = (['basic', 'magic', 'rare', 'unique'] as ItemRarity[])
       .map(r => `<option value="${r}" ${this.filterRarity === r ? 'selected' : ''}>${r}</option>`).join('');
@@ -360,7 +374,7 @@ export class AdminScreen {
       <div id="ad-cap-note" class="ad-cap-note">${capNote}</div>
       <div class="ad-table-wrap">
         <table class="ad-table">
-          <thead><tr><th>Owner</th><th>Item</th><th>Rarity</th><th>Slot</th><th>Source</th><th>Equipped By</th><th></th></tr></thead>
+          <thead><tr><th>Owner</th><th>Item</th><th>Unique</th><th>Rarity</th><th>Slot</th><th>Source</th><th>Equipped By</th><th></th></tr></thead>
           <tbody id="ad-table-body">${rows}</tbody>
         </table>
       </div>
@@ -370,6 +384,7 @@ export class AdminScreen {
   private renderItemRow(item: AdminItemRow): string {
     const base = ITEM_BASES.find(b => b.id === item.base_id);
     const baseName = base?.name ?? item.base_id;
+    const uniqueName = adminUniqueName(item);
     const color = RARITY_COLORS[item.rarity as ItemRarity] ?? '#e2e2e6';
     const owner = this.usernames.get(item.user_id) ?? item.user_id;
     const equippedLabel = item.equipped_by
@@ -378,6 +393,7 @@ export class AdminScreen {
     return `<tr>
       <td>${esc(owner)}</td>
       <td style="color:${color}">${esc(baseName)}</td>
+      <td style="color:${color}">${uniqueName ? esc(uniqueName) : '—'}</td>
       <td style="color:${color}">${esc(item.rarity)}</td>
       <td>${esc(item.slot)}</td>
       <td>${esc(item.source)}</td>
@@ -417,7 +433,7 @@ export class AdminScreen {
     if (tbody) {
       tbody.innerHTML = shown.length
         ? shown.map(i => this.renderItemRow(i)).join('')
-        : `<tr><td colspan="7" class="ad-empty">No items match.</td></tr>`;
+        : `<tr><td colspan="8" class="ad-empty">No items match.</td></tr>`;
     }
     if (capNote) {
       capNote.textContent = filtered.length > ITEM_ROW_CAP ? `Showing ${ITEM_ROW_CAP} of ${filtered.length}` : '';
@@ -461,7 +477,7 @@ export class AdminScreen {
         <td>${esc(b.name)}</td>
         <td>${b.itemLevel}</td>
         <td>${b.classRestriction ? esc(b.classRestriction) : '—'}</td>
-        <td>${esc(affixLabel(b.implicit))}</td>
+        <td>${esc(adminAffixLabel(b.implicit))}</td>
       </tr>`).join('');
 
     const uniqueRows = UNIQUE_ITEMS.map(u => {
@@ -472,8 +488,10 @@ export class AdminScreen {
         <td style="color:${RARITY_COLORS.unique}">${esc(u.name)}</td>
         <td>${esc(base?.name ?? u.baseId)}</td>
         <td>${u.levelReq}</td>
-        <td>${u.affixes.map(a => esc(affixLabel(a))).join('<br>')}</td>
+        <td>${u.affixes.map(a => esc(adminSpecLabel(a))).join('<br>')}</td>
         <td class="ad-flavor">${esc(u.flavor)}</td>
+        <td>${u.aura ? esc(u.aura.style) : '—'}</td>
+        <td>${u.lpcTint ? esc(u.lpcTint.color) : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -488,7 +506,7 @@ export class AdminScreen {
       <div class="ad-manifest-label">Unique Items (${UNIQUE_ITEMS.length})</div>
       <div class="ad-table-wrap">
         <table class="ad-table">
-          <thead><tr><th>ID</th><th>Name</th><th>Base</th><th>Lvl Req</th><th>Affixes</th><th>Flavor</th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Base</th><th>Lvl Req</th><th>Affixes</th><th>Flavor</th><th>Aura</th><th>Tint</th></tr></thead>
           <tbody>${uniqueRows}</tbody>
         </table>
       </div>
@@ -528,9 +546,10 @@ export class AdminScreen {
           <div class="ad-preview">
             <div class="ad-preview-name" style="color:${RARITY_COLORS.unique}">${esc(unique.name)}</div>
             <div class="ad-preview-flavor">${esc(unique.flavor)}</div>
-            <div class="ad-preview-row">${esc(affixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
-            ${unique.affixes.map(a => `<div class="ad-preview-row">${esc(affixLabel(a))}</div>`).join('')}
+            <div class="ad-preview-row">${esc(adminAffixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
+            ${this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('')}
             <div class="ad-preview-row">Level Req: ${unique.levelReq}</div>
+            <button id="ad-reroll" class="px-btn ad-reroll-btn">🎲 Reroll</button>
           </div>` : `<div class="ad-preview-empty">Unknown base for this unique.</div>`;
       } else {
         previewHtml = `<div class="ad-preview-empty">Select a unique item.</div>`;
@@ -554,12 +573,12 @@ export class AdminScreen {
 
       const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
       if (base) {
-        const rows = this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(affixLabel(a))}</div>`).join('');
+        const rows = this.grantPreviewAffixes.map(a => `<div class="ad-preview-row">${esc(adminAffixLabel(a))}</div>`).join('');
         const rerollBtn = this.grantRarity !== 'basic' ? `<button id="ad-reroll" class="px-btn ad-reroll-btn">🎲 Reroll</button>` : '';
         previewHtml = `
           <div class="ad-preview">
             <div class="ad-preview-name" style="color:${RARITY_COLORS[this.grantRarity]}">${esc(base.name)}</div>
-            <div class="ad-preview-row">${esc(affixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
+            <div class="ad-preview-row">${esc(adminAffixLabel(base.implicit))} <span class="ad-dim">(implicit)</span></div>
             ${rows || `<div class="ad-dim">No rolled affixes${this.grantRarity === 'basic' ? ' (basic)' : ''}</div>`}
             <div class="ad-preview-row">Level Req: ${base.itemLevel}</div>
             ${rerollBtn}
@@ -612,13 +631,14 @@ export class AdminScreen {
     this.el.querySelectorAll('[data-rarity]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.grantRarity = (btn as HTMLElement).dataset.rarity as ItemRarity;
-        if (this.grantRarity !== 'unique') this.regeneratePreview();
+        this.regeneratePreview();
         this.render();
       });
     });
 
     (this.el.querySelector('#ad-unique-select') as HTMLSelectElement | null)?.addEventListener('change', e => {
       this.grantUniqueId = (e.target as HTMLSelectElement).value || null;
+      this.regeneratePreview();
       this.render();
     });
 
@@ -661,9 +681,14 @@ export class AdminScreen {
     this.render();
   }
 
-  /** Re-rolls the non-unique preview via the shared `rollItem` engine —
+  /** Re-rolls the preview via the shared `rollItem`/`rollUnique` engines —
    * granted exactly as previewed, never re-rolled server-side. */
   private regeneratePreview(): void {
+    if (this.grantRarity === 'unique') {
+      const unique = UNIQUE_ITEMS.find(u => u.id === this.grantUniqueId);
+      this.grantPreviewAffixes = unique ? rollUnique(unique, Math.random) : [];
+      return;
+    }
     const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
     this.grantPreviewAffixes = base ? rollItem(base, this.grantRarity, Math.random) : [];
   }
@@ -677,6 +702,7 @@ export class AdminScreen {
     let levelReq: number;
     let slot: ItemBaseSlot;
     let classRestriction: CharacterClass | undefined;
+    let uniqueId: string | null = null;
     let label: string;
 
     if (this.grantRarity === 'unique') {
@@ -686,10 +712,11 @@ export class AdminScreen {
       if (!base) return;
       baseId = unique.baseId;
       rarity = 'unique';
-      affixes = unique.affixes;
+      affixes = this.grantPreviewAffixes;
       levelReq = unique.levelReq;
       slot = base.slot;
       classRestriction = base.classRestriction;
+      uniqueId = unique.id;
       label = unique.name;
     } else {
       const base = ITEM_BASES.find(b => b.id === this.grantBaseId);
@@ -703,7 +730,7 @@ export class AdminScreen {
       label = base.name;
     }
 
-    const result = await adminGrantItem(this.grantTargetUserId, baseId, rarity, affixes, levelReq, slot, classRestriction);
+    const result = await adminGrantItem(this.grantTargetUserId, baseId, rarity, affixes, levelReq, slot, classRestriction, uniqueId);
     this.grantStatus = result
       ? { ok: true, text: `Granted ${label} to ${this.grantTargetUsername ?? this.grantTargetUserId}.` }
       : { ok: false, text: 'Grant failed — see console.' };

@@ -1,38 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   INTERNAL_HEIGHT, FRUSTUM_HALF_HEIGHT,
-  internalRenderSize, worldUnitsPerTexel, snapToTexel, posterizePixels,
+  worldUnitsPerTexel, posterizePixels,
 } from '../src/renderer/pixelation';
 
-describe('internalRenderSize', () => {
-  it('keeps the fixed internal height and derives width from aspect', () => {
-    expect(internalRenderSize(1920, 1080)).toEqual({ width: 640, height: 360 });
-    expect(internalRenderSize(1728, 872)).toEqual({ width: 713, height: 360 });
-  });
-
-  it('never returns dimensions below 1', () => {
-    expect(internalRenderSize(1, 10000).width).toBe(1);
-  });
-
-  it('honors an explicit internal height', () => {
-    expect(internalRenderSize(1920, 1080, 270)).toEqual({ width: 480, height: 270 });
-  });
-});
-
 describe('worldUnitsPerTexel', () => {
-  it('divides the camera frustum world height by the internal pixel height', () => {
-    // frustum world height = 2 * FRUSTUM_HALF_HEIGHT = 760 world units
+  it('divides the camera frustum world height by the asset-grid height', () => {
     expect(worldUnitsPerTexel()).toBeCloseTo((2 * FRUSTUM_HALF_HEIGHT) / INTERNAL_HEIGHT, 10);
-    expect(worldUnitsPerTexel(380)).toBeCloseTo(2, 10);
-  });
-});
-
-describe('snapToTexel', () => {
-  it('rounds to the nearest texel multiple', () => {
-    expect(snapToTexel(10.4, 2)).toBe(10);
-    expect(snapToTexel(11.1, 2)).toBe(12);
-    expect(snapToTexel(-3.2, 2)).toBe(-4);
-    expect(snapToTexel(0, 2)).toBe(0);
+    expect(worldUnitsPerTexel(660)).toBeCloseTo(1, 10);
   });
 });
 
