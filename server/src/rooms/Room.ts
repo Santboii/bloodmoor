@@ -1,6 +1,7 @@
 import { GameState, InputFrame, SPAWN_POSITIONS, NodeId, DUEL_MODE, computeLoadout } from '@arena/shared';
 import type { GameModeConfig, CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import { makeInitialState, advanceState, PlayerInit } from '../gameloop/StateAdvancer.ts';
+import type { CharacterState } from '../skills/loadSkills.ts';
 
 export type RoomPlayer = { socketId: string; displayName: string; ready: boolean; colorIndex: number };
 
@@ -74,6 +75,15 @@ export class Room {
   setReady(socketId: string): void {
     const p = this.players.get(socketId);
     if (p) p.ready = true;
+  }
+
+  /** Overwrite this seat's character-derived maps with freshly loaded state.
+   * userIds/characterIds are join-time facts and deliberately untouched. */
+  applyCharacterState(socketId: string, state: CharacterState): void {
+    this.skillSets.set(socketId, state.skills);
+    this.charClasses.set(socketId, state.charClass);
+    this.appearances.set(socketId, state.appearance);
+    this.loadouts.set(socketId, state.items);
   }
 
   startMatch(): void {

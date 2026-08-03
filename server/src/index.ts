@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './rooms/RoomManager.ts';
 import { Room } from './rooms/Room.ts';
+import { refreshRoomLoadouts } from './rooms/refreshLoadouts.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
 import { InputFrame, GameState } from '@arena/shared';
 import type { GameModeType, ItemRow, FireWallState, Vec2 } from '@arena/shared';
@@ -318,7 +319,7 @@ io.on('connection', socket => {
     if (input) room.queueInput(socket.id, input);
   });
 
-  socket.on('rematch', () => {
+  socket.on('rematch', async () => {
     if (!currentRoomId) return;
     const room = roomManager.getRoom(currentRoomId);
     if (!room) return;
@@ -338,6 +339,11 @@ io.on('connection', socket => {
       if (timer) clearTimeout(timer);
       rematchTimers.delete(roomId);
       rematchVotes.delete(roomId);
+
+      await refreshRoomLoadouts(room);
+      // The room can be torn down while the refresh awaits (last player
+      // disconnecting deletes it) — don't start a match on a dead room.
+      if (roomManager.getRoom(roomId) !== room || room.players.size === 0) return;
 
       loops.get(roomId)?.stop();
       loops.delete(roomId);
