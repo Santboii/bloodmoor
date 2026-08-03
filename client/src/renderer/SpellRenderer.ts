@@ -8,6 +8,10 @@ import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
+type SpearEntry = { mesh: THREE.Group };
+type BlockShieldEntry = { mesh: THREE.Mesh };
+type ReflectEntry = { mesh: THREE.Mesh };
+type StunEntry = { sprites: THREE.Sprite[] };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
   arrowMaterial: THREE.MeshBasicMaterial;
@@ -44,6 +48,14 @@ const ARROW_TRAIL_GEO = new THREE.BufferGeometry().setFromPoints([
 const FALLING_ARROW_GEO = new THREE.BoxGeometry(2, 14, 2);
 const METEOR_RING_GEO = new THREE.RingGeometry(50, 58, 32);
 const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
+// Cylinder/cone height axis is Y by default; rotateZ(-90°) bakes in a
+// quarter-turn so the long axis becomes local +X — the same axis the arrow's
+// BoxGeometry is naturally long on. That lets syncSpears reuse syncArrows'
+// exact group.rotation.set(-Math.PI/2, 0, -angle) velocity-orientation math.
+const SPEAR_SHAFT_GEO = new THREE.CylinderGeometry(1.2, 1.2, 26, 6).rotateZ(-Math.PI / 2);
+const SPEAR_TIP_GEO = new THREE.ConeGeometry(2.2, 5, 6).rotateZ(-Math.PI / 2);
+const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Math.PI);
+const REFLECT_RING_GEO = new THREE.RingGeometry(22, 25, 24);
 
 // HDR-bright fire: channel values above 1.0 survive into the half-float
 // composer buffer (tone mapping runs last), so bloom reads the fireball as a
@@ -54,13 +66,62 @@ const FIREBALL_CORE_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1
 const FIREBALL_GLOW_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 0.3, 0.09), transparent: true, opacity: 0.25 });
 const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
+const SPEAR_SHAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x9a8866 });
+const SPEAR_TIP_MAT = new THREE.MeshBasicMaterial({ color: 0xcfcfd8 });
+const BLOCK_SHIELD_MAT = new THREE.MeshBasicMaterial({
+  color: 0x8ca9ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+});
+// Opacity is mutated once per frame in syncGladiatorStatus (pulsing with
+// elapsedTime, shared across every reflecting player — there's no per-player
+// phase, so one material suffices instead of one-per-instance like the
+// meteor ring).
+const REFLECT_RING_MAT = new THREE.MeshBasicMaterial({
+  color: 0xd9f0ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+});
 
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
+  SPEAR_SHAFT_GEO, SPEAR_TIP_GEO, BLOCK_SHIELD_GEO, REFLECT_RING_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
+  SPEAR_SHAFT_MAT, SPEAR_TIP_MAT, BLOCK_SHIELD_MAT, REFLECT_RING_MAT,
 ]);
+
+// Stun stars are the one effect with no existing texture-based visual in
+// this renderer to reuse — ParticleSystem's "particles" are procedural
+// shader points, not sprites. Built lazily (needs a canvas 2D context, which
+// the node test environment lacks) and shared across every stunned player,
+// mirroring how AssetLoader/SpriteCompositor bake a canvas into a
+// THREE.CanvasTexture elsewhere in this codebase.
+let stunStarMaterial: THREE.SpriteMaterial | null = null;
+function getStunStarMaterial(): THREE.SpriteMaterial {
+  if (!stunStarMaterial) {
+    const size = 16;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.translate(size / 2, size / 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    const spikes = 4;
+    const outerR = size / 2;
+    const innerR = size / 5;
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const a = (Math.PI / spikes) * i - Math.PI / 2;
+      ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    ctx.closePath();
+    ctx.fill();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    stunStarMaterial = new THREE.SpriteMaterial({ map: texture, color: 0xffee55, transparent: true, depthWrite: false });
+    sharedMaterials.add(stunStarMaterial);
+  }
+  return stunStarMaterial;
+}
 
 const arrowShaftMats = new Map<number, THREE.MeshBasicMaterial>();
 const arrowTrailMats = new Map<number, THREE.LineBasicMaterial>();
@@ -137,6 +198,10 @@ export class SpellRenderer {
   private fireballs = new Map<string, THREE.Mesh>();
   private wallSignatures = new Map<string, string>();
   private arrows = new Map<string, ArrowEntry>();
+  private spears = new Map<string, SpearEntry>();
+  private blockShields = new Map<string, BlockShieldEntry>();
+  private reflectShimmers = new Map<string, ReflectEntry>();
+  private stunStars = new Map<string, StunEntry>();
   private fireWalls = new Map<string, THREE.Group>();
   private meteors = new Map<string, MeteorEntry>();
   private rainOfArrows = new Map<string, RainEntry>();
@@ -228,9 +293,11 @@ export class SpellRenderer {
     this.detectTeleports(state);
     this.syncFireballs(state);
     this.syncArrows(state);
+    this.syncSpears(state);
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
+    this.syncGladiatorStatus(state);
     this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
 
@@ -331,6 +398,50 @@ export class SpellRenderer {
       // Orient along velocity vector (X-Z plane in world space)
       const vx = arrow.velocity.x;
       const vz = arrow.velocity.y;
+      const angle = Math.atan2(vz, vx);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+    }
+  }
+
+  private syncSpears(state: GameState): void {
+    const activeSpearIds = new Set(state.projectiles.filter(p => p.type === 'spear').map(p => p.id));
+
+    for (const [id, entry] of this.spears) {
+      if (!activeSpearIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.spears.delete(id);
+      }
+    }
+
+    for (const spear of state.projectiles) {
+      if (spear.type !== 'spear') continue;
+
+      if (!this.spears.has(spear.id)) {
+        const group = new THREE.Group();
+        const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
+        group.add(shaft);
+        // Tip sits at the shaft's forward end (half its 26u length), pointing
+        // further out — see SPEAR_TIP_GEO's rotateZ comment for why local +X
+        // is "forward" here.
+        const tip = new THREE.Mesh(SPEAR_TIP_GEO, SPEAR_TIP_MAT);
+        tip.position.x = 13;
+        group.add(tip);
+        this.scene.add(group);
+        this.spears.set(spear.id, { mesh: group });
+      }
+
+      const entry = this.spears.get(spear.id)!;
+      const wx = spear.position.x;
+      const wy = 30;
+      const wz = spear.position.y;
+      entry.mesh.position.set(wx, wy, wz);
+
+      // Orient along velocity vector (X-Z plane in world space) — identical
+      // to syncArrows; see SPEAR_SHAFT_GEO's comment for why this formula
+      // works for a cylinder too.
+      const vx = spear.velocity.x;
+      const vz = spear.velocity.y;
       const angle = Math.atan2(vz, vx);
       entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
     }
@@ -552,6 +663,89 @@ export class SpellRenderer {
     }
   }
 
+  /** Block shield / reflect shimmer / stun stars — one diff-map per effect,
+   * keyed by player id, each created on first sight and disposed the moment
+   * its condition (blocking / reflectUntil / stunUntil) stops holding. Stun
+   * stars are the legibility-critical one: they're the only on-screen signal
+   * telling a stunned player why their inputs are dead. */
+  private syncGladiatorStatus(state: GameState): void {
+    for (const [id, entry] of this.blockShields) {
+      const p = state.players[id];
+      if (!p || !p.blocking) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.blockShields.delete(id);
+      }
+    }
+    for (const [id, entry] of this.reflectShimmers) {
+      const p = state.players[id];
+      if (!p || !((p.reflectUntil ?? 0) > state.tick)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.reflectShimmers.delete(id);
+      }
+    }
+    for (const [id, entry] of this.stunStars) {
+      const p = state.players[id];
+      if (!p || !((p.stunUntil ?? 0) > state.tick)) {
+        for (const sprite of entry.sprites) this.scene.remove(sprite);
+        this.stunStars.delete(id);
+      }
+    }
+
+    for (const p of Object.values(state.players)) {
+      if (p.blocking) {
+        if (!this.blockShields.has(p.id)) {
+          const mesh = new THREE.Mesh(BLOCK_SHIELD_GEO, BLOCK_SHIELD_MAT);
+          this.scene.add(mesh);
+          this.blockShields.set(p.id, { mesh });
+        }
+        const entry = this.blockShields.get(p.id)!;
+        entry.mesh.position.set(p.position.x, 2, p.position.y);
+        // Reuses the arrow/spear velocity-orientation formula with `facing`
+        // standing in for the angle: it both flattens the ring into the
+        // ground plane and yaws its arc (centered on local +X, per
+        // BLOCK_SHIELD_GEO's thetaStart) to open toward the player's facing.
+        entry.mesh.rotation.set(-Math.PI / 2, 0, -p.facing);
+      }
+
+      if ((p.reflectUntil ?? 0) > state.tick) {
+        if (!this.reflectShimmers.has(p.id)) {
+          const mesh = new THREE.Mesh(REFLECT_RING_GEO, REFLECT_RING_MAT);
+          mesh.rotation.x = -Math.PI / 2;
+          this.scene.add(mesh);
+          this.reflectShimmers.set(p.id, { mesh });
+        }
+        const entry = this.reflectShimmers.get(p.id)!;
+        entry.mesh.position.set(p.position.x, 2, p.position.y);
+        REFLECT_RING_MAT.opacity = Math.sin(this.elapsedTime * 4) * 0.25 + 0.5;
+      }
+
+      if ((p.stunUntil ?? 0) > state.tick) {
+        if (!this.stunStars.has(p.id)) {
+          const sprites: THREE.Sprite[] = [];
+          for (let i = 0; i < 3; i++) {
+            const sprite = new THREE.Sprite(getStunStarMaterial());
+            sprite.scale.set(8, 8, 1);
+            this.scene.add(sprite);
+            sprites.push(sprite);
+          }
+          this.stunStars.set(p.id, { sprites });
+        }
+        const entry = this.stunStars.get(p.id)!;
+        const orbitRadius = 12;
+        for (let i = 0; i < entry.sprites.length; i++) {
+          const angle = this.elapsedTime * 4 + i * ((Math.PI * 2) / 3);
+          entry.sprites[i].position.set(
+            p.position.x + Math.cos(angle) * orbitRadius,
+            30,
+            p.position.y + Math.sin(angle) * orbitRadius,
+          );
+        }
+      }
+    }
+  }
+
   /** Ambient emission for the uniques each player is wearing. aurasForGear
    * caps this at MAX_AURAS_PER_PLAYER and picks the highest-levelReq items,
    * and emitAura bails at AURA_SOFT_CAP, so a crowded fight silently drops
@@ -590,6 +784,10 @@ export class SpellRenderer {
     sfx.stopAllSpellLoops();
     for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     for (const entry of this.arrows.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.spears.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.blockShields.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.reflectShimmers.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.stunStars.values()) { for (const sprite of entry.sprites) this.scene.remove(sprite); }
     for (const group of this.fireWalls.values()) { this.scene.remove(group); disposeObject3D(group); }
     for (const visual of this.rainZoneArrows.values()) { this.scene.remove(visual.arrowGroup); disposeObject3D(visual.arrowGroup); }
     this.rainZoneArrows.clear();
@@ -608,6 +806,10 @@ export class SpellRenderer {
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();
+    this.spears.clear();
+    this.blockShields.clear();
+    this.reflectShimmers.clear();
+    this.stunStars.clear();
     this.fireWalls.clear();
     this.meteors.clear();
     this.rainOfArrows.clear();
