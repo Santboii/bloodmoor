@@ -1,5 +1,5 @@
 import { supabase, fetchItems } from '../supabase';
-import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, CLASS_DEFAULT_NODE, normalizeCharacterClass, computeLoadout, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
+import { SKILL_NODES, GATES, canUnlock, NodeId, SkillNode, isStackable, rankUpCost, effectAtRank, totalSpentForRanks, CLASS_DEFAULT_NODE, normalizeCharacterClass, computeLoadout, resolveSlots, SPELL_BINDINGS } from '@arena/shared';
 import type { CharacterClass, SpellId, SlotIndex, SpellSlotRow } from '@arena/shared';
 import { injectCastleSceneCss, buildHallScene } from '../ui/castleTheme';
 import {
@@ -218,6 +218,18 @@ const TREE_ACCENT: Record<SkillNode['tree'], string> = {
   archer_utility: '#b48cff',
 };
 
+/** Icon shown beside the spec name in each panel header — the WoW reference's
+ *  little spec badge, reduced to a single glyph since there's no per-spec
+ *  illustration to draw from. */
+const TREE_ICON: Record<SkillNode['tree'], string> = {
+  fire: 'fa-fire',
+  lightning: 'fa-bolt',
+  archer: 'fa-bullseye',
+  frost: 'fa-snowflake',
+  utility: 'fa-wand-magic',
+  archer_utility: 'fa-person-running',
+};
+
 const STYLES = `
 .st-overlay{position:fixed;inset:0;background:var(--px-bg);overflow-y:auto;z-index:150;display:none;}
 .st-ui{position:relative;z-index:152;display:flex;flex-direction:column;align-items:center;padding:20px 24px 16px;font-family:'VT323',monospace;color:var(--px-text);min-height:100%;box-sizing:border-box;}
@@ -238,8 +250,19 @@ const STYLES = `
    panels line up in a clean row regardless of how many rows the tree inside
    actually uses. */
 .st-tree-panel{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:#15161b;box-shadow:inset 0 2px 0 0 var(--px-border-dark),inset 0 -2px 0 0 var(--px-border-light),0 0 0 2px var(--st-tree-accent,var(--px-accent));}
-.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));text-align:center;}
-.st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;}
+.st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.st-tree-header-name{display:flex;align-items:center;gap:8px;min-width:0;}
+.st-tree-header-pts{font-size:12px;letter-spacing:0.06em;opacity:0.85;white-space:nowrap;flex:0 0 auto;}
+/* Stand-in for the reference's per-tree illustrated backdrop: no art asset,
+   so the tree's accent colour is washed faintly down the panel and the edges
+   are vignetted dark — just enough to make each column feel like its own
+   place without competing with the node icons for attention. */
+.st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;position:relative;
+  background:
+    radial-gradient(120% 60% at 50% 0%,color-mix(in srgb,var(--st-tree-accent,var(--px-accent)) 20%,transparent) 0%,transparent 65%),
+    linear-gradient(180deg,color-mix(in srgb,var(--st-tree-accent,var(--px-accent)) 10%,transparent) 0%,transparent 40%,rgba(0,0,0,0.5) 100%),
+    radial-gradient(85% 85% at 50% 50%,transparent 40%,rgba(0,0,0,0.6) 100%),
+    #101116;}
 .st-tree-container{position:relative;width:100%;}
 .st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
@@ -269,6 +292,11 @@ const STYLES = `
 .st-node-locked .st-node-circle{box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;}
 .st-node-locked .st-node-icon{color:#8d94a4;}
 .st-node-locked .st-node-name{color:#98a0b0;}
+/* Unavailable icons desaturate to greyscale (the reference's tell for "not
+   yet available"), same as the excluded-by-choice state below already reads
+   in muted red — exclusion keeps its own hue and is carved out below so the
+   two locked variants stay visually distinct from each other. */
+.st-node-locked:not(.st-node-excluded) .st-node-icon{filter:grayscale(1);}
 /* Excluded by a mutually-exclusive sibling — locked by a choice already made,
    not by a missing requirement, so it reads red rather than grey. */
 .st-node-excluded .st-node-circle{box-shadow:0 0 0 1.5px #6b3a3a;background:#150c0c;}
@@ -300,16 +328,15 @@ const STYLES = `
    the bricks. */
 .st-node-name{font-family:'Press Start 2P',monospace;font-size:var(--st-name);text-align:center;max-width:var(--st-namew);margin-top:4px;line-height:1.35;
   text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
-/* corner badges replace the old cost/rank text rows */
-.st-badge{position:absolute;right:-10px;top:-5px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
-.st-badge-cost{color:var(--px-accent);}
+/* Corner rank plate, bottom-right of the icon — current/max, WoW-style.
+   Opposite corner from the keystone marker (top-left) so the two never
+   collide. Cost still lives in the hover tooltip. */
+.st-badge{position:absolute;right:-9px;bottom:-4px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
 .st-badge-rank{color:#e87040;}
 .st-badge-rank.st-past-cap{color:#ddb84a;}
-/* Locked nodes still name their price — planning a route to a deep node is
-   impossible if the costs along it are hidden behind a padlock. */
 .st-badge-lock{color:#98a0b0;}
-.st-badge-lock .fa{margin-right:2px;opacity:0.75;}
 .st-badge-excl{color:#c06a6a;}
+.st-badge-excl .fa{margin-right:3px;}
 /* Keystone marker, opposite corner from the cost/rank badge: dim while the
    keystone is dormant, lit gold once ranks pass the soft cap. Deliberately
    plateless — on a 38px mod circle a second badge box crowds the cost badge
@@ -602,6 +629,14 @@ export class SkillTreeUI {
     return resolveSlots(this.ownedSpells(), this.slotRows);
   }
 
+  /** Points spent (bought ranks only — gear is free) across one tree's nodes,
+   *  for the panel header. There's no per-tree point cap in this game the way
+   *  WoW's "0 / 51" implies one, so this is honestly spent-only rather than
+   *  inventing a ceiling. */
+  private pointsSpent(nodes: SkillNode[]): number {
+    return nodes.reduce((sum, n) => sum + totalSpentForRanks(n, this.ranks.get(n.id) ?? 0), 0);
+  }
+
   private render(): void {
     const pts = this.skillPoints;
 
@@ -647,10 +682,22 @@ export class SkillTreeUI {
           </div>
         </div>
 
+        <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+          <defs>
+            ${(['owned', 'buyable', 'locked'] as const).map(k => {
+              const fill = k === 'owned' ? '#e86020' : k === 'buyable' ? '#c8860a' : '#333';
+              return `<marker id="st-arrow-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${fill}"/></marker>`;
+            }).join('')}
+          </defs>
+        </svg>
+
         <div class="st-columns${!isRanger ? ' has-frost' : ''}">
           <div class="st-col-main" style="height:${workspaceH}px">
             <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[mainTree]}">
-              <div class="st-tree-panel-header">${mainLabel}</div>
+              <div class="st-tree-panel-header">
+                <span class="st-tree-header-name"><i class="fa ${TREE_ICON[mainTree]}"></i>${mainLabel}</span>
+                <span class="st-tree-header-pts">${this.pointsSpent(mainNodes)} pts</span>
+              </div>
               <div class="st-tree-panel-body">
                 <div class="st-tree-container" style="height:${mainContainerHeight}">
                   <svg id="st-main-svg" class="st-tree-svg"></svg>
@@ -662,7 +709,10 @@ export class SkillTreeUI {
           ${!isRanger ? `
           <div class="st-col-frost" style="height:${workspaceH}px">
             <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT.frost}">
-              <div class="st-tree-panel-header">Frost</div>
+              <div class="st-tree-panel-header">
+                <span class="st-tree-header-name"><i class="fa ${TREE_ICON.frost}"></i>Frost</span>
+                <span class="st-tree-header-pts">${this.pointsSpent(frostNodes)} pts</span>
+              </div>
               <div class="st-tree-panel-body">
                 <div class="st-tree-container" style="height:${frostContainerHeight}">
                   <svg id="st-frost-svg" class="st-tree-svg"></svg>
@@ -673,7 +723,10 @@ export class SkillTreeUI {
           </div>` : ''}
           <div class="st-col-side" style="height:${workspaceH}px">
             <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[utilTree]}">
-              <div class="st-tree-panel-header">${isRanger ? 'Evasion' : 'Shared Utility'}</div>
+              <div class="st-tree-panel-header">
+                <span class="st-tree-header-name"><i class="fa ${TREE_ICON[utilTree]}"></i>${isRanger ? 'Evasion' : 'Shared Utility'}</span>
+                <span class="st-tree-header-pts">${this.pointsSpent(utilNodes)} pts</span>
+              </div>
               <div class="st-tree-panel-body">
                 <div class="st-util-container" style="height:${utilContainerHeight}">
                   <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
@@ -687,7 +740,7 @@ export class SkillTreeUI {
         <div class="st-legend">
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked (cost shown)</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked (cost on hover)</div>
           ${hasGear ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #3f9fbd;background:#04222c;"></span>Rank from gear</div>` : ''}
           ${hasKeystones ? `<div class="st-legend-row"><span class="st-legend-mark"><i class="fa fa-bolt"></i></span>Keystone (past cap)</div>` : ''}
           <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
@@ -777,27 +830,24 @@ export class SkillTreeUI {
     const icon = NODE_ICONS[node.id] ?? 'fa-star';
     const state = (isOwned || gearOnly) ? 'owned' : (canBuyFirst ? 'purchasable' : 'locked');
 
-    // One compact corner badge carries the node's key number: rank progress
-    // for owned stackables, otherwise the price — locked included, so a route
-    // to a deep node can be costed without buying anything on the way. The
-    // exception is an excluded node, whose price is unreachable until respec.
-    let badge = '';
-    if (isOwned && isStackable(node)) {
-      const cap = node.stackable!.softCap;
-      const pastCap = eff > cap ? ' st-past-cap' : '';
-      // "3+2/5" — bought ranks and gear ranks stay separable, because only the
-      // bought half is refundable and only it costs points.
-      const gearPart = gear > 0 ? `<span class="st-badge-gear">+${gear}</span>` : '';
-      badge = `<span class="st-badge st-badge-rank${pastCap}">${currentRank}${gearPart}/${cap}</span>`;
-    } else if (gearOnly) {
-      badge = `<span class="st-badge st-badge-gearonly">+${gear}</span>`;
-    } else if (excluded) {
-      badge = `<span class="st-badge st-badge-excl"><i class="fa fa-ban"></i></span>`;
-    } else if (!isOwned && canBuyFirst) {
-      badge = `<span class="st-badge st-badge-cost">${node.cost}pt</span>`;
-    } else if (!isOwned) {
-      badge = `<span class="st-badge st-badge-lock"><i class="fa fa-lock"></i>${node.cost}pt</span>`;
-    }
+    // One compact corner badge carries the node's rank in current/max form —
+    // WoW's "0/3" — for every state, owned or not, so a locked node still
+    // names how many ranks it has to offer. Price lives in the hover tooltip
+    // now instead of competing for the same corner.
+    const cap = isStackable(node) ? node.stackable!.softCap : 1;
+    // "3+2/5" — bought ranks and gear ranks stay separable, because only the
+    // bought half is refundable and only it costs points.
+    const gearPart = gear > 0 ? `<span class="st-badge-gear">+${gear}</span>` : '';
+    let badgeClass = 'st-badge-rank';
+    if (supercharged) badgeClass = 'st-badge-rank st-past-cap';
+    else if (gearOnly) badgeClass = 'st-badge-gearonly';
+    else if (excluded) badgeClass = 'st-badge-excl';
+    else if (!isOwned) badgeClass = 'st-badge-lock';
+    // Excluded still needs its own tell beyond colour — it's locked by a
+    // choice already made, not a missing requirement — so it keeps the ban
+    // glyph in front of the rank plate.
+    const banIcon = excluded ? '<i class="fa fa-ban"></i> ' : '';
+    const badge = `<span class="st-badge ${badgeClass}">${banIcon}${currentRank}${gearPart}/${cap}</span>`;
 
     // Keystones are the biggest payoff in the tree and used to be visible only
     // by hovering the right node; the marker advertises them from the tree.
@@ -895,19 +945,26 @@ export class SkillTreeUI {
       const color = isOwned ? '#e86020' : (canBuy ? '#c8860a' : '#333');
       const opacity = isOwned ? 0.75 : (canBuy ? 0.5 : 0.3);
       const width = isOwned ? 2.5 : 2;
+      // Arrowheads read direction (prerequisite → dependent) at a glance, the
+      // way the reference's thick grey arrows do. One marker per line colour,
+      // defined once in the shared <defs> block rather than per-line.
+      const arrow = isOwned ? 'st-arrow-owned' : (canBuy ? 'st-arrow-buyable' : 'st-arrow-locked');
 
       if (gate.requiresAll) {
         for (const parentId of gate.requiresAll) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}" marker-end="url(#${arrow})"/>`;
         }
       }
       if (gate.requiresAny) {
+        // Dashed lines still get an arrowhead, but must stay visibly distinct
+        // from the solid "requires all" style — the dash pattern is the tell,
+        // the arrow is shared.
         for (const parentId of gate.requiresAny) {
           const parentPos = positions[parentId];
           if (!parentPos) continue;
-          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+          lines += `<line x1="${parentPos.x}%" y1="${this.yOf(parentPos) + STEM}" x2="${childPos.x}%" y2="${this.yOf(childPos)}" stroke="${color}" stroke-opacity="${opacity * 0.8}" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#${arrow})"/>`;
         }
       }
     }
