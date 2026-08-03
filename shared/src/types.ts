@@ -3,9 +3,10 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12 | 13 | 14 | 15;
+// 9-11 are reserved for the in-flight frost class.
 
-export type ProjectileType = 'fireball' | 'arrow';
+export type ProjectileType = 'fireball' | 'arrow' | 'spear';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
@@ -63,6 +64,15 @@ export type PlayerState = {
   restCastEndTick?: number;   // set while the 2s wind-up runs
   resting?: boolean;          // regen active
   restCooldownUntil?: number;
+  // Gladiator — all ticks absolute (see the status pass in StateAdvancer §0.5)
+  stunUntil?: number;          // true stun: no movement AND no casting
+  reflectUntil?: number;       // incoming projectiles flip ownership while set
+  blocking?: boolean;          // holding Block this tick (server-resolved)
+  blockCooldownUntil?: number; // 1s re-raise gate after any release
+  riposteStacks?: number;      // Riposte keystone: blocked hits banked
+  riposteReadyUntil?: number;  // Riposte keystone: free empowered Jab window
+  dashDurationTicks?: number;  // dash length for the §0 interpolator (default EVADE_DURATION_TICKS)
+  leapLanding?: { slowFactor: number; slowTicks: number }; // set while a Leap dash flies; applied at landing
 };
 
 export type Projectile = {
@@ -92,6 +102,7 @@ export type Projectile = {
   loopback?: boolean;       // Hunter's Ember keystone: one unused return pass
   emberGen?: number;        // 0 = parent fireball, 1 = ember, 2 = chained ember
   spawnTick?: number;       // for the hard lifetime ceiling
+  stunTicks?: number;       // spear: stun applied on hit (survives a Reflect)
 };
 
 export type FireWallState = {
@@ -166,6 +177,7 @@ export type InputFrame = {
   aimTarget: Vec2;
   aimTarget2?: Vec2; // drag end for Fire Wall
   rest?: boolean;
+  blocking?: boolean; // held state — Room must NOT latch-clear it per tick
 };
 
 export type Pillar = { x: number; y: number; halfSize: number };
@@ -282,6 +294,25 @@ export const DEEP_FREEZE_COOLDOWN_TICKS = 6 * TICK_RATE;             // 360
 export const WITHERING_VENOM_MANA_DRAIN = 10;  // mana/sec
 export const EVADE_MAX_CHARGES = 2;
 
+// ── Gladiator constants ────────────────────────────────────────────────────
+export const JAB_RANGE = 90;               // line hitbox length, world units
+export const JAB_WIDTH = 40;               // line hitbox width
+export const SPEAR_SPEED = 500;
+export const SPEAR_RADIUS = 8;
+export const SPEAR_STUN_TICKS = 1 * TICK_RATE;             // 60
+export const REFLECT_WINDOW_TICKS = 1 * TICK_RATE;         // 60
+export const LEAP_RANGE = 400;
+export const LEAP_DURATION_TICKS = Math.round(0.25 * TICK_RATE); // 15
+export const LEAP_SLOW_RADIUS = 70;
+export const LEAP_SLOW_TICKS = 1 * TICK_RATE;              // 60
+export const BLOCK_DAMAGE_REDUCTION = 0.6; // front-arc mitigation while blocking
+export const BLOCK_MOVE_MULT = 0.5;        // move speed multiplier while blocking
+export const BLOCK_RERAISE_TICKS = 1 * TICK_RATE;          // 60
+export const RIPOSTE_STACKS_REQUIRED = 3;
+export const RIPOSTE_WINDOW_TICKS = 3 * TICK_RATE;         // 180
+export const RIPOSTE_JAB_STUN_TICKS = Math.round(0.5 * TICK_RATE); // 30
+export const EXECUTIONER_BONUS = 0.5;      // +50% Jab damage vs stunned/slowed
+
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },
   2: { manaCost: 60,  cooldownTicks: 180 },
@@ -291,6 +322,10 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   6: { manaCost: 50,  cooldownTicks: 24  },
   7: { manaCost: 80,  cooldownTicks: 240 },
   8: { manaCost: 30,  cooldownTicks: 90  },
+  12: { manaCost: 10,  cooldownTicks: 30  },
+  13: { manaCost: 40,  cooldownTicks: 360 },
+  14: { manaCost: 40,  cooldownTicks: 480 },
+  15: { manaCost: 30,  cooldownTicks: 180 },
 };
 
 export const TELEPORT_MAX_RANGE = 600;

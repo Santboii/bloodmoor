@@ -41,6 +41,16 @@ const NODE_ICONS: Record<NodeId, string> = {
   'archer_utility.combat_roll': 'fa-person-falling',
   'archer_utility.shadowstep':  'fa-ghost',
   'archer_utility.acrobatics':  'fa-tornado',
+  'arms.jab':            'fa-fist-raised',
+  'arms.heavy_thrust':   'fa-hammer',
+  'arms.spear_throw':    'fa-spoon',
+  'arms.stunning_blow':  'fa-star',
+  'arms.leap':           'fa-person-hiking',
+  'arms.crushing_landing':'fa-arrow-down',
+  'bulwark.bracing':      'fa-shield',
+  'bulwark.mobile_guard': 'fa-person-hiking',
+  'bulwark.reflect':      'fa-repeat',
+  'bulwark.perfect_guard':'fa-shield-heart',
 };
 
 function esc(s: string): string {

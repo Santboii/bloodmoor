@@ -13,7 +13,10 @@ export type NodeId =
   | 'archer.sustained_rain' | 'archer.piercing_rain' | 'archer.wide_rain'
   | 'archer.burn' | 'archer.freeze' | 'archer.poison'
   | 'archer_utility.evade' | 'archer_utility.combat_roll'
-  | 'archer_utility.shadowstep' | 'archer_utility.acrobatics';
+  | 'archer_utility.shadowstep' | 'archer_utility.acrobatics'
+  | 'arms.jab' | 'arms.heavy_thrust' | 'arms.spear_throw'
+  | 'arms.stunning_blow' | 'arms.leap' | 'arms.crushing_landing'
+  | 'bulwark.bracing' | 'bulwark.mobile_guard' | 'bulwark.reflect' | 'bulwark.perfect_guard';
 
 export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark';
 
@@ -68,6 +71,16 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   'archer_utility.combat_roll': { requiresAll: ['archer_utility.evade'] },
   'archer_utility.shadowstep':  { requiresAll: ['archer_utility.evade'] },
   'archer_utility.acrobatics':  { requiresAll: ['archer_utility.evade'], requiresAny: ['archer_utility.combat_roll', 'archer_utility.shadowstep'] },
+  // Arms tree
+  'arms.heavy_thrust':    { requiresAll: ['arms.jab'] },
+  'arms.spear_throw':     { requiresAll: ['arms.jab'] },
+  'arms.stunning_blow':   { requiresAll: ['arms.spear_throw'] },
+  'arms.leap':            { requiresAll: ['arms.spear_throw'], requiresAny: ['arms.heavy_thrust', 'arms.stunning_blow'] },
+  'arms.crushing_landing':{ requiresAll: ['arms.leap'] },
+  // Bulwark tree
+  'bulwark.mobile_guard':  { requiresAll: ['bulwark.bracing'] },
+  'bulwark.reflect':       { requiresAll: ['bulwark.bracing'] },
+  'bulwark.perfect_guard': { requiresAll: ['bulwark.reflect'] },
 };
 
 export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): boolean {
@@ -139,6 +152,20 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'archer_utility.shadowstep',   name: 'Shadowstep',   tree: 'archer_utility', tier: 2, cost: 2, isSpell: false, description: 'Become invisible for 0.5s after evading.' },
   { id: 'archer_utility.acrobatics',   name: 'Acrobatics',   tree: 'archer_utility', tier: 3, cost: 3, isSpell: false, description: 'Evade cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Second Wind', description: 'Evade holds 2 charges.' } },
+  // Arms tree
+  { id: 'arms.jab',            name: 'Jab',            tree: 'arms', tier: 1, cost: 1, isSpell: true,  description: 'Short spear thrust. 75–100 damage.' },
+  { id: 'arms.heavy_thrust',   name: 'Heavy Thrust',   tree: 'arms', tier: 2, cost: 1, isSpell: false, description: '+8% Jab damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: "Executioner's Thrust", description: 'Jab deals +50% damage to stunned or slowed targets.' } },
+  { id: 'arms.spear_throw',    name: 'Spear Throw',    tree: 'arms', tier: 2, cost: 2, isSpell: true,  description: 'Thrown spear. 70–100 damage, stuns for 1s.' },
+  { id: 'arms.stunning_blow',  name: 'Stunning Blow',  tree: 'arms', tier: 3, cost: 2, isSpell: false, description: '+15% Spear Throw stun duration per rank.', stackable: { softCap: 3, baseEffect: 0.15 } },
+  { id: 'arms.leap',           name: 'Leap',           tree: 'arms', tier: 4, cost: 2, isSpell: true,  description: 'Leap to a point. Enemies at the landing are slowed.' },
+  { id: 'arms.crushing_landing', name: 'Crushing Landing', tree: 'arms', tier: 5, cost: 1, isSpell: false, description: 'Stronger landing slow per rank.', stackable: { softCap: 3, baseEffect: 0.10 } },
+  // Bulwark tree
+  { id: 'bulwark.bracing',       name: 'Bracing',       tree: 'bulwark', tier: 1, cost: 1, isSpell: false, description: '+2% Block damage reduction per rank.', stackable: { softCap: 5, baseEffect: 0.02 },
+    keystone: { name: 'Riposte', description: 'Blocked hits build stacks; at 3 your next Jab within 3s is free, ignores cooldown, and stuns for 0.5s.' } },
+  { id: 'bulwark.mobile_guard',  name: 'Mobile Guard',  tree: 'bulwark', tier: 2, cost: 1, isSpell: false, description: 'Move faster while blocking per rank.', stackable: { softCap: 3, baseEffect: 0.08 } },
+  { id: 'bulwark.reflect',       name: 'Reflect',       tree: 'bulwark', tier: 2, cost: 2, isSpell: true,  description: 'For 1s, incoming projectiles fly back at their owner.' },
+  { id: 'bulwark.perfect_guard', name: 'Perfect Guard', tree: 'bulwark', tier: 3, cost: 2, isSpell: false, description: '+15% Reflect window per rank.', stackable: { softCap: 3, baseEffect: 0.15 } },
 ];
 
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
@@ -168,6 +195,10 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
   { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
   { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
+  { spell: 12, node: 'arms.jab',         defaultSlot: 1, charClass: 'gladiator' },
+  { spell: 13, node: 'arms.spear_throw', defaultSlot: 2, charClass: 'gladiator' },
+  { spell: 14, node: 'bulwark.reflect',  defaultSlot: 3, charClass: 'gladiator' },
+  { spell: 15, node: 'arms.leap',        defaultSlot: 4, charClass: 'gladiator' },
 ];
 
 export type SpellSlotRow = { slot: number; spell: number };
@@ -176,7 +207,7 @@ export type SpellSlotRow = { slot: number; spell: number };
 export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
   mage: 4,    // Teleport
   ranger: 8,  // Evade
-  gladiator: 4,  // placeholder until Task 2 lands the gladiator spells
+  gladiator: 15,  // Leap
 };
 
 const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
@@ -252,7 +283,7 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
 export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {
   mage: 'fire.fireball',
   ranger: 'archer.power_shot',
-  gladiator: 'fire.fireball',  // placeholder until Task 2 lands the gladiator spells
+  gladiator: 'arms.jab',
 };
 
 export function classOfSpell(spell: SpellId): CharacterClass | undefined {
