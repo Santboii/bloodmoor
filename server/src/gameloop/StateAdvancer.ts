@@ -20,7 +20,7 @@ import {
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
-import type { CharacterClass, Appearance, ItemRow } from '@arena/shared';
+import type { CharacterClass, Appearance, ItemRow, Projectile } from '@arena/shared';
 import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, MeteorState } from '@arena/shared';
 import { SPELL_BINDINGS, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
@@ -82,6 +82,26 @@ function getSpellNodeMap(charClass: CharacterClass): Partial<Record<SpellId, Nod
     if (b.charClass === charClass) map[b.spell] = b.node;
   }
   return map;
+}
+
+/** Flip a projectile to the reflector: new owner, re-aimed at the original
+ *  attacker's current position at the same speed, with a hit grace so it
+ *  cannot instantly re-hit the reflector it is flying out of. */
+function redirectProjectile(proj: Projectile, newOwnerId: string, aimAt: Vec2, tick: number): Projectile {
+  const speed = Math.sqrt(proj.velocity.x ** 2 + proj.velocity.y ** 2) || 1;
+  const dx = aimAt.x - proj.position.x;
+  const dy = aimAt.y - proj.position.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  return {
+    ...proj,
+    ownerId: newOwnerId,
+    velocity: { x: (dx / len) * speed, y: (dy / len) * speed },
+    noHitUntil: tick + 6,
+    // A reflected homing arrow must not steer back toward the reflector.
+    homing: -1,
+    homingRedirects: 0,
+    relentless: undefined,
+  };
 }
 
 export function makeInitialState(
@@ -215,6 +235,7 @@ export function advanceState(
     if ((p.blockCooldownUntil ?? 0) <= tick && p.blockCooldownUntil !== undefined) p.blockCooldownUntil = undefined;
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
+    if ((p.reflectUntil ?? 0) <= tick) p.reflectUntil = undefined;
   }
 
   // 1. Move players and apply mana regen
@@ -541,10 +562,14 @@ export function advanceState(
         damageMax: gm.spear.damageMax,
         stunTicks: gm.spear.stunTicks,
       })];
-    } else if (spell === 14 || spell === 15) {
+    } else if (spell === 14) {
       const gm = gladMods[id];
       if (!gm) continue;
-      // Mechanics land per-spell in Tasks 9-10.
+      players[id] = { ...players[id], reflectUntil: tick + gm.reflect.windowTicks };
+    } else if (spell === 15) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      // Mechanics land in Task 10.
     }
   }
 
@@ -667,6 +692,15 @@ export function advanceState(
       for (const [pid, player] of Object.entries(players)) {
         if (player.hp <= 0) continue;
         if (arrowHitsPlayer(moved, player.position, pid)) {
+          if ((player.reflectUntil ?? 0) > tick) {
+            const attacker = players[moved.ownerId];
+            const aimAt = attacker && attacker.hp > 0
+              ? attacker.position
+              : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            hit = true;
+            break;
+          }
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
@@ -713,6 +747,15 @@ export function advanceState(
       for (const [pid, player] of Object.entries(players)) {
         if (player.hp <= 0) continue;
         if (spearHitsPlayer(moved, player.position, pid)) {
+          if ((player.reflectUntil ?? 0) > tick) {
+            const attacker = players[moved.ownerId];
+            const aimAt = attacker && attacker.hp > 0
+              ? attacker.position
+              : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            hit = true;
+            break;
+          }
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const raw = spearDamage(moved.damageMin, moved.damageMax)
@@ -787,14 +830,24 @@ export function advanceState(
       const expired = tooOld || isFireballExpired(moved, tick);
       let directHit = false;
 
+      let reflectedBy: string | null = null;
       if (!expired && !inGrace) {
         for (const [pid, player] of Object.entries(players)) {
           if (player.hp <= 0) continue;
           if (fireballHitsPlayer(moved, player.position, pid)) {
-            directHit = true;
+            if ((player.reflectUntil ?? 0) > tick) { reflectedBy = pid; }
+            else { directHit = true; }
             break;
           }
         }
+      }
+      if (reflectedBy) {
+        const attacker = players[moved.ownerId];
+        const aimAt = attacker && attacker.hp > 0
+          ? attacker.position
+          : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
+        survivingProjectiles.push(redirectProjectile(moved, reflectedBy, aimAt, tick));
+        continue;
       }
 
       // Rolling Doom: too massive to stop. Damage everyone struck and keep
