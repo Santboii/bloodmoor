@@ -199,7 +199,7 @@ export function advanceState(
       };
       dashing.add(id);
       // Leap: the landing shockwave slows nearby enemies the tick the dash ends.
-      if (done && p.leapLanding) {
+      if (done && p.leapLanding && p.hp > 0) {
         const landPos = players[id].position;
         for (const [oid, other] of Object.entries(players)) {
           if (oid === id || other.hp <= 0) continue;

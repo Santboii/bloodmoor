@@ -73,6 +73,19 @@ describe('Leap (spell 15)', () => {
   it('Space-equivalent: leap is the registered mobility spell', () => {
     // shared-level assertion lives in gladiator-skills.test.ts (MOBILITY_SPELLS)
   });
+
+  it('does not slow enemies on landing if the leaper died mid-flight (DoT pierces i-frames)', () => {
+    let s = twoPlayers({ x: 600, y: 600 }, { x: 960, y: 600 }); // B ~60u from the 400-range landing
+    const sk = { A: LEAP_SKILLS, B: new Map<NodeId, number>() };
+    s = advanceState(s, { A: cast(15, { x: 1000, y: 600 }), B: idle() }, sk);
+    expect(s.players.A.evadeTarget).toBeDefined(); // airborne, mid-dash
+    // Simulate a DoT tick killing the leaper mid-flight — leap i-frames stop
+    // projectiles but not DoTs, so this is reachable in normal play.
+    s.players.A.hp = 0;
+    for (let i = 0; i < LEAP_DURATION_TICKS + 1; i++) s = advanceState(s, { A: idle(), B: idle() }, sk);
+    expect(s.players.A.evadeTarget).toBeUndefined(); // dash still completes on schedule
+    expect(s.players.B.slowUntil).toBeUndefined();
+  });
 });
 
 describe('Full-kit integration: gladiator vs ranger', () => {
