@@ -64,6 +64,18 @@ export function formatCountdown(msRemaining: number): string {
   return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
 }
 
+/** Delay (ms) before the next rotation refetch, given the soonest slot
+ * expiry and the current time. Floored at 60s: the server never emits a
+ * past `expiresAt` (slotExpiryHour always lands 1-6h ahead), so a
+ * legitimate delay is always far above the floor and it costs nothing in
+ * the honest case. The floor only engages when the *client* clock runs
+ * ahead of the server's — then `soonest` reads as perpetually expired, and
+ * without a floor this would re-arm at ~1000ms indefinitely (a sub-second
+ * poll loop) instead of just bounding the retry rate. */
+export function rotationRefreshDelay(soonestExpiresAt: number, nowMs: number): number {
+  return Math.max(60_000, soonestExpiresAt - nowMs + 1000);
+}
+
 /** Insufficient-gold (402), rotated-out (409) and allowance-spent (429)
  * rejections get fixed, friendly notices; every other failure surfaces the
  * server's own message so it stays specific and doesn't drift from
@@ -150,7 +162,21 @@ export class ShopScreen {
   private staleNotice: string | null = null;
   // Refetch handle armed at the soonest slot expiry — a shop left open
   // would otherwise keep offering stock the server has already rotated out.
+  // Shares its teardown/rearm lifecycle with countdownTimer below — see
+  // clearTimers()/armTimers().
   private rotationTimer: number | null = null;
+  // Re-render tick so an idle card's countdown ticks down a minute at a time
+  // instead of freezing between renders and jumping on the next one.
+  private countdownTimer: number | null = null;
+  // Bumped by hide()/reset(). reload() captures this at the start of its
+  // await and discards its own results (no vendor/gold assignment, no
+  // render, no re-arming a timer) if the value moved before the fetches
+  // landed — the screen was closed or the account changed mid-flight. This
+  // is what stops a reload() in flight at hide()/reset() time from (a)
+  // resurrecting a just-cleared (possibly previous-account) vendor cache
+  // and (b) arming a fresh timer pair that nothing would ever go on to
+  // clear, since armTimers() only runs at the tail of reload().
+  private generation = 0;
 
   constructor(
     container: HTMLElement,
@@ -196,7 +222,8 @@ export class ShopScreen {
     this.el.style.display = 'none';
     this.navTeardown?.();
     this.navTeardown = null;
-    if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
+    this.generation++;
+    this.clearTimers();
     const resolve = this.closeResolver;
     this.closeResolver = null;
     resolve?.(next);
@@ -208,31 +235,60 @@ export class ShopScreen {
     this.vendor = null;
     this.gold = null;
     this.selectedSlotIndex = null;
-    if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
+    this.generation++;
+    this.clearTimers();
   }
 
   /** Fresh vendor + gold read — the only source of truth for purchased
    * slots and balance. Called on open and after every buy/open, success or
-   * failure, so optimistic UI never lingers past its request. */
+   * failure, so optimistic UI never lingers past its request.
+   *
+   * Captures `generation` before awaiting: if hide()/reset() runs while the
+   * fetches are in flight, that bumps generation, and this continuation
+   * must discard itself entirely rather than assign `vendor`/`gold` (which
+   * would resurrect a just-cleared, possibly previous-account cache) or
+   * call armTimers() (which would arm a timer pair nothing would ever go on
+   * to clear, since hide()/reset() already ran their own clearTimers()). */
   private async reload(): Promise<void> {
+    const generation = this.generation;
     const [vendor, gold] = await Promise.all([fetchVendorView(), fetchGold()]);
+    if (generation !== this.generation) return;
     this.vendor = vendor;
     this.gold = gold;
     this.loading = false;
     this.render();
-    this.scheduleRotationRefresh();
+    this.armTimers();
   }
 
-  /** Arms a single refetch at the soonest slot expiry. One timer, not six:
-   * the earliest deadline is the only one that matters, and reload()
-   * re-arms from the fresh view. */
-  private scheduleRotationRefresh(): void {
+  /** Clears both the rotation-refetch timeout and the countdown-tick
+   * interval. Single teardown point for hide()/reset()/armTimers() so the
+   * two timers' shared lifecycle doesn't get duplicated three times over. */
+  private clearTimers(): void {
     if (this.rotationTimer !== null) { clearTimeout(this.rotationTimer); this.rotationTimer = null; }
+    if (this.countdownTimer !== null) { clearInterval(this.countdownTimer); this.countdownTimer = null; }
+  }
+
+  /** Arms a single refetch at the soonest slot expiry (one timer, not six —
+   * the earliest deadline is the only one that matters, and reload()
+   * re-arms from the fresh view) plus a once-a-minute re-render so idle
+   * countdowns tick down instead of freezing until the next render. Both
+   * are gated on `generation` so a stale pair from a since-hidden/reset
+   * screen can never fire — the guard closes the same hole reload() itself
+   * guards against, in case a timer somehow outlived its clearTimers() call. */
+  private armTimers(): void {
+    this.clearTimers();
     if (!this.vendor || this.vendor.slots.length === 0) return;
     const soonest = Math.min(...this.vendor.slots.map(s => s.expiresAt));
-    // +1s of slack so the refetch lands after the server's own hour boundary.
-    const delay = Math.max(1000, soonest - Date.now() + 1000);
-    this.rotationTimer = window.setTimeout(() => { void this.reload(); }, delay);
+    const delay = rotationRefreshDelay(soonest, Date.now());
+    const generation = this.generation;
+    this.rotationTimer = window.setTimeout(() => {
+      if (generation !== this.generation) return;
+      void this.reload();
+    }, delay);
+    this.countdownTimer = window.setInterval(() => {
+      if (generation !== this.generation) { this.clearTimers(); return; }
+      this.render();
+    }, 60_000);
   }
 
   private render(): void {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canAfford, slotDisplayState, slotExpired, formatCountdown } from '../src/items/ShopScreen';
+import { canAfford, slotDisplayState, slotExpired, formatCountdown, rotationRefreshDelay } from '../src/items/ShopScreen';
 
 describe('canAfford', () => {
   it('allows a purchase when gold exceeds the price', () => {
@@ -105,5 +105,26 @@ describe('formatCountdown', () => {
   it('reads as rotating at or past the deadline', () => {
     expect(formatCountdown(0)).toBe('rotating…');
     expect(formatCountdown(-5000)).toBe('rotating…');
+  });
+});
+
+// The soonest slot is always 1-6h out per slotExpiryHour, so the honest case
+// never approaches the floor; the floor exists solely to bound the refetch
+// rate when the client clock runs ahead of the server's.
+describe('rotationRefreshDelay', () => {
+  it('is the time to the soonest expiry plus 1s of slack in the honest case', () => {
+    const now = 1_000_000;
+    expect(rotationRefreshDelay(now + 2 * 60 * 60_000, now)).toBe(2 * 60 * 60_000 + 1000);
+  });
+
+  it('floors at 60s rather than the bare +1s slack when expiry is imminent', () => {
+    const now = 1_000_000;
+    expect(rotationRefreshDelay(now + 500, now)).toBe(60_000);
+  });
+
+  it('floors at 60s instead of racing to a sub-second poll when the client clock runs ahead', () => {
+    const now = 1_000_000;
+    // Soonest expiry is an hour in the "past" from the client's skewed view.
+    expect(rotationRefreshDelay(now - 60 * 60_000, now)).toBe(60_000);
   });
 });
