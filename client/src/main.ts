@@ -1,7 +1,8 @@
 import { Scene } from './renderer/Scene';
 import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
-import { SpellRenderer, ArrowElement } from './renderer/SpellRenderer';
+import { SpellRenderer, ArrowElement, isInvisibleToViewer } from './renderer/SpellRenderer';
+import { RestAuraRenderer } from './renderer/RestAuraRenderer';
 import { StateBuffer } from './network/StateBuffer';
 import { Predictor, PredictOpts } from './network/Predictor';
 import { SocketClient } from './network/SocketClient';
@@ -37,6 +38,9 @@ initSampleBank();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
+// Name labels live outside #ui-overlay: that element carries the global
+// --ui-zoom, which would scale their screen-space coordinates off the head.
+const worldLabels = document.getElementById('world-labels')!;
 
 // One delegated listener covers every button in the app: all clickable
 // chrome shares the px-btn / bm-nav-tab / bm-acct-item classes. Capture
@@ -61,6 +65,7 @@ const scene = new Scene(container);
 // Tie the canvas to "a match is actually running" instead.
 function setArenaVisible(visible: boolean): void {
   container.style.display = visible ? '' : 'none';
+  scene.setRenderingEnabled(visible);
 }
 setArenaVisible(false);
 
@@ -81,6 +86,7 @@ let currentRoomId = '';
 let currentPlayers: Record<string, string> = {};
 let playerMeshes = new Map<string, CharacterMesh>();
 let spellRenderer: SpellRenderer | null = null;
+let restAura: RestAuraRenderer | null = null;
 let inputHandler: InputHandler | null = null;
 let allPlayerNames: Record<string, string> = {};
 let currentMode = '1v1';
@@ -715,12 +721,14 @@ function setupSocketHandlers(_myDisplayName: string): void {
 function startGame(): void {
   // Before InputHandler is built — it measures the canvas for mouse→world.
   setArenaVisible(true);
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   spellRenderer?.dispose();
+  restAura?.dispose();
   inputHandler?.dispose();
 
   spellRenderer = new SpellRenderer(scene.scene, myId);
+  restAura = new RestAuraRenderer(scene.scene);
   spellRenderer.setArrowElement(playerElement);
   inputHandler = new InputHandler(scene, scene.renderer.domElement);
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
@@ -748,7 +756,9 @@ function stopGame(): void {
   inputHandler = null;
   spellRenderer?.dispose();
   spellRenderer = null;
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  restAura?.dispose();
+  restAura = null;
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   hud.hide();
   setDueling(false);
@@ -837,7 +847,7 @@ scene.startRenderLoop(() => {
 
   for (const [id, mesh] of playerMeshes) {
     if (!(id in state.players)) {
-      mesh.dispose(uiOverlay);
+      mesh.dispose(worldLabels);
       playerMeshes.delete(id);
     }
   }
@@ -849,7 +859,7 @@ scene.startRenderLoop(() => {
     if (!playerMeshes.has(id)) {
       const playerIds = Object.keys(state.players);
       const colorIndex = playerIds.indexOf(id) % Object.keys(PLAYER_COLORS).length;
-      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, uiOverlay);
+      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, worldLabels);
       scene.scene.add(mesh.group);
       playerMeshes.set(id, mesh);
     }
@@ -870,15 +880,19 @@ scene.startRenderLoop(() => {
     mesh.update(delta, pendingCastAnim.has(id));
     if (player.hp <= 0) mesh.die();
     // Shadowstep: invisible to enemies; you still see yourself.
-    const invisible = (player.invisibleUntil ?? 0) > state.tick && id !== myId;
+    const invisible = isInvisibleToViewer(player, myId, state.tick);
     mesh.setVisible(!invisible);
     mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }
   pendingCastAnim.clear();
 
-  if (predictor && state.players[myId]) {
-    const predicted = predictor.getRenderPosition(stepAlpha, now);
-    scene.updateCamera(predicted.x, predicted.y, delta);
+  // Same predicted position the local mesh above is drawn at — reused for the
+  // camera and handed to spellRenderer so the local player's own aura doesn't
+  // detach from their body while moving (the interpolated snapshot position
+  // lags the predicted render position by roughly one RTT).
+  const selfPosition = predictor && state.players[myId] ? predictor.getRenderPosition(stepAlpha, now) : undefined;
+  if (selfPosition) {
+    scene.updateCamera(selfPosition.x, selfPosition.y, delta);
   } else {
     const myPlayer = state.players[myId];
     if (myPlayer) {
@@ -888,7 +902,8 @@ scene.startRenderLoop(() => {
 
   inputHandler.refreshMouseWorld();
 
-  spellRenderer.update(state);
+  spellRenderer.update(state, selfPosition);
+  restAura?.update(state, delta);
   hud.update(state, inputHandler.getActiveSpell());
 });
 

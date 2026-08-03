@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeWeights, validateDropWeights } from '../src/admin/AdminScreen';
+import { normalizeWeights, validateDropWeights, adminUniqueName } from '../src/admin/AdminScreen';
+
+describe('adminUniqueName', () => {
+  it('returns null for a non-unique row', () => {
+    expect(adminUniqueName({ unique_id: null })).toBeNull();
+  });
+
+  it('resolves the manifest name for a unique_id', () => {
+    expect(adminUniqueName({ unique_id: 'cinderfall' })).toBe('Cinderfall');
+  });
+
+  it('distinguishes the two moon_amulet uniques, which share a base_id', () => {
+    expect(adminUniqueName({ unique_id: 'emberheart' })).toBe('Emberheart');
+    expect(adminUniqueName({ unique_id: 'the_quiet_hour' })).toBe('The Quiet Hour');
+  });
+
+  it('falls back to the raw id for an unrecognized unique_id', () => {
+    expect(adminUniqueName({ unique_id: 'not_a_real_unique' })).toBe('not_a_real_unique');
+  });
+});
 
 describe('normalizeWeights', () => {
   it('leaves already-100 seed weights effectively unchanged', () => {

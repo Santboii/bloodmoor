@@ -1,8 +1,8 @@
 // Sprite-derived item icons: crop the down-facing frame of a base's own LPC
 // sheet(s) so the icon IS what the character wears. Rings/amulets have no
 // lpc entry and keep their Font Awesome glyphs (as does any load failure).
-import type { ItemBase } from '@arena/shared';
-import { ITEM_BASES, LPC_ANIMATIONS } from '@arena/shared';
+import type { ItemBase, UniqueItem } from '@arena/shared';
+import { ITEM_BASES, LPC_ANIMATIONS, UNIQUE_ITEMS } from '@arena/shared';
 import type { LpcAnimation } from '@arena/shared';
 import { FRAME } from '../renderer/sprites/lpc';
 import { tintSheet } from '../renderer/sprites/tint';
@@ -28,7 +28,7 @@ function iconPath(path: string): string {
   return path.replace('{body}', 'male').replace('{legs}', 'male');
 }
 
-async function buildIcon(base: ItemBase): Promise<HTMLCanvasElement | null> {
+async function buildIcon(base: ItemBase, unique?: UniqueItem): Promise<HTMLCanvasElement | null> {
   if (!base.lpc) return null;
   try {
     // Composite all of the base's layers (bow bg+fg) at the down-facing
@@ -51,9 +51,9 @@ async function buildIcon(base: ItemBase): Promise<HTMLCanvasElement | null> {
     base.lpc.layers.forEach((layer, i) => {
       const img = images[i];
       if (!img) return;
-      const source = layer.tint
-        ? tintSheet(img, img.width, img.height, layer.tint, layer.tintMode)
-        : img;
+      const tint = unique?.lpcTint?.color ?? layer.tint;
+      const tintMode = unique?.lpcTint ? unique.lpcTint.mode : layer.tintMode;
+      const source = tint ? tintSheet(img, img.width, img.height, tint, tintMode) : img;
       fctx.drawImage(source, 0, row * FRAME, FRAME, FRAME, 0, 0, FRAME, FRAME);
     });
 
@@ -86,17 +86,20 @@ async function buildIcon(base: ItemBase): Promise<HTMLCanvasElement | null> {
   }
 }
 
-export function iconFor(base: ItemBase): Promise<HTMLCanvasElement | null> {
-  let p = cache.get(base.id);
-  if (!p) { p = buildIcon(base); cache.set(base.id, p); }
+export function iconFor(base: ItemBase, unique?: UniqueItem): Promise<HTMLCanvasElement | null> {
+  const key = unique ? `${base.id}:${unique.id}` : base.id;
+  let p = cache.get(key);
+  if (!p) { p = buildIcon(base, unique); cache.set(key, p); }
   return p;
 }
 
 /** The sprite-icon hook for an item cell: only bases with sprite layers get
  * it, so applyItemIcons never scans cells that can't have an icon (rings,
- * amulets), and they keep their Font Awesome glyph permanently. */
-export function iconCellAttrs(base: ItemBase): string {
-  return base.lpc ? ` data-icon-base="${base.id}"` : '';
+ * amulets), and they keep their Font Awesome glyph permanently. A unique
+ * tags its own id so its tint override reaches buildIcon. */
+export function iconCellAttrs(base: ItemBase, unique?: UniqueItem): string {
+  if (!base.lpc) return '';
+  return ` data-icon-base="${base.id}"${unique ? ` data-icon-unique="${unique.id}"` : ''}`;
 }
 
 /** Swap `[data-icon-base]` cells' contents for a copy of the sprite icon.
@@ -105,7 +108,10 @@ export function applyItemIcons(root: HTMLElement): void {
   root.querySelectorAll<HTMLElement>('[data-icon-base]').forEach(cell => {
     const base = ITEM_BASES.find(b => b.id === cell.dataset.iconBase);
     if (!base) return;
-    void iconFor(base).then(master => {
+    const unique = cell.dataset.iconUnique
+      ? UNIQUE_ITEMS.find(u => u.id === cell.dataset.iconUnique)
+      : undefined;
+    void iconFor(base, unique).then(master => {
       if (!master || !cell.isConnected) return;
       const copy = document.createElement('canvas');
       copy.width = master.width; copy.height = master.height;

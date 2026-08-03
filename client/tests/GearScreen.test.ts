@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS, sellStateFor } from '../src/items/GearScreen';
+import {
+  ringTargetSlot, canEquip, itemBase, itemDisplayName, RARITY_COLORS, sellStateFor, uniqueAuraGlowStyle,
+} from '../src/items/GearScreen';
 import { sellPriceFor } from '@arena/shared';
 import type { ItemRow } from '@arena/shared';
 
@@ -16,6 +18,29 @@ function makeItem(overrides: Partial<ItemRow> = {}): ItemRow {
     ...overrides,
   };
 }
+
+describe('uniqueAuraGlowStyle', () => {
+  it('colors the glow from the specific unique\'s own aura, not a fixed rarity color', () => {
+    const cinderfall = makeItem({ base_id: 'gnarled_staff', rarity: 'unique', unique_id: 'cinderfall' });
+    const quietHour = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'the_quiet_hour' });
+    const cinderfallStyle = uniqueAuraGlowStyle(cinderfall);
+    const quietHourStyle = uniqueAuraGlowStyle(quietHour);
+    expect(cinderfallStyle).toContain('rgba(255, 89, 13');
+    expect(quietHourStyle).toContain('rgba(217, 222, 242');
+    expect(cinderfallStyle).not.toEqual(quietHourStyle);
+  });
+
+  it('distinguishes the two moon_amulet uniques by unique_id, not base_id', () => {
+    const emberheart = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'emberheart' });
+    const quietHour = makeItem({ base_id: 'moon_amulet', rarity: 'unique', unique_id: 'the_quiet_hour' });
+    expect(uniqueAuraGlowStyle(emberheart)).not.toEqual(uniqueAuraGlowStyle(quietHour));
+  });
+
+  it('keeps the 2px inset border behavior', () => {
+    const item = makeItem({ base_id: 'gnarled_staff', rarity: 'unique', unique_id: 'cinderfall' });
+    expect(uniqueAuraGlowStyle(item)).toContain('inset 0 0 0 2px');
+  });
+});
 
 describe('ringTargetSlot', () => {
   it('fills ring1 first when both rings are empty', () => {
@@ -42,38 +67,87 @@ describe('ringTargetSlot', () => {
 describe('canEquip', () => {
   it('allows a base item with no restrictions at any level', () => {
     const item = makeItem({ base_id: 'leather_cap', slot: 'helmet', level_req: 1 });
-    expect(canEquip(item, 1, 'mage')).toEqual({ ok: true });
+    expect(canEquip(item, 1, 'mage', [])).toEqual({ ok: true });
   });
 
   it('rejects when the character level is below level_req', () => {
     const item = makeItem({ base_id: 'iron_helm', slot: 'helmet', level_req: 7 });
-    const result = canEquip(item, 4, 'mage');
+    const result = canEquip(item, 4, 'mage', []);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('Requires level 7');
   });
 
   it('allows when the character level meets level_req exactly', () => {
     const item = makeItem({ base_id: 'iron_helm', slot: 'helmet', level_req: 7 });
-    expect(canEquip(item, 7, 'mage')).toEqual({ ok: true });
+    expect(canEquip(item, 7, 'mage', [])).toEqual({ ok: true });
   });
 
   it('rejects a class-restricted weapon for the wrong class', () => {
     const item = makeItem({ base_id: 'apprentice_staff', slot: 'weapon', level_req: 1 });
-    const result = canEquip(item, 1, 'ranger');
+    const result = canEquip(item, 1, 'ranger', []);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('Restricted to mage');
   });
 
   it('allows a class-restricted weapon for the matching class', () => {
     const item = makeItem({ base_id: 'short_bow', slot: 'weapon', level_req: 1 });
-    expect(canEquip(item, 1, 'ranger')).toEqual({ ok: true });
+    expect(canEquip(item, 1, 'ranger', [])).toEqual({ ok: true });
   });
 
   it('reports the level gate before the class gate when both fail', () => {
     const item = makeItem({ base_id: 'great_bow', slot: 'weapon', level_req: 10 });
-    const result = canEquip(item, 1, 'mage');
+    const result = canEquip(item, 1, 'mage', []);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('Requires level 10');
+  });
+
+  // Diablo II-style rule: a character may never have two copies of the same
+  // unique equipped at once — see equip_item's matching guard in
+  // 20260802000000_item_unique_id.sql. Two rings make this reachable in a
+  // way no other slot pair is.
+  describe('same-unique guard', () => {
+    it('rejects a second copy of a unique already equipped in the other ring slot', () => {
+      const equipped = makeItem({
+        id: 'ring-a', base_id: 'bone_ring', slot: 'ring', rarity: 'unique',
+        unique_id: 'windrunner_band', level_req: 7, equipped_by: 'char-1', equipped_slot: 'ring1',
+      });
+      const candidate = makeItem({
+        id: 'ring-b', base_id: 'bone_ring', slot: 'ring', rarity: 'unique',
+        unique_id: 'windrunner_band', level_req: 7,
+      });
+      const result = canEquip(candidate, 7, 'ranger', [equipped]);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBeDefined();
+    });
+
+    it('does not reject the same row already equipped in that slot', () => {
+      const equipped = makeItem({
+        id: 'ring-a', base_id: 'bone_ring', slot: 'ring', rarity: 'unique',
+        unique_id: 'windrunner_band', level_req: 7, equipped_by: 'char-1', equipped_slot: 'ring1',
+      });
+      expect(canEquip(equipped, 7, 'ranger', [equipped])).toEqual({ ok: true });
+    });
+
+    it('allows two different uniques across the two ring slots', () => {
+      const equipped = makeItem({
+        id: 'ring-a', base_id: 'bone_ring', slot: 'ring', rarity: 'unique',
+        unique_id: 'hunters_eye', level_req: 1, equipped_by: 'char-1', equipped_slot: 'ring1',
+      });
+      const candidate = makeItem({
+        id: 'ring-b', base_id: 'bone_ring', slot: 'ring', rarity: 'unique',
+        unique_id: 'windrunner_band', level_req: 7,
+      });
+      expect(canEquip(candidate, 7, 'ranger', [equipped])).toEqual({ ok: true });
+    });
+
+    it('allows two copies of a non-unique base', () => {
+      const equipped = makeItem({
+        id: 'ring-a', base_id: 'bone_ring', slot: 'ring', rarity: 'basic',
+        equipped_by: 'char-1', equipped_slot: 'ring1',
+      });
+      const candidate = makeItem({ id: 'ring-b', base_id: 'bone_ring', slot: 'ring', rarity: 'basic' });
+      expect(canEquip(candidate, 1, 'mage', [equipped])).toEqual({ ok: true });
+    });
   });
 });
 

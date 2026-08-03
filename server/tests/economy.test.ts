@@ -152,20 +152,74 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
     expect(magicRoll.rarity).toBe('magic');
   });
 
-  it('downgrades unique to rare when no unique is eligible at band 1', () => {
-    // maxCharLevel 2 -> band 1; both UNIQUE_ITEMS require levelReq 7.
-    const result = rollLootboxItem('premium', weights, 2, () => 0.9999);
+  it('downgrades unique to rare when the account has no eligible unique at all', () => {
+    // maxCharLevel 0 (an account with no characters) — every unique requires
+    // at least level 1, so the unique roll has nothing to pick and falls back.
+    const result = rollLootboxItem('premium', weights, 0, () => 0.9999);
     expect(result.rarity).toBe('rare');
+  });
+  it('rolls a level-1 unique for a low-level account', () => {
+    const result = rollLootboxItem('premium', weights, 2, () => 0.9999);
+    expect(result.rarity).toBe('unique');
   });
 
   it('rolls an eligible unique deterministically when maxCharLevel qualifies', () => {
-    // Constant 0.9999 lands rollRarity on 'unique', then floor(0.9999 * 2) = 1
-    // selects the second eligible unique.
+    // A constant 0.9999 lands rollRarity on 'unique' and then selects the
+    // last eligible entry — the_quiet_hour, the final manifest item. This is
+    // one of the few places manifest order is load-bearing: re-sorting
+    // UNIQUE_ITEMS means updating this id.
+    const expected = UNIQUE_ITEMS.find(u => u.id === 'the_quiet_hour')!;
     const result = rollMatchDropItem(weights, 10, () => 0.9999);
     expect(result.rarity).toBe('unique');
-    expect(result.affixes).toEqual(UNIQUE_ITEMS[1].affixes);
-    expect(result.base.id).toBe(UNIQUE_ITEMS[1].baseId);
-    expect(result.levelReq).toBe(UNIQUE_ITEMS[1].levelReq);
+    expect(result.base.id).toBe(expected.baseId);
+    expect(result.levelReq).toBe(expected.levelReq);
+    expect(result.affixes).toHaveLength(expected.affixes.length);
+    result.affixes.forEach((a, i) => {
+      const spec = expected.affixes[i];
+      expect(a.id).toBe(spec.id);
+      expect(a.value).toBeGreaterThanOrEqual(spec.min);
+      expect(a.value).toBeLessThanOrEqual(spec.max);
+    });
+  });
+
+  it('reports which unique a unique roll picked', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const result = rollLootboxItem('premium', weights, 10, mulberry32(7));
+    expect(result.rarity).toBe('unique');
+    expect(result.uniqueId).toBeDefined();
+    const manifest = UNIQUE_ITEMS.find(u => u.id === result.uniqueId)!;
+    expect(manifest).toBeDefined();
+    expect(result.base.id).toBe(manifest.baseId);
+    expect(result.levelReq).toBe(manifest.levelReq);
+    expect(result.affixes).toHaveLength(manifest.affixes.length);
+    result.affixes.forEach((a, i) => {
+      expect(a.id).toBe(manifest.affixes[i].id);
+      expect(a.value).toBeGreaterThanOrEqual(manifest.affixes[i].min);
+      expect(a.value).toBeLessThanOrEqual(manifest.affixes[i].max);
+    });
+  });
+  it('weights unique drops toward the player band while keeping a lower-band tail', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const counts = new Map<number, number>();
+    for (let s = 0; s < 400; s++) {
+      const r = rollLootboxItem('premium', weights, 10, mulberry32(s));
+      const u = UNIQUE_ITEMS.find(x => x.id === r.uniqueId)!;
+      counts.set(u.levelReq, (counts.get(u.levelReq) ?? 0) + 1);
+    }
+    const atBand = counts.get(10) ?? 0;
+    const below = 400 - atBand;
+    expect(atBand).toBeGreaterThan(below);   // the band dominates
+    expect(below).toBeGreaterThan(0);        // but lower bands still appear
+  });
+  it('still rolls a unique for a low-level account whose band has none above it', () => {
+    const weights = { basic: 0, magic: 0, rare: 0, unique: 1 };
+    const r = rollLootboxItem('premium', weights, 1, mulberry32(11));
+    expect(r.rarity).toBe('unique');
+    expect(UNIQUE_ITEMS.find(u => u.id === r.uniqueId)!.levelReq).toBe(1);
+  });
+  it('leaves uniqueId unset on a non-unique roll', () => {
+    const weights = { basic: 1, magic: 0, rare: 0, unique: 0 };
+    expect(rollLootboxItem('basic', weights, 10, mulberry32(3)).uniqueId).toBeUndefined();
   });
 
   it('is pure under an injected rng — same seed sequence yields identical output', () => {

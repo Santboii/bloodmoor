@@ -117,6 +117,9 @@ export class Room {
     if (existing?.castSpell && !input.castSpell) {
       input = { ...input, castSpell: existing.castSpell, aimTarget: existing.aimTarget };
     }
+    if (existing?.rest && !input.rest) {
+      input = { ...input, rest: true };
+    }
     this.pendingInputs.set(socketId, input);
     this.ticksSinceInput.set(socketId, 0);
   }
@@ -142,8 +145,8 @@ export class Room {
     this.state = advanceState(this.state, inputs, skillSetsObj, this.mode);
     this.state.ack = Object.fromEntries(this.lastProcessedSeq);
     for (const [id, pending] of this.pendingInputs) {
-      if (pending.castSpell) {
-        this.pendingInputs.set(id, { ...pending, castSpell: null });
+      if (pending.castSpell || pending.rest) {
+        this.pendingInputs.set(id, { ...pending, castSpell: null, rest: undefined });
       }
     }
     return this.state;
