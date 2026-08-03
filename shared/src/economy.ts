@@ -2,7 +2,7 @@
 // lootbox/match-drop rolls. Composes with items.ts's roll engine (rollItem,
 // rollRarity, ITEM_BASES, UNIQUE_ITEMS) rather than duplicating any of it.
 import type { ItemBase, ItemRarity, RolledAffix } from './items.js';
-import { ITEM_BASES, ITEM_LEVEL_BANDS, UNIQUE_ITEMS, rollItem, rollRarity } from './items.js';
+import { ITEM_BASES, ITEM_LEVEL_BANDS, UNIQUE_ITEMS, rollItem, rollRarity, rollUnique } from './items.js';
 
 export const GOLD_PER_MATCH = 25;
 export const GOLD_WIN_BONUS = 35;
@@ -108,7 +108,18 @@ export function vendorStockFor(userId: string, utcDay: string, maxCharLevel: num
   return slots;
 }
 
-export type DropResult = { base: ItemBase; rarity: ItemRarity; affixes: RolledAffix[]; levelReq: number };
+export type DropResult = {
+  base: ItemBase; rarity: ItemRarity; affixes: RolledAffix[]; levelReq: number;
+  /** Set only on a unique roll — persisted to items.unique_id so the row
+   * keeps its identity through future balance tuning. */
+  uniqueId?: string;
+};
+
+/** Relative weight of an at-band unique versus a lower-band one in a unique
+ * drop roll. Uniform picking would hand a level-10 player a level-1 ring
+ * most of the time, which reads as a bad drop for the rarest outcome in the
+ * table; the tail keeps older uniques obtainable. */
+export const UNIQUE_BAND_WEIGHT = { atBand: 8, belowBand: 1 } as const;
 
 /** Shared rarity/base/affix roll used by both lootbox opens and match-end
  * drops. Unique rolls are restricted to UNIQUE_ITEMS eligible for
@@ -120,9 +131,18 @@ function rollDropItem(weights: Record<ItemRarity, number>, maxCharLevel: number,
   if (rolledRarity === 'unique') {
     const eligibleUniques = UNIQUE_ITEMS.filter(u => u.levelReq <= maxCharLevel);
     if (eligibleUniques.length > 0) {
-      const unique = eligibleUniques[Math.floor(rng() * eligibleUniques.length)];
+      const band = levelToBand(maxCharLevel);
+      const weightOf = (u: (typeof eligibleUniques)[number]) =>
+        u.levelReq === band ? UNIQUE_BAND_WEIGHT.atBand : UNIQUE_BAND_WEIGHT.belowBand;
+      const total = eligibleUniques.reduce((sum, u) => sum + weightOf(u), 0);
+      let pick = rng() * total;
+      let unique = eligibleUniques[eligibleUniques.length - 1];
+      for (const u of eligibleUniques) {
+        pick -= weightOf(u);
+        if (pick < 0) { unique = u; break; }
+      }
       const base = ITEM_BASES.find(b => b.id === unique.baseId)!;
-      return { base, rarity: 'unique', affixes: unique.affixes, levelReq: unique.levelReq };
+      return { base, rarity: 'unique', affixes: rollUnique(unique, rng), levelReq: unique.levelReq, uniqueId: unique.id };
     }
   }
   const rarity: ItemRarity = rolledRarity === 'unique' ? 'rare' : rolledRarity;

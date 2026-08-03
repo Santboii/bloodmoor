@@ -1,7 +1,8 @@
 import { Scene } from './renderer/Scene';
 import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
-import { SpellRenderer, ArrowElement } from './renderer/SpellRenderer';
+import { SpellRenderer, ArrowElement, isInvisibleToViewer } from './renderer/SpellRenderer';
+import { RestAuraRenderer } from './renderer/RestAuraRenderer';
 import { StateBuffer } from './network/StateBuffer';
 import { Predictor, PredictOpts } from './network/Predictor';
 import { SocketClient } from './network/SocketClient';
@@ -14,9 +15,9 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
-import type { CharacterRecord, CharacterClass, GearVisuals } from '@arena/shared';
+import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
 import type { LoadedAssets } from './renderer/AssetLoader';
 import { LoadingScreen } from './loading/LoadingScreen';
@@ -37,6 +38,9 @@ initSampleBank();
 
 const container = document.getElementById('canvas-container')!;
 const uiOverlay = document.getElementById('ui-overlay')!;
+// Name labels live outside #ui-overlay: that element carries the global
+// --ui-zoom, which would scale their screen-space coordinates off the head.
+const worldLabels = document.getElementById('world-labels')!;
 
 // One delegated listener covers every button in the app: all clickable
 // chrome shares the px-btn / bm-nav-tab / bm-acct-item classes. Capture
@@ -61,6 +65,7 @@ const scene = new Scene(container);
 // Tie the canvas to "a match is actually running" instead.
 function setArenaVisible(visible: boolean): void {
   container.style.display = visible ? '' : 'none';
+  scene.setRenderingEnabled(visible);
 }
 setArenaVisible(false);
 
@@ -81,6 +86,7 @@ let currentRoomId = '';
 let currentPlayers: Record<string, string> = {};
 let playerMeshes = new Map<string, CharacterMesh>();
 let spellRenderer: SpellRenderer | null = null;
+let restAura: RestAuraRenderer | null = null;
 let inputHandler: InputHandler | null = null;
 let allPlayerNames: Record<string, string> = {};
 let currentMode = '1v1';
@@ -100,6 +106,7 @@ let activeCharacter: CharacterRecord | null = null;
 // hero preview geared (lobby.updateHeroGear).
 let activeGear: GearVisuals = {};
 let ownedSpells = new Set<SpellId>();
+let activeSlots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
 let playerElement: ArrowElement = 'none';
 
 function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
@@ -116,7 +123,11 @@ let phaseShiftRank = 0;
  * merging talent-tree ranks with equipped-item talent affixes so the client
  * predicts off the same effective ranks the server computes at match start. */
 async function refreshLoadout(characterId: string, charClass: string): Promise<void> {
-  const { data } = await supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId);
+  const [{ data }, { data: slotData }] = await Promise.all([
+    supabase.from('skill_unlocks').select('node_id, rank').eq('character_id', characterId),
+    supabase.from('character_spell_slots').select('slot, spell').eq('character_id', characterId),
+  ]);
+  const slotRows = (slotData ?? []) as SpellSlotRow[];
   const rows = (data ?? []) as { node_id: string; rank: number | null }[];
   const nodeSet = new Set<NodeId>(rows.map(r => r.node_id as NodeId));
   const defaultNode = CLASS_DEFAULT_NODE[charClass as CharacterClass];
@@ -145,7 +156,9 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
-  hud.buildSpellSlots(ownedSpells);
+  activeSlots = resolveSlots(ownedSpells, slotRows);
+  hud.buildSpellSlots(activeSlots);
+  inputHandler?.setSlots(activeSlots);
 }
 
 /** Re-deriving the loadout used to be awaited between hiding one screen and
@@ -708,22 +721,28 @@ function setupSocketHandlers(_myDisplayName: string): void {
 function startGame(): void {
   // Before InputHandler is built — it measures the canvas for mouse→world.
   setArenaVisible(true);
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   spellRenderer?.dispose();
+  restAura?.dispose();
   inputHandler?.dispose();
 
   spellRenderer = new SpellRenderer(scene.scene, myId);
+  restAura = new RestAuraRenderer(scene.scene);
   spellRenderer.setArrowElement(playerElement);
   inputHandler = new InputHandler(scene, scene.renderer.domElement);
   if (activeCharacter) inputHandler.setCharacterClass(activeCharacter.class);
 
   // Guests have no skill unlocks but the server lets them cast their class's
-  // four bound spells — show those slots rather than an empty bar.
-  const slotSpells = ownedSpells.size > 0
-    ? ownedSpells
-    : new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell));
-  hud.buildSpellSlots(slotSpells);
+  // bound spells — show those slots rather than an empty bar.
+  const slots = ownedSpells.size > 0
+    ? activeSlots
+    : resolveSlots(
+        new Set(SPELL_BINDINGS.filter(b => b.charClass === (activeCharacter?.class ?? 'mage')).map(b => b.spell)),
+        [],
+      );
+  hud.buildSpellSlots(slots);
+  inputHandler.setSlots(slots);
   hud.show();
   setScene('arena');
   setDueling(true);
@@ -737,7 +756,9 @@ function stopGame(): void {
   inputHandler = null;
   spellRenderer?.dispose();
   spellRenderer = null;
-  for (const mesh of playerMeshes.values()) mesh.dispose(uiOverlay);
+  restAura?.dispose();
+  restAura = null;
+  for (const mesh of playerMeshes.values()) mesh.dispose(worldLabels);
   playerMeshes.clear();
   hud.hide();
   setDueling(false);
@@ -826,7 +847,7 @@ scene.startRenderLoop(() => {
 
   for (const [id, mesh] of playerMeshes) {
     if (!(id in state.players)) {
-      mesh.dispose(uiOverlay);
+      mesh.dispose(worldLabels);
       playerMeshes.delete(id);
     }
   }
@@ -838,7 +859,7 @@ scene.startRenderLoop(() => {
     if (!playerMeshes.has(id)) {
       const playerIds = Object.keys(state.players);
       const colorIndex = playerIds.indexOf(id) % Object.keys(PLAYER_COLORS).length;
-      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, uiOverlay);
+      const mesh = new CharacterMesh(player.charClass, player.appearance, player.gear, PLAYER_COLORS[colorIndex], player.displayName, worldLabels);
       scene.scene.add(mesh.group);
       playerMeshes.set(id, mesh);
     }
@@ -859,15 +880,19 @@ scene.startRenderLoop(() => {
     mesh.update(delta, pendingCastAnim.has(id));
     if (player.hp <= 0) mesh.die();
     // Shadowstep: invisible to enemies; you still see yourself.
-    const invisible = (player.invisibleUntil ?? 0) > state.tick && id !== myId;
+    const invisible = isInvisibleToViewer(player, myId, state.tick);
     mesh.setVisible(!invisible);
     mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }
   pendingCastAnim.clear();
 
-  if (predictor && state.players[myId]) {
-    const predicted = predictor.getRenderPosition(stepAlpha, now);
-    scene.updateCamera(predicted.x, predicted.y, delta);
+  // Same predicted position the local mesh above is drawn at — reused for the
+  // camera and handed to spellRenderer so the local player's own aura doesn't
+  // detach from their body while moving (the interpolated snapshot position
+  // lags the predicted render position by roughly one RTT).
+  const selfPosition = predictor && state.players[myId] ? predictor.getRenderPosition(stepAlpha, now) : undefined;
+  if (selfPosition) {
+    scene.updateCamera(selfPosition.x, selfPosition.y, delta);
   } else {
     const myPlayer = state.players[myId];
     if (myPlayer) {
@@ -877,7 +902,8 @@ scene.startRenderLoop(() => {
 
   inputHandler.refreshMouseWorld();
 
-  spellRenderer.update(state);
+  spellRenderer.update(state, selfPosition);
+  restAura?.update(state, delta);
   hud.update(state, inputHandler.getActiveSpell());
 });
 

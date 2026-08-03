@@ -6,9 +6,11 @@ import { worldUnitsPerTexel } from '../pixelation';
 import { FRAME, LpcDirection, frameRect, directionFromWorldAngle, animationFrame } from './lpc';
 import { compositeAppearance, disposeComposite } from './SpriteCompositor';
 
-// Exact 2:1 sprite-pixel to internal-pixel ratio: deterministic nearest
-// downsampling (no shimmer), and the visible LPC body (~48 of 64 frame px)
-// lands at ~50 world units — matching the old model height.
+// Sized so the visible LPC body (~48 of 64 frame px) lands at ~44 world
+// units. The scale is defined against the legacy 360p texel grid
+// (worldUnitsPerTexel), which now only anchors world scale; on screen the
+// sprite renders at native resolution with NearestFilter, so the art's own
+// pixels carry the look.
 const SPRITE_SCALE = 0.5;
 
 // Casting while moving draws a split-body frame: legs from the locomotion
@@ -19,6 +21,12 @@ const SPLIT_Y = 42;
 
 const SHADOW_GEO = new THREE.CircleGeometry(11, 16);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
+
+/** World-space height of a character sprite — the anchor space unique auras
+ * position themselves in. */
+export function spriteWorldHeight(): number {
+  return FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
+}
 
 type MoveAnim = 'idle' | 'walk' | 'run';
 
@@ -47,7 +55,7 @@ export class SpriteCharacter {
     // as a missing section of staff; a swing keeps the hand on it throughout.
     this.castAnim = charClass === 'ranger' ? 'shoot' : 'slash';
 
-    const size = FRAME * worldUnitsPerTexel() * SPRITE_SCALE;
+    const size = spriteWorldHeight();
     this.material = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.01 });
     this.material.visible = false; // until textures arrive
     this.plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.material);

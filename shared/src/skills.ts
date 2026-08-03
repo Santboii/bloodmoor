@@ -1,5 +1,5 @@
-import type { SpellId, CharacterClass } from './types.js';
-import { TELEPORT_MAX_RANGE } from './types.js';
+import type { SpellId, CharacterClass, SlotIndex } from './types.js';
+import { TELEPORT_MAX_RANGE, MAX_SPELL_SLOTS } from './types.js';
 
 export type NodeId =
   | 'fire.fireball' | 'fire.volatile_ember' | 'fire.seeking_flame'
@@ -140,22 +140,108 @@ export const SKILL_NODES: SkillNode[] = [
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
 
 // ── Spell bindings ──────────────────────────────────────────────────────────
-// Single source of truth for spell id ↔ unlock node ↔ keybind ↔ class.
+// Single source of truth for spell id ↔ unlock node ↔ default slot ↔ class.
 // Consumed by the server cast gate, the client HUD, input handling, and the
 // skill-unlock → owned-spells derivation. Add new classes/spells here only.
 
-export type SpellBinding = { spell: SpellId; node: NodeId; key: 1 | 2 | 3 | 4; charClass: CharacterClass };
+/** Maps a spell to the node that unlocks it and the class that can cast it.
+ *  `defaultSlot` is the hotbar slot the spell takes when the character has
+ *  not assigned one — it preserves the pre-slots keybind layout. A spell
+ *  without one falls to the lowest empty slot. */
+export type SpellBinding = {
+  spell: SpellId;
+  node: NodeId;
+  charClass: CharacterClass;
+  defaultSlot?: SlotIndex;
+};
 
 export const SPELL_BINDINGS: SpellBinding[] = [
-  { spell: 1, node: 'fire.fireball',          key: 1, charClass: 'mage' },
-  { spell: 2, node: 'fire.fire_wall',         key: 2, charClass: 'mage' },
-  { spell: 3, node: 'fire.meteor',            key: 3, charClass: 'mage' },
-  { spell: 4, node: 'utility.teleport',       key: 4, charClass: 'mage' },
-  { spell: 5, node: 'archer.power_shot',      key: 1, charClass: 'ranger' },
-  { spell: 6, node: 'archer.multishot',       key: 2, charClass: 'ranger' },
-  { spell: 7, node: 'archer.rain_of_arrows',  key: 3, charClass: 'ranger' },
-  { spell: 8, node: 'archer_utility.evade',   key: 4, charClass: 'ranger' },
+  { spell: 1, node: 'fire.fireball',          defaultSlot: 1, charClass: 'mage' },
+  { spell: 2, node: 'fire.fire_wall',         defaultSlot: 2, charClass: 'mage' },
+  { spell: 3, node: 'fire.meteor',            defaultSlot: 3, charClass: 'mage' },
+  { spell: 4, node: 'utility.teleport',       defaultSlot: 4, charClass: 'mage' },
+  { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
+  { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
+  { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
+  { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
 ];
+
+export type SpellSlotRow = { slot: number; spell: number };
+
+/** Each class's movement spell, cast by Space regardless of which slot holds it. */
+export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
+  mage: 4,    // Teleport
+  ranger: 8,  // Evade
+};
+
+const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));
+
+/**
+ * Resolve persisted slot rows into the character's hotbar.
+ *
+ * The model is **snapshot-authoritative**: a character who has edited their
+ * bar has every slot persisted, and those rows are the complete truth.
+ * Defaults apply only to a character who has never edited.
+ *
+ *   1. Explicit rows win. If any survived validation, return immediately —
+ *      an absent slot in a stored snapshot means *deliberately empty*, and
+ *      nothing may fall into it. This is what makes benching a spell
+ *      possible, and it is why "Clear" works.
+ *   2. Otherwise (a never-edited character) every owned spell seeds at its
+ *      legacy default slot. This keeps an existing character's bar identical
+ *      to what it was before slots existed: a mage owning Fireball and
+ *      Meteor keeps them on keys 1 and 3, with the gap where Fire Wall goes.
+ *   3. Anything still unplaced — its default slot was taken, or it has no
+ *      default (Phase B frost spells) — falls to the lowest empty slot.
+ *
+ * The early return keys off whether any row *survived validation*, not
+ * whether any row was supplied. A snapshot whose spells were all respecced
+ * away resolves to defaults rather than stranding the player on an empty
+ * bar.
+ *
+ * Consequence to know: once a character has edited, a newly unlocked spell
+ * does NOT auto-appear on the bar. They assign it from the slot bar on the
+ * skill tree screen, which is where they just spent the point.
+ */
+export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellId | null)[] {
+  const slots: (SpellId | null)[] = new Array(MAX_SPELL_SLOTS).fill(null);
+  const placed = new Set<SpellId>();
+
+  const claim = (index: number, spell: SpellId) => {
+    slots[index] = spell;
+    placed.add(spell);
+  };
+
+  for (const row of rows) {
+    if (!Number.isInteger(row.slot) || row.slot < 1 || row.slot > MAX_SPELL_SLOTS) continue;
+    if (!ALL_SPELL_IDS.has(row.spell)) continue;
+    const spell = row.spell as SpellId;
+    if (!owned.has(spell)) continue;
+    if (placed.has(spell)) continue;      // first row wins
+    if (slots[row.slot - 1] !== null) continue;
+    claim(row.slot - 1, spell);
+  }
+
+  // Snapshot-authoritative: a stored assignment is the whole bar. Empty
+  // slots in it are deliberate benches, so the default passes must not run.
+  if (placed.size > 0) return slots;
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    if (binding.defaultSlot === undefined) continue;
+    const index = binding.defaultSlot - 1;
+    if (slots[index] === null) claim(index, binding.spell);
+  }
+
+  for (const binding of SPELL_BINDINGS) {
+    if (!owned.has(binding.spell) || placed.has(binding.spell)) continue;
+    const free = slots.indexOf(null);
+    if (free === -1) break;
+    claim(free, binding.spell);
+  }
+
+  return slots;
+}
 
 /** The free starter node every character of a class begins with. */
 export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {

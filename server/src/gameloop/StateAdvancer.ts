@@ -13,6 +13,7 @@ import {
   ETERNAL_PYRE_MAX_TICKS, SEARING_CROSS_DAMAGE, SEARING_CROSS_BLAST,
   METEOR_DELAY_TICKS, SHOWER_SPREAD, SHOWER_RADIUS_RATIO, SHOWER_DAMAGE_RATIO,
   METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS, SMOLDER_DURATION_TICKS,
+  REST_CAST_TICKS, REST_REGEN_FRACTION_PER_SEC, REST_COOLDOWN_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -162,6 +163,30 @@ export function advanceState(
     }
   }
 
+  // 0.25 Rest: resolve finished wind-ups and tick regen. Runs before the
+  // status-effect DoT pass so Task 2's damage snapshot (taken here) precedes
+  // every damage source this tick. players[] entries are tick-local copies,
+  // so in-place mutation is safe.
+  const restHpSnapshot: Record<string, number> = {};
+  for (const p of Object.values(players)) {
+    if ((p.restCooldownUntil ?? 0) <= tick && p.restCooldownUntil !== undefined) p.restCooldownUntil = undefined;
+    if (p.hp <= 0) {
+      p.restCastEndTick = undefined;
+      p.resting = undefined;
+      continue;
+    }
+    if (p.restCastEndTick !== undefined && tick >= p.restCastEndTick) {
+      p.restCastEndTick = undefined;
+      p.resting = true;
+    }
+    if (p.resting) {
+      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * REST_REGEN_FRACTION_PER_SEC / TICK_RATE);
+      p.mana = Math.min(p.maxMana, p.mana + p.maxMana * REST_REGEN_FRACTION_PER_SEC / TICK_RATE);
+      if (p.hp >= p.maxHp && p.mana >= p.maxMana) p.resting = undefined;
+    }
+    if (p.restCastEndTick !== undefined || p.resting) restHpSnapshot[p.id] = p.hp;
+  }
+
   // 0.5 Status effects: burn/poison damage over time, expire stale effects.
   // players[] entries are tick-local copies, so in-place mutation is safe.
   for (const p of Object.values(players)) {
@@ -207,6 +232,7 @@ export function advanceState(
       }
     }
     const phantomActive = (p.phantomStepUntil ?? 0) > state.tick;
+    const isMoving = input.move.x !== 0 || input.move.y !== 0;
     players[id] = {
       ...p,
       position: dashing.has(id) ? p.position : movePlayer(p.position, input.move, speedMult),
@@ -216,6 +242,8 @@ export function advanceState(
       castingSpell: null,
       phantomStepUntil: phantomActive ? p.phantomStepUntil : undefined,
       evadeCharges,
+      restCastEndTick: isMoving ? undefined : p.restCastEndTick,
+      resting: isMoving ? undefined : p.resting,
     };
   }
 
@@ -266,6 +294,8 @@ export function advanceState(
       evadeCharges: secondWind ? charges - 1 : p.evadeCharges,
       castingSpell: spell,
       phantomStepUntil: phantomActive ? undefined : p.phantomStepUntil,
+      restCastEndTick: undefined,
+      resting: undefined,
     };
 
     if (spell === 1) {
@@ -457,6 +487,23 @@ export function advanceState(
         }
       }
     }
+  }
+
+  // 2.5 Rest starts — after spell casts so a same-frame cast wins over rest.
+  for (const [id, input] of Object.entries(inputs)) {
+    const p = players[id];
+    if (!p || p.hp <= 0 || !input.rest) continue;
+    if (dashing.has(id)) continue;
+    if (p.castingSpell !== null) continue;                  // cast something this tick instead
+    if (input.move.x !== 0 || input.move.y !== 0) continue; // must be stationary
+    if ((p.restCooldownUntil ?? 0) > tick) continue;
+    if (p.restCastEndTick !== undefined || p.resting) continue;
+    p.restCastEndTick = tick + REST_CAST_TICKS;
+    p.restCooldownUntil = tick + REST_COOLDOWN_TICKS;
+    // DoT that ticked in §0.5 this tick precedes this start pass, so a burning
+    // player's fresh wind-up breaks on the NEXT tick's snapshot — 1/60s late,
+    // behaviorally invisible.
+    restHpSnapshot[id] = p.hp;
   }
 
   // 2b. Fire due echo volleys from the caster's current position
@@ -874,6 +921,16 @@ export function advanceState(
     }
   }
   rainOfArrows = survivingRain;
+
+  // 5c. Damage breaks rest: any hp loss since the post-regen snapshot —
+  // projectile, zone, meteor, or DoT — cancels the wind-up and the regen.
+  for (const [id, hpBefore] of Object.entries(restHpSnapshot)) {
+    const p = players[id];
+    if (p && p.hp < hpBefore) {
+      p.restCastEndTick = undefined;
+      p.resting = undefined;
+    }
+  }
 
   // 6. Win condition
   let phase = state.phase;

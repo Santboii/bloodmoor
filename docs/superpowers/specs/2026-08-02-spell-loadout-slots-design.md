@@ -45,9 +45,15 @@ drops unknown values rather than failing the match.
 RLS mirrors `skill_unlocks`: a character's rows are readable and writable only
 by the owning `user_id`, joined through `characters`.
 
-Writes go through one RPC, `set_spell_slot(p_character_id, p_slot, p_spell)`,
-where a null `p_spell` deletes the row. Matching the existing
-`unlock_skill_node` / `refund_skill_node` pattern keeps authorization in SQL.
+Writes go through one RPC, `set_spell_slots(p_character_id, p_slots smallint[])`,
+which atomically replaces the character's whole six-slot bar; a NULL entry is a
+deliberately empty slot. Matching the existing `unlock_skill_node` /
+`refund_skill_node` pattern keeps authorization in SQL.
+
+The model is **snapshot-authoritative**: once a character has stored any
+assignment those rows are the complete bar and defaults no longer apply. That
+is what makes a benched slot expressible, and it keeps the optimistic UI and
+the stored state identical by construction.
 
 **Defaulting.** A character with no rows gets a deterministic default derived at
 read time, not written to the table: unlocked spells in `SPELL_BINDINGS`
@@ -96,7 +102,7 @@ phase leaves them alone.
 Slot assignment lives in the skill tree screen, which already owns character
 loadout state and has the supabase client wired. Clicking a slot in a new bar
 along the bottom of the skill tree opens a picker of unlocked-but-unslotted
-spells; picking one calls `set_spell_slot` and re-renders optimistically,
+spells; picking one calls `set_spell_slots` and re-renders optimistically,
 matching `buyNode`'s optimistic-then-reconcile flow (`SkillTreeUI.ts:709-728`).
 Assigning a spell already in another slot swaps the two.
 
@@ -119,7 +125,7 @@ One hardcode does need widening for Phase B but is harmless now:
   preserve explicit assignments and fill the rest; a row naming an unowned or
   unknown spell is dropped; more owned spells than slots leaves the overflow
   unslotted.
-- RPC tests alongside the existing skill RPC tests: `set_spell_slot` rejects a
+- RPC tests alongside the existing skill RPC tests: `set_spell_slots` rejects a
   character the caller does not own, accepts null to clear, and enforces the
   1..6 range.
 - HUD test that six slots render and empty slots are non-castable.
