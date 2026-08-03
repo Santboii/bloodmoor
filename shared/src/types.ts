@@ -286,10 +286,10 @@ export const ICE_RAY_DAMAGE_MIN_PER_SEC = 45;
 export const ICE_RAY_DAMAGE_MAX_PER_SEC = 130;
 export const ICE_RAY_MANA_MIN_PER_SEC = 18;
 export const ICE_RAY_MANA_MAX_PER_SEC = 55;
-/** The band starts wide and tightens as the ray charges — a fresh beam is a
- *  weak spray, a full-power one a precise lance. Deliberately START > FULL. */
-export const ICE_RAY_HALF_WIDTH_START = 20;
-export const ICE_RAY_HALF_WIDTH_FULL = 6;
+/** The band starts narrow and widens as the ray charges — a fresh beam is a
+ *  thin lance, a full-power one a broad torrent. Deliberately START < FULL. */
+export const ICE_RAY_HALF_WIDTH_START = 6;
+export const ICE_RAY_HALF_WIDTH_FULL = 20;
 /** Flat while channelling — deliberately not ramped, so the commitment reads
  *  as one decision rather than two variables moving at once. */
 export const ICE_RAY_MOVE_MULT = 0.35;

@@ -150,7 +150,7 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Flash Freeze', description: 'An Ice Bolt hitting an unchilled target roots them for 0.4s (once per 6s per target).' } },
   { id: 'frost.ice_lance',        name: 'Ice Lance',        tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt pierces one additional enemy per rank.', stackable: { softCap: 3, baseEffect: 1 },
     keystone: { name: 'Impaler', description: 'Pierce is unlimited, and each enemy pierced adds +8% damage to later hits.' } },
-  { id: 'frost.ice_ray',          name: 'Ice Ray',          tree: 'frost', tier: 2, cost: 2, isSpell: true,  description: 'Hold to channel a beam. It tightens and intensifies as damage and mana cost climb the longer you hold. You move at 35% speed while channelling.' },
+  { id: 'frost.ice_ray',          name: 'Ice Ray',          tree: 'frost', tier: 2, cost: 2, isSpell: true,  description: 'Hold to channel a beam. Damage, mana cost and width all grow the longer you hold. You move at 35% speed while channelling.' },
   { id: 'frost.frostbite',        name: 'Frostbite',        tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt deals more damage the more slowed the target is.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Rimeheart', description: 'The bonus applies to all your frost damage against that target, not just Ice Bolt.' } },
   { id: 'frost.splintering_ice',  name: 'Splintering Ice',  tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt shatters into shards on impact. One more shard per rank.', stackable: { softCap: 3, baseEffect: 1 },
