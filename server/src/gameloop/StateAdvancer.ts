@@ -15,6 +15,7 @@ import {
   METEOR_CHUNK_DISTANCE, METEOR_CHUNK_RADIUS_RATIO, METEOR_CHUNK_DAMAGE_RATIO, METEOR_CHUNK_DELAY_TICKS, SMOLDER_DURATION_TICKS,
   REST_CAST_TICKS, REST_REGEN_FRACTION_PER_SEC, REST_COOLDOWN_TICKS,
   BLOCK_DAMAGE_REDUCTION, BLOCK_MOVE_MULT, BLOCK_RERAISE_TICKS,
+  JAB_RANGE, JAB_WIDTH, EXECUTIONER_BONUS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -32,6 +33,7 @@ import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
+import { firstJabTarget, jabDamage } from '../spells/Jab.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
@@ -512,10 +514,27 @@ export function advanceState(
           })];
         }
       }
-    } else if (spell === 12 || spell === 13 || spell === 14 || spell === 15) {
+    } else if (spell === 12) {
       const gm = gladMods[id];
       if (!gm) continue;
-      // Mechanics land per-spell in Tasks 6-10.
+      const targetId = firstJabTarget(id, p.position, input.aimTarget, players, tick);
+      if (targetId) {
+        const target = players[targetId];
+        if ((target.invulnUntil ?? 0) <= tick) {
+          // Executioner's Thrust: +50% vs stunned or slowed targets.
+          const hampered = (target.stunUntil ?? 0) > tick || (target.slowUntil ?? 0) > tick;
+          const execMult = gm.jab.executioner && hampered ? 1 + EXECUTIONER_BONUS : 1;
+          const raw = jabDamage(gm.jab.damageMin, gm.jab.damageMax)
+            * gm.jab.damageMultiplier * execMult
+            * getDamageMultiplier(id, targetId, players, resolvedMode);
+          const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
+          players[targetId] = { ...target, hp: Math.max(0, target.hp - mit.damage) };
+        }
+      }
+    } else if (spell === 13 || spell === 14 || spell === 15) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      // Mechanics land per-spell in Tasks 8-10.
     }
   }
 
