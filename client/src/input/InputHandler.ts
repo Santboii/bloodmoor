@@ -59,6 +59,11 @@ export class InputHandler {
   private onMouseMove = (e: MouseEvent) => {
     this.mouseScreen = { x: e.clientX, y: e.clientY };
     this.mouseWorld = this.scene.screenToWorld(e.clientX, e.clientY);
+    // Defensive: the button-2 mouseup listener is canvas-scoped, so releasing
+    // right-click over a DOM overlay (HUD/minimap) or off-window never fires it,
+    // leaving blockHeld stuck true. mousemove fires on the canvas continuously
+    // during normal play, so this closes the gap without widening any listener's scope.
+    if ((e.buttons & 2) === 0) this.blockHeld = false;
   };
 
   private onMouseDown = (e: MouseEvent) => {
