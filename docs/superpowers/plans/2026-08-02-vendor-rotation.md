@@ -18,7 +18,7 @@
 - **`VENDOR_SLOT_COUNT = 6`, `VENDOR_SLOT_LIFETIME_HOURS = 6`, `VENDOR_DAILY_PURCHASE_LIMIT = 6`** — exact values, defined once in `shared/src/economy.ts` and imported everywhere else. No literal `6` in server or client code for these.
 - **Purchase volume must not change.** At most 6 vendor items per account per UTC day, exactly as today.
 - **Do not stage `client/dist/`.** `vite build` dirties this tracked directory; restore it after any build (`git checkout -- client/dist`).
-- Tests: `npm test --workspace=server` and `npm test --workspace=client`. Both suites must stay green at every commit.
+- Tests: `npm test --workspace=server` and `npm test --workspace=client`. Both suites must stay green at every commit, with exactly two documented exceptions — Task 2 Step 5 (the `vendorStockFor` signature change lands before its server call sites) and Task 6 Step 2 (the client API change lands before ShopScreen). A cross-module signature change has an unavoidable red window unless it lands as one oversized commit; ratified 2026-08-03. No other red commit is acceptable.
 
 ## File Structure
 
