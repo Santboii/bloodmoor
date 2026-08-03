@@ -9,7 +9,7 @@ export type ProjectileType = 'fireball' | 'arrow';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
-export type CharacterClass = 'mage' | 'ranger';
+export type CharacterClass = 'mage' | 'ranger' | 'gladiator';
 
 /**
  * Clamp a raw class value (DB rows, wire payloads) to the current class set.
@@ -17,6 +17,7 @@ export type CharacterClass = 'mage' | 'ranger';
  * value from an unmigrated environment must still resolve, never crash.
  */
 export function normalizeCharacterClass(v: unknown): CharacterClass {
+  if (v === 'gladiator') return 'gladiator';
   return v === 'ranger' || v === 'amazon' ? 'ranger' : 'mage';
 }
 

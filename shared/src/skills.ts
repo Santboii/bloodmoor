@@ -15,7 +15,7 @@ export type NodeId =
   | 'archer_utility.evade' | 'archer_utility.combat_roll'
   | 'archer_utility.shadowstep' | 'archer_utility.acrobatics';
 
-export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility';
+export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark';
 
 export type StackableConfig = {
   softCap: number;
@@ -173,7 +173,7 @@ export const SPELL_BINDINGS: SpellBinding[] = [
 export type SpellSlotRow = { slot: number; spell: number };
 
 /** Each class's movement spell, cast by Space regardless of which slot holds it. */
-export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
+export const MOBILITY_SPELLS: Partial<Record<CharacterClass, SpellId>> = {
   mage: 4,    // Teleport
   ranger: 8,  // Evade
 };
@@ -248,7 +248,7 @@ export function resolveSlots(owned: Set<SpellId>, rows: SpellSlotRow[]): (SpellI
 }
 
 /** The free starter node every character of a class begins with. */
-export const CLASS_DEFAULT_NODE: Record<CharacterClass, NodeId> = {
+export const CLASS_DEFAULT_NODE: Partial<Record<CharacterClass, NodeId>> = {
   mage: 'fire.fireball',
   ranger: 'archer.power_shot',
 };

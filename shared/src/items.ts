@@ -518,6 +518,7 @@ export const TALENT_AFFIX_WEIGHT = 0.25;
 const CLASS_TREES: Record<CharacterClass, SkillTree[]> = {
   mage: ['fire', 'utility'],
   ranger: ['archer', 'archer_utility'],
+  gladiator: ['arms', 'bulwark'],
 };
 
 function rollInRange([lo, hi]: [number, number], rng: () => number): number {
@@ -537,7 +538,7 @@ function pickWithoutReplacement<T>(pool: readonly T[], count: number, rng: () =>
 /** Classes able to equip a base — the single restricted class for weapons,
  * both classes for class-agnostic slots. */
 function equippingClasses(base: ItemBase): CharacterClass[] {
-  return base.classRestriction ? [base.classRestriction] : ['mage', 'ranger'];
+  return base.classRestriction ? [base.classRestriction] : ['mage', 'ranger', 'gladiator'];
 }
 
 /** Talent node for a rolled talent affix — 2:1 weighted toward trees owned

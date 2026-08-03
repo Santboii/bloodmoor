@@ -84,6 +84,11 @@ export const CLASS_DEFAULT_APPEARANCE: Record<CharacterClass, Appearance> = {
     eyes: null, torso: 'longsleeve', torsoColor: 'green', legsColor: 'brown',
     hat: null, hatColor: 'base_black',
   },
+  gladiator: {
+    body: 'male', skin: 'bronze', hairStyle: 'plain', hairColor: 'black',
+    eyes: null, torso: 'longsleeve', torsoColor: 'red', legsColor: 'brown',
+    hat: null, hatColor: 'base_black',
+  },
 };
 
 export const APPEARANCE_OPTIONS = {
