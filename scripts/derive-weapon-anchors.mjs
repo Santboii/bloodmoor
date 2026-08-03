@@ -33,6 +33,7 @@ const ANIMS = {
   shoot: { frames: 13, rows: 4 },
   hurt: { frames: 6, rows: 1 },
   slash: { frames: 6, rows: 4 },
+  thrust: { frames: 8, rows: 4 },
 };
 const DIRS = ['up', 'left', 'down', 'right']; // LPC row order
 
@@ -215,6 +216,10 @@ const WEAPONS = {
   short_bow: { ref: ['weapon/ranged/bow/normal/universal/background/normal', 'weapon/ranged/bow/normal/universal/foreground/normal'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
   war_bow: { ref: ['weapon/ranged/bow/recurve/universal/background/recurve', 'weapon/ranged/bow/recurve/universal/foreground/recurve'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
   great_bow: { ref: ['weapon/ranged/bow/great/universal/background/great', 'weapon/ranged/bow/great/universal/foreground/great'], anim: 'shoot', frame: BOW_REST_FRAME, body: 'female' },
+  // Spears rest naturally in their own walk art, like the staves.
+  iron_spear: { ref: ['weapon/polearm/spear/background/iron', 'weapon/polearm/spear/foreground/iron'], anim: 'walk' },
+  war_spear: { ref: ['weapon/polearm/spear/background/steel', 'weapon/polearm/spear/foreground/steel'], anim: 'walk' },
+  champion_spear: { ref: ['weapon/polearm/spear/background/gold', 'weapon/polearm/spear/foreground/gold'], anim: 'walk' },
 };
 
 const REF = {

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 
 const BASE = 'https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/spritesheets';
 const OUT = 'client/public/assets/lpc';
-const ANIMS = ['walk', 'run', 'idle', 'spellcast', 'shoot', 'hurt', 'slash'];
+const ANIMS = ['walk', 'run', 'idle', 'spellcast', 'shoot', 'hurt', 'slash', 'thrust'];
 
 // Mirror of shared/src/appearance.ts layersFor() for both defaults —
 // kept inline so the script runs without a build step.
@@ -73,6 +73,16 @@ const LAYERS = [
   'weapon/ranged/bow/recurve/universal/foreground/recurve',
   'weapon/ranged/bow/great/universal/background/great',
   'weapon/ranged/bow/great/universal/foreground/great',
+  // Gladiator spears — same color-per-file layout as the hats/armour above
+  // (upstream: <dir>/<anim>/<color>.png), three color variants standing in
+  // for three visually-distinct polearm bases (the spear itself only ships
+  // walk/thrust/hurt, no oversize handling needed unlike trident/longspear).
+  'weapon/polearm/spear/background/iron',
+  'weapon/polearm/spear/foreground/iron',
+  'weapon/polearm/spear/background/steel',
+  'weapon/polearm/spear/foreground/steel',
+  'weapon/polearm/spear/background/gold',
+  'weapon/polearm/spear/foreground/gold',
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)
@@ -117,6 +127,7 @@ const EXPECTED_DIMS = {
   shoot:     { w: 13 * 64, h: 4 * 64 },
   hurt:      { w: 6 * 64,  h: 1 * 64 },
   slash:     { w: 6 * 64,  h: 4 * 64 },  // the sword-style swing
+  thrust:    { w: 8 * 64,  h: 4 * 64 },
 };
 
 /** Read width/height straight out of the PNG IHDR chunk (bytes 16-23 of a

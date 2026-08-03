@@ -269,6 +269,31 @@ export const ITEM_BASES: ItemBase[] = [
       { path: 'weapon/ranged/bow/great/universal/foreground/great', z: 70, weaponRole: 'front' },
     ], nativeAnims: ['shoot'] },
   },
+  // Spears reuse the bow icon-fallback rationale: FA free has no spear glyph.
+  {
+    id: 'iron_spear', slot: 'weapon', name: 'Iron Spear', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 1, implicit: { id: 'damage_pct', value: 2 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/iron', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/iron', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
+  {
+    id: 'war_spear', slot: 'weapon', name: 'War Spear', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 7, implicit: { id: 'damage_pct', value: 6 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/steel', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/steel', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
+  {
+    id: 'champion_spear', slot: 'weapon', name: 'Champion Spear', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 10, implicit: { id: 'damage_pct', value: 9 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/gold', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/gold', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
 ];
 
 /**

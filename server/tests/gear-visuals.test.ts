@@ -140,7 +140,7 @@ describe('layersForLoadout', () => {
   });
   it('never leaves an unsubstituted token for any body/base combination', () => {
     const visible = ITEM_BASES.filter(b => b.lpc);
-    expect(visible.length).toBe(12);
+    expect(visible.length).toBe(15);
     for (const body of APPEARANCE_OPTIONS.body) {
       const a: Appearance = { ...MAGE, body };
       for (const base of visible) {
@@ -158,7 +158,7 @@ describe('weapon attachment integrity', () => {
   const weapons = ITEM_BASES.filter(b => b.slot === 'weapon' && b.lpc);
 
   it('covers every weapon base', () => {
-    expect(weapons.length).toBe(6);
+    expect(weapons.length).toBe(9);
     for (const w of weapons) {
       expect(WEAPON_GRIPS[w.id], `no grip derived for ${w.id}`).toBeTruthy();
     }

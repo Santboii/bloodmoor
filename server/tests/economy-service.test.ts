@@ -141,7 +141,7 @@ describe('getVendorView', () => {
       expect(slot.price).toBe(rawStock[i].price);
       expect(slot.slotIndex).toBe(i);
       expect(slot.purchased).toBe(i === purchasedIndex);
-      const expectCrossClass = rawStock[i].base.classRestriction === 'ranger';
+      const expectCrossClass = rawStock[i].base.classRestriction != null && rawStock[i].base.classRestriction !== 'mage';
       expect(slot.crossClass).toBe(expectCrossClass);
     });
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CHARACTER_CLASSES, normalizeCharacterClass, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
 import { SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, MOBILITY_SPELLS,
-         SKILL_NODES, GATES, canUnlock, classOfSpell } from '@arena/shared';
+         SKILL_NODES, GATES, canUnlock, classOfSpell, ITEM_BASES } from '@arena/shared';
 import type { NodeId } from '@arena/shared';
 
 describe('Gladiator character class', () => {
@@ -63,5 +63,12 @@ describe('Gladiator spells and skill tree', () => {
   it('gates reflect behind bracing', () => {
     expect(canUnlock('bulwark.reflect' as NodeId, new Map())).toBe(false);
     expect(canUnlock('bulwark.reflect' as NodeId, new Map([['bulwark.bracing' as NodeId, 1]]))).toBe(true);
+  });
+});
+
+describe('Gladiator weapons', () => {
+  it('ships gladiator-restricted spears at bands 1/7/10', () => {
+    const spears = ITEM_BASES.filter(b => b.slot === 'weapon' && b.classRestriction === 'gladiator');
+    expect(spears.map(s => s.itemLevel).sort((a, b) => a - b)).toEqual([1, 7, 10]);
   });
 });
