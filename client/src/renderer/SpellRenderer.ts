@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS, aurasForGear, type AuraAnchor, type Vec2 } from '@arena/shared';
-import type { FireWallState } from '@arena/shared';
+import type { FireWallState, PlayerState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
 import { spriteWorldHeight } from './sprites/SpriteCharacter';
@@ -667,11 +667,24 @@ export class SpellRenderer {
    * keyed by player id, each created on first sight and disposed the moment
    * its condition (blocking / reflectUntil / stunUntil) stops holding. Stun
    * stars are the legibility-critical one: they're the only on-screen signal
-   * telling a stunned player why their inputs are dead. */
+   * telling a stunned player why their inputs are dead.
+   *
+   * Also drops all three the moment a player is a corpse or invisible to
+   * this viewer — mirrors syncUniqueAuras's hp<=0 / isInvisibleToViewer
+   * guard exactly (including its viewer-aware semantics: a player always
+   * sees their own effects, per isInvisibleToViewer's `player.id !== viewerId`
+   * check). Without it, a corpse's stale `blocking` flag (the server's §1
+   * loop skips hp<=0 players, so it never latches back to false) would leave
+   * the shield arc rendering forever, and a Shadowstepped player's exact
+   * position would leak through the shield/shimmer/stars to every other
+   * viewer. */
   private syncGladiatorStatus(state: GameState): void {
+    const hidden = (p: PlayerState | undefined): boolean =>
+      !p || p.hp <= 0 || isInvisibleToViewer(p, this.myId, state.tick);
+
     for (const [id, entry] of this.blockShields) {
       const p = state.players[id];
-      if (!p || !p.blocking) {
+      if (hidden(p) || !p!.blocking) {
         this.scene.remove(entry.mesh);
         disposeObject3D(entry.mesh);
         this.blockShields.delete(id);
@@ -679,7 +692,7 @@ export class SpellRenderer {
     }
     for (const [id, entry] of this.reflectShimmers) {
       const p = state.players[id];
-      if (!p || !((p.reflectUntil ?? 0) > state.tick)) {
+      if (hidden(p) || !((p!.reflectUntil ?? 0) > state.tick)) {
         this.scene.remove(entry.mesh);
         disposeObject3D(entry.mesh);
         this.reflectShimmers.delete(id);
@@ -687,13 +700,15 @@ export class SpellRenderer {
     }
     for (const [id, entry] of this.stunStars) {
       const p = state.players[id];
-      if (!p || !((p.stunUntil ?? 0) > state.tick)) {
+      if (hidden(p) || !((p!.stunUntil ?? 0) > state.tick)) {
         for (const sprite of entry.sprites) this.scene.remove(sprite);
         this.stunStars.delete(id);
       }
     }
 
     for (const p of Object.values(state.players)) {
+      if (p.hp <= 0 || isInvisibleToViewer(p, this.myId, state.tick)) continue;
+
       if (p.blocking) {
         if (!this.blockShields.has(p.id)) {
           const mesh = new THREE.Mesh(BLOCK_SHIELD_GEO, BLOCK_SHIELD_MAT);
