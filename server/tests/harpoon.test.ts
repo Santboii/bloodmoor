@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { spawnHarpoon, advanceHarpoon, isHarpoonExpired, harpoonHitsPlayer } from '../src/spells/Harpoon.ts';
 import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts';
 import {
-  HARPOON_SPEED, HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, DELTA,
-  TEAM_DUEL_MODE, PILLARS, PLAYER_HALF_SIZE,
+  HARPOON_SPEED, HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, HARPOON_DRAG_MAX_STEP, DELTA,
+  TEAM_DUEL_MODE, PILLARS, PLAYER_HALF_SIZE, EVADE_RANGE, EVADE_DURATION_TICKS,
 } from '@arena/shared';
 import type { InputFrame, NodeId } from '@arena/shared';
 
@@ -17,6 +17,9 @@ const REEL2_GLAD = new Map<NodeId, number>([
   ['arms.jab', 1], ['arms.spear_throw', 1], ['arms.harpoon', 1], ['arms.quick_reel', 2],
 ]);
 const MAGE = new Map<NodeId, number>([['fire.fireball', 1]] as [NodeId, number][]);
+const EVADE_RANGER = new Map<NodeId, number>([
+  ['archer.power_shot', 1], ['archer_utility.evade', 1],
+]);
 
 const frame = (over: Partial<InputFrame> = {}): InputFrame =>
   ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, ...over });
@@ -228,5 +231,59 @@ describe('Harpoon cast (spell 18) — drag', () => {
     const skills = { A: REEL2_GLAD, B: MAGE };
     s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect(s.players.A.cooldowns[18]).toBeLessThan(600);
+  });
+
+  it('an Evade dash mid-drag stretches the distance without an unbounded catch-up snap', () => {
+    let s = makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'gladiator', spawnPos: { x: 600, y: 600 } },
+      { id: 'B', displayName: 'B', charClass: 'ranger',    spawnPos: { x: 1000, y: 600 } },
+    ]);
+    const skills = { A: SKEWER_GLAD, B: EVADE_RANGER };
+    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    for (let i = 0; i < 80 && s.players.B.draggedBy === undefined; i++) {
+      s = advanceState(s, { A: frame(), B: frame() }, skills);
+    }
+    expect(s.players.B.draggedBy).toBe('A');
+
+    // Let most of the drag elapse first — the catch-up bug bites hardest when
+    // few ticks remain (small ticksLeft denominator) at the moment of escape.
+    for (let i = 0; i < HARPOON_DRAG_TICKS - 5 && s.players.B.draggedBy !== undefined; i++) {
+      s = advanceState(s, { A: frame(), B: frame() }, skills);
+    }
+    expect(s.players.B.draggedBy).toBe('A'); // still dragging, close to dragEndTick
+
+    // Mid-drag escape: B dashes straight away from A.
+    s = advanceState(
+      s,
+      { A: frame(), B: frame({ castSpell: 8, aimTarget: { x: 2000, y: 600 } }) },
+      skills,
+    );
+    // Confirms the cast wasn't blocked by the dashing gate (drag is forced
+    // movement, not a stun — the victim may still cast, including dashes).
+    expect(s.players.B.castingSpell).toBe(8);
+
+    // A single tick may combine one Evade step (~EVADE_RANGE/EVADE_DURATION_TICKS)
+    // with one capped harpoon catch-up pull (HARPOON_DRAG_MAX_STEP) — never more.
+    const maxPerTick = HARPOON_DRAG_MAX_STEP + EVADE_RANGE / EVADE_DURATION_TICKS + 2; // +2 epsilon
+    let prev = { ...s.players.B.position };
+    let ticks = 0;
+    while (s.players.B.draggedBy !== undefined && ticks < HARPOON_DRAG_TICKS + EVADE_DURATION_TICKS + 5) {
+      s = advanceState(s, { A: frame(), B: frame() }, skills);
+      const cur = s.players.B.position;
+      const step = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+      expect(step).toBeLessThanOrEqual(maxPerTick);
+      prev = { ...cur };
+      ticks++;
+    }
+    expect(s.players.B.draggedBy).toBeUndefined();
+
+    // Escape succeeded: the victim lands beyond the normal stop distance, and
+    // Skewer — which only arms on a landed-in-range drag — must not have fired.
+    const dist = Math.hypot(
+      s.players.A.position.x - s.players.B.position.x,
+      s.players.A.position.y - s.players.B.position.y,
+    );
+    expect(dist).toBeGreaterThan(HARPOON_DRAG_STOP_DISTANCE);
+    expect(s.players.A.skewerJabUntil).toBeUndefined();
   });
 });

@@ -385,6 +385,7 @@ export const HARPOON_DAMAGE_MIN = 70;
 export const HARPOON_DAMAGE_MAX = 90;
 export const HARPOON_DRAG_TICKS = Math.round(0.35 * TICK_RATE);  // 21
 export const HARPOON_DRAG_STOP_DISTANCE = 40;  // lands just outside melee
+export const HARPOON_DRAG_MAX_STEP = 30; // world units per tick — caps catch-up when the victim dashes mid-drag
 export const SKEWER_WINDOW_TICKS = 2 * TICK_RATE;                // 120
 export const DUST_RADIUS = 120;
 export const DUST_DURATION_TICKS = Math.round(2.5 * TICK_RATE);  // 150

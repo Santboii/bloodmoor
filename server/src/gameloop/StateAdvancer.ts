@@ -31,7 +31,7 @@ import {
   RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
   WAR_CRY_DAMAGE, WAR_CRY_ALLY_SPEED_FACTOR, WAR_CRY_ALLY_SPEED_TICKS, RALLY_TICKS, RALLY_DAMAGE_MULT,
   FLURRY_HIT_INTERVAL_TICKS, FLURRY_MOVE_MULT, BLOODSONG_STUN_TICKS,
-  HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, SKEWER_WINDOW_TICKS,
+  HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, HARPOON_DRAG_MAX_STEP, SKEWER_WINDOW_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -255,8 +255,12 @@ export function advanceState(
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     const remaining = Math.max(0, dist - HARPOON_DRAG_STOP_DISTANCE);
     const ticksLeft = Math.max(1, p.dragEndTick - tick);
-    const nx = p.position.x + (dx / dist) * (ticksLeft === 1 ? remaining : remaining / ticksLeft);
-    const ny = p.position.y + (dy / dist) * (ticksLeft === 1 ? remaining : remaining / ticksLeft);
+    // Capped so a mid-drag escape dash (Evade/Leap) can't be caught up to in
+    // a single teleport-like snap on the final tick — the drag simply ends
+    // wherever the victim is, possibly outside the stop distance.
+    const step = Math.min(HARPOON_DRAG_MAX_STEP, ticksLeft === 1 ? remaining : remaining / ticksLeft);
+    const nx = p.position.x + (dx / dist) * step;
+    const ny = p.position.y + (dy / dist) * step;
     players[id] = {
       ...p,
       position: resolvePlayerPillarCollisions(clampToArena({ x: nx, y: ny })),
