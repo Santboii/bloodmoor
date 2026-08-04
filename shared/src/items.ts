@@ -189,6 +189,10 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  * not a contract — tests anchor bases by id, never by array position, so
  * re-sorting this catalog must never change test outcomes.
  *
+ * Every item-level band (1, 4, 7, 10) has at least one base of each
+ * class-agnostic accessory slot — Phase 2's drop rolls and the admin grant
+ * tool pick bases by band.
+ *
  * Weapons sit at bands 1, 7 and 10 for every class; gladiator additionally
  * has bands 1 (boar_spear), 4 (bronze_spear) and 7 (serpent_pike) variants —
  * the only L4 weapon in the game so far.
