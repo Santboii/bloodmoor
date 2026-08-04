@@ -1445,6 +1445,8 @@ export function advanceState(
           let best = Infinity;
           for (const other of Object.values(players)) {
             if (other.id === moved.ownerId || other.hp <= 0) continue;
+            if ((other.invisibleUntil ?? 0) > tick ||
+                concealedByDust(other.position, players[moved.ownerId]?.position ?? moved.position, fireWalls, tick)) continue;
             if (resolvedMode.teamsEnabled && other.teamId !== undefined &&
                 other.teamId === players[moved.ownerId]?.teamId) continue;
             const dx = other.position.x - moved.position.x;
@@ -1680,6 +1682,8 @@ export function advanceState(
       let best = Infinity;
       for (const other of Object.values(players)) {
         if (other.id === m.ownerId || other.hp <= 0) continue;
+        if ((other.invisibleUntil ?? 0) > tick ||
+            concealedByDust(other.position, caster?.position ?? m.target, fireWalls, tick)) continue;
         if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === caster?.teamId) continue;
         const d = (other.position.x - m.target.x) ** 2 + (other.position.y - m.target.y) ** 2;
         if (d < best) { best = d; nearest = other.position; }

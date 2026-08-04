@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeInitialState, advanceState, concealedByDust } from '../src/gameloop/StateAdvancer.ts';
 import {
-  DUST_RADIUS, DUST_DURATION_TICKS, VANISH_TICKS, PLAYER_HALF_SIZE, effectAtRank,
+  DUST_RADIUS, DUST_DURATION_TICKS, VANISH_TICKS, PLAYER_HALF_SIZE, effectAtRank, FALLING_STAR_TICKS,
 } from '@arena/shared';
 import type { InputFrame, NodeId, FireWallState } from '@arena/shared';
 
@@ -201,5 +201,88 @@ describe('Vanish keystone', () => {
     // Sanity: A actually did travel outside the (unranked) zone's radius over that span.
     const dist = Math.hypot(s.players.A.position.x - 600, s.players.A.position.y - 600);
     expect(dist).toBeGreaterThan(DUST_RADIUS + PLAYER_HALF_SIZE);
+  });
+});
+
+describe('Kick Up Dust — Volatile Ember aim exclusion', () => {
+  // A direct hit on dummy player D (parked right where the fireball is
+  // spawned, one tiny step of drift away from full overlap) gives a fully
+  // deterministic in-bounds detonation point — D itself lands at d² < 1
+  // from the burst either way, so it's excluded from the aim search on the
+  // existing "degenerate distance" rule regardless of concealment.
+  function setup() {
+    return makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'mage', spawnPos: { x: 600, y: 1000 } },  // owner — the ember-aim viewer
+      { id: 'D', displayName: 'D', charClass: 'mage', spawnPos: { x: 300, y: 1000 } },  // direct-hit target (degenerate distance)
+      { id: 'C', displayName: 'C', charClass: 'mage', spawnPos: { x: 350, y: 1000 } },  // concealed, closer to the burst (~heading 0°)
+      { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 300, y: 1300 } },  // visible, farther (~heading +90°)
+    ]);
+  }
+  const skills = {
+    A: new Map<NodeId, number>([['fire.fireball', 1], ['fire.volatile_ember', 1]]),
+    D: new Map<NodeId, number>(), C: new Map<NodeId, number>(), B: new Map<NodeId, number>(),
+  };
+  const idle = frame();
+  const inputs = { A: idle, D: idle, C: idle, B: idle };
+
+  it('aims the fan at a visible enemy instead of a closer dust-concealed one', () => {
+    const state = setup();
+    state.fireWalls.push({
+      id: 'dust_test', kind: 'dust', ownerId: 'C', segments: [], spawnedAt: 0, expiresAt: 10_000,
+      shape: 'circle', center: { x: 350, y: 1000 }, radius: 50, noDamage: true,
+    });
+    state.projectiles.push({
+      id: 'fb_test', ownerId: 'A', type: 'fireball',
+      position: { x: 300, y: 1000 }, velocity: { x: -30, y: 0 }, radius: 10,
+      damageMin: 80, damageMax: 120, bounceCount: 0,
+    });
+    const next = advanceState(state, inputs, skills);
+    const embers = next.projectiles.filter(p => (p.emberGen ?? 0) >= 1);
+    expect(embers.length).toBeGreaterThan(0);
+    // Aimed toward B (~+90°, straight "south" of the burst), not C (~0°, "east").
+    for (const e of embers) {
+      const heading = Math.atan2(e.velocity.y, e.velocity.x);
+      expect(Math.abs(heading - Math.PI / 2)).toBeLessThan(0.5);
+    }
+  });
+
+  it('control: with no dust zone, the same setup aims at the closer enemy (C)', () => {
+    const state = setup();
+    state.projectiles.push({
+      id: 'fb_test', ownerId: 'A', type: 'fireball',
+      position: { x: 300, y: 1000 }, velocity: { x: -30, y: 0 }, radius: 10,
+      damageMin: 80, damageMax: 120, bounceCount: 0,
+    });
+    const next = advanceState(state, inputs, skills);
+    const embers = next.projectiles.filter(p => (p.emberGen ?? 0) >= 1);
+    expect(embers.length).toBeGreaterThan(0);
+    for (const e of embers) {
+      const heading = Math.atan2(e.velocity.y, e.velocity.x);
+      expect(Math.abs(heading)).toBeLessThan(0.5); // aimed toward C (~0°), not B (~90°)
+    }
+  });
+});
+
+describe('Kick Up Dust — Falling Star steering exclusion', () => {
+  it('does not steer toward a dust-concealed player, even when much closer', () => {
+    const state = makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'mage', spawnPos: { x: 1000, y: 1500 } }, // owner — the steering viewer
+      { id: 'C', displayName: 'C', charClass: 'mage', spawnPos: { x: 1010, y: 1000 } }, // concealed, closest to origin
+      { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 1150, y: 1000 } }, // visible, farther but in range
+    ]);
+    state.fireWalls.push({
+      id: 'dust_test', kind: 'dust', ownerId: 'C', segments: [], spawnedAt: 0, expiresAt: 10_000,
+      shape: 'circle', center: { x: 1010, y: 1000 }, radius: 60, noDamage: true,
+    });
+    state.meteors.push({
+      id: 'm_test', ownerId: 'A', target: { x: 1000, y: 1000 }, origin: { x: 1000, y: 1000 },
+      strikeAt: state.tick + FALLING_STAR_TICKS, aoeRadius: 100, steerRadius: 200, fallingStar: true,
+    });
+    const idle = frame();
+    const next = advanceState(state, { A: idle, C: idle, B: idle });
+    const m = next.meteors.find(mm => mm.id === 'm_test')!;
+    // 150 units, well inside steerRadius (200) — an exact snap onto B confirms
+    // the fallback picked B, not merely "moved a bit off C's exact spot".
+    expect(m.target).toEqual({ x: 1150, y: 1000 });
   });
 });

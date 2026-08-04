@@ -1,5 +1,6 @@
 import { GameState, PlayerState, SpellId, SPELL_CONFIG, MAX_HP, MAX_MANA, EVADE_MAX_CHARGES, MAX_SPELL_SLOTS, REST_CAST_TICKS, REST_COOLDOWN_TICKS, BLOCK_RERAISE_TICKS } from '@arena/shared';
 import { Minimap } from './Minimap';
+import { isConcealedFromViewer } from '../renderer/SpellRenderer';
 import * as sfx from '../audio/sfx';
 
 // Same Font Awesome glyphs the skill tree uses for these spells' nodes.
@@ -410,7 +411,10 @@ export class HUD {
     }
     this.prevHp = newPrevHp;
 
-    this.minimap.update(me, otherStates);
+    // Minimap dots must respect concealment (Shadowstep and Kick Up Dust) —
+    // the enemy HP rows above intentionally do not, to avoid row churn.
+    const minimapStates = otherStates.filter(p => !isConcealedFromViewer(p, me, state.fireWalls, state.tick));
+    this.minimap.update(me, minimapStates);
   }
 
   setBlockSlotVisible(visible: boolean): void {
