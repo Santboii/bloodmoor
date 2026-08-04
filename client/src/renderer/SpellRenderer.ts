@@ -993,7 +993,7 @@ export class SpellRenderer {
       if (fw.kind !== 'dust' || !fw.center || !fw.radius) continue;
 
       if (!this.dustClouds.has(fw.id)) {
-        const count = 10 + Math.floor(Math.random() * 5); // 10-14
+        const count = 28;
         const material = new THREE.SpriteMaterial({
           map: getDustSpriteTexture(), color: 0xc9b37e, transparent: true, depthWrite: false,
         });
@@ -1004,12 +1004,12 @@ export class SpellRenderer {
         const heights: number[] = [];
         for (let i = 0; i < count; i++) {
           const sprite = new THREE.Sprite(material);
-          const scale = 20 + Math.random() * 16;
+          const scale = (20 + Math.random() * 16) * 1.6;
           sprite.scale.set(scale, scale, 1);
           group.add(sprite);
           angles.push(Math.random() * Math.PI * 2);
           radii.push(Math.random() * fw.radius);
-          angularSpeeds.push((Math.random() - 0.5) * 0.6);
+          angularSpeeds.push((Math.random() - 0.5) * 0.36);
           heights.push(4 + Math.random() * 14);
         }
         this.scene.add(group);
@@ -1028,7 +1028,7 @@ export class SpellRenderer {
           fw.center.y + Math.sin(entry.angles[i]) * entry.radii[i],
         );
       }
-      entry.material.opacity = 0.35 + Math.sin(this.elapsedTime * 1.5 + entry.phase) * 0.15;
+      entry.material.opacity = 0.45 + Math.sin(this.elapsedTime * 1.5 + entry.phase) * 0.25;
     }
   }
 
