@@ -52,6 +52,8 @@ const NODE_ICONS: Record<NodeId, string> = {
   'arms.extended_flurry':'fa-plus',
   'arms.harpoon':        'fa-anchor',
   'arms.quick_reel':     'fa-rotate-left',
+  'gladiator_utility.soaring_reach': 'fa-arrows-left-right',
+  'gladiator_utility.momentum':      'fa-gauge-high',
   'bulwark.bracing':      'fa-shield',
   'bulwark.mobile_guard':      'fa-person-hiking',
   'bulwark.reflect':           'fa-repeat',
@@ -208,12 +210,17 @@ const ARMS_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'arms.spear_throw':      { x: 70, row: 1 },
   'arms.serrated_edge':    { x: 25, row: 2 },
   'arms.stunning_blow':    { x: 50, row: 2 },
-  'arms.leap':             { x: 50, row: 3 },
-  'arms.crushing_landing': { x: 30, row: 4 },
-  'arms.spear_flurry':     { x: 70, row: 4 },
-  'arms.extended_flurry':  { x: 80, row: 5 },
-  'arms.harpoon':          { x: 45, row: 5 },
-  'arms.quick_reel':       { x: 45, row: 6 },
+  'arms.spear_flurry':     { x: 70, row: 3 },
+  'arms.extended_flurry':  { x: 80, row: 4 },
+  'arms.harpoon':          { x: 45, row: 4 },
+  'arms.quick_reel':       { x: 45, row: 5 },
+};
+
+const FOOTWORK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'arms.leap':                       { x: 50, row: 0 },
+  'arms.crushing_landing':           { x: 30, row: 1 },
+  'gladiator_utility.soaring_reach': { x: 70, row: 1 },
+  'gladiator_utility.momentum':      { x: 50, row: 2 },
 };
 
 const BULWARK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
@@ -229,7 +236,7 @@ const BULWARK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 7, BULWARK_ROWS = 5, HUNTER_ROWS = 7;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 6, BULWARK_ROWS = 5, HUNTER_ROWS = 7, FOOTWORK_ROWS = 3;
 
 /**
  * The tree used to be drawn at one fixed size tuned to survive a 720px
@@ -306,6 +313,7 @@ const TREE_ACCENT: Record<SkillNode['tree'], string> = {
   // Hunter: mossy green — the ranger's third column has to read as its own
   // element beside archer's orange rather than a second warm tree.
   hunter: '#7fae5c',
+  gladiator_utility: '#b48cff',
 };
 
 /** Which CSS-only backdrop each tree panel gets (`.st-tree-panel-body[data-motif]`
@@ -326,6 +334,7 @@ const TREE_MOTIF: Record<SkillNode['tree'], 'ember' | 'frost' | 'arcane'> = {
   // There is no earth motif; ember is the closest of the three to Hunter's
   // ground-and-iron feel, and the green accent carries the distinction.
   hunter: 'ember',
+  gladiator_utility: 'arcane',
 };
 
 /** Icon shown beside the spec name in each panel header — the WoW reference's
@@ -341,6 +350,7 @@ const TREE_ICON: Record<SkillNode['tree'], string> = {
   arms: 'fa-hand-fist',
   bulwark: 'fa-shield-halved',
   hunter: 'fa-bomb',
+  gladiator_utility: 'fa-shoe-prints',
 };
 
 /** Per-class tree layout: which `SKILL_NODES` trees render in the main, third
@@ -349,9 +359,10 @@ const TREE_ICON: Record<SkillNode['tree'], string> = {
  *  the single deepest tree across all classes so the page height never
  *  depends on which class is open.
  *
- *  `third` is optional — a class with only two trees (gladiator) omits it and
- *  renders two columns. It exists because both the mage and the ranger now
- *  have a third tree; before that, frost was hardcoded at six sites here. */
+ *  `third` is optional — a class with only two trees would omit it and
+ *  render two columns, but all three classes now have a third tree (mage:
+ *  frost, ranger: hunter, gladiator: bulwark); before that, frost was
+ *  hardcoded at six sites here. */
 const TREE_CONFIG: Record<CharacterClass, {
   main: SkillTree; util: SkillTree; mainLabel: string; utilLabel: string;
   mainPositions: Partial<Record<NodeId, NodePos>>; utilPositions: Partial<Record<NodeId, NodePos>>;
@@ -362,7 +373,8 @@ const TREE_CONFIG: Record<CharacterClass, {
                third: { tree: 'frost',  label: 'Frost',  positions: FROST_POSITIONS,  rows: FROST_ROWS } },
   ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS, utilRows: UTIL_ROWS,
                third: { tree: 'hunter', label: 'Hunter', positions: HUNTER_POSITIONS, rows: HUNTER_ROWS } },
-  gladiator: { main: 'arms',   util: 'bulwark',        mainLabel: 'Arms',   utilLabel: 'Bulwark',        mainPositions: ARMS_POSITIONS,   utilPositions: BULWARK_POSITIONS,     mainRows: ARMS_ROWS, utilRows: BULWARK_ROWS },
+  gladiator: { main: 'arms',   util: 'gladiator_utility', mainLabel: 'Arms',   utilLabel: 'Footwork',    mainPositions: ARMS_POSITIONS,   utilPositions: FOOTWORK_POSITIONS,    mainRows: ARMS_ROWS, utilRows: FOOTWORK_ROWS,
+               third: { tree: 'bulwark', label: 'Bulwark', positions: BULWARK_POSITIONS, rows: BULWARK_ROWS } },
 };
 
 const STYLES = `
@@ -795,8 +807,8 @@ export class SkillTreeUI {
 
     // Keystones and "choose one" groups aren't universal across every tree,
     // and a legend entry for a marker the open class never draws is just
-    // noise. Classes with a third tree (mage: frost, ranger: hunter) draw all
-    // three; the gladiator draws its two.
+    // noise. Every class now has a third tree (mage: frost, ranger: hunter,
+    // gladiator: bulwark), so all three columns feed the legend.
     const shown = [...mainNodes, ...thirdNodes, ...utilNodes];
     const hasKeystones = shown.some(n => n.keystone);
     const hasExclusive = shown.some(n => GATES[n.id]?.mutuallyExclusive?.length);

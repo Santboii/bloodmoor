@@ -57,16 +57,17 @@ describe('Gladiator spells and skill tree', () => {
     expect(SPELL_CONFIG[16]).toEqual({ manaCost: 30, cooldownTicks: 180 });
   });
 
-  it('has 11 arms nodes and 9 bulwark nodes', () => {
-    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(11);
+  it('has 9 arms nodes, 9 bulwark nodes, and 4 gladiator_utility nodes', () => {
+    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(9);
     expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(9);
+    expect(SKILL_NODES.filter(n => n.tree === 'gladiator_utility')).toHaveLength(4);
   });
 
-  it('gates leap behind spear_throw plus one tier-3 node', () => {
-    const base = new Map<NodeId, number>([['arms.jab', 1], ['arms.spear_throw', 1]]);
-    expect(canUnlock('arms.leap' as NodeId, base)).toBe(false);
-    const withStun = new Map([...base, ['arms.stunning_blow' as NodeId, 1]]);
-    expect(canUnlock('arms.leap' as NodeId, withStun)).toBe(true);
+  it('leap is the ungated starter of the footwork tree; crushing landing still needs leap', () => {
+    expect(canUnlock('arms.leap' as NodeId, new Map())).toBe(true);
+    expect(canUnlock('arms.crushing_landing' as NodeId, new Map())).toBe(false);
+    const withLeap = new Map<NodeId, number>([['arms.leap', 1]]);
+    expect(canUnlock('arms.crushing_landing' as NodeId, withLeap)).toBe(true);
   });
 
   it('gates reflect behind bracing', () => {

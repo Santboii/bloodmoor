@@ -19,6 +19,7 @@ export type NodeId =
   | 'arms.serrated_edge' | 'arms.spear_flurry' | 'arms.extended_flurry' | 'arms.harpoon' | 'arms.quick_reel'
   | 'bulwark.bracing' | 'bulwark.mobile_guard' | 'bulwark.reflect' | 'bulwark.perfect_guard'
   | 'bulwark.war_cry' | 'bulwark.intimidating_presence' | 'bulwark.kick_up_dust' | 'bulwark.sandstorm' | 'bulwark.iron_skin'
+  | 'gladiator_utility.soaring_reach' | 'gladiator_utility.momentum'
   | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance' | 'frost.ice_ray'
   | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
   | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
@@ -30,7 +31,7 @@ export type NodeId =
   | 'hunter.deadfall' | 'hunter.heavy_jaws' | 'hunter.cascade'
   | 'hunter.field_kit';
 
-export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark' | 'hunter';
+export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark' | 'hunter' | 'gladiator_utility';
 
 export type StackableConfig = {
   softCap: number;
@@ -87,13 +88,15 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   'arms.heavy_thrust':    { requiresAll: ['arms.jab'] },
   'arms.spear_throw':     { requiresAll: ['arms.jab'] },
   'arms.stunning_blow':   { requiresAll: ['arms.spear_throw'] },
-  'arms.leap':            { requiresAll: ['arms.spear_throw'], requiresAny: ['arms.heavy_thrust', 'arms.stunning_blow'] },
-  'arms.crushing_landing':{ requiresAll: ['arms.leap'] },
   'arms.serrated_edge':   { requiresAll: ['arms.spear_throw'] },
-  'arms.spear_flurry':    { requiresAll: ['arms.leap'] },
+  'arms.spear_flurry':    { requiresAll: ['arms.spear_throw'], requiresAny: ['arms.stunning_blow', 'arms.serrated_edge'] },
   'arms.extended_flurry': { requiresAll: ['arms.spear_flurry'] },
   'arms.harpoon':         { requiresAll: ['arms.spear_throw'], requiresAny: ['arms.spear_flurry', 'arms.serrated_edge'] },
   'arms.quick_reel':      { requiresAll: ['arms.harpoon'] },
+  // Footwork utility tree — leap is the ungated starter of its own tree.
+  'arms.crushing_landing':{ requiresAll: ['arms.leap'] },
+  'gladiator_utility.soaring_reach': { requiresAll: ['arms.leap'] },
+  'gladiator_utility.momentum':      { requiresAll: ['arms.leap'], requiresAny: ['arms.crushing_landing', 'gladiator_utility.soaring_reach'] },
   // Bulwark tree
   'bulwark.mobile_guard':  { requiresAll: ['bulwark.bracing'] },
   'bulwark.reflect':       { requiresAll: ['bulwark.bracing'] },
@@ -208,16 +211,18 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'arms.spear_throw',    name: 'Spear Throw',    tree: 'arms', tier: 2, cost: 2, isSpell: true,  description: 'Thrown spear. 70–100 damage, stuns for 1s.' },
   { id: 'arms.stunning_blow',  name: 'Stunning Blow',  tree: 'arms', tier: 3, cost: 2, isSpell: false, description: '+15% Spear Throw stun duration per rank.', stackable: { softCap: 3, baseEffect: 0.15 },
     keystone: { name: 'Concussion', description: 'Targets stunned by you take +15% damage from you while stunned.' } },
-  { id: 'arms.leap',           name: 'Leap',           tree: 'arms', tier: 4, cost: 2, isSpell: true,  description: 'Leap to a point. Enemies at the landing are slowed.' },
-  { id: 'arms.crushing_landing', name: 'Crushing Landing', tree: 'arms', tier: 5, cost: 1, isSpell: false, description: 'Stronger landing slow per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
+  // id keeps its historical 'arms.' prefix — saved skill_unlocks and item affixes reference it; tree membership is the data that moved.
+  { id: 'arms.leap',           name: 'Leap',           tree: 'gladiator_utility', tier: 1, cost: 1, isSpell: true,  description: 'Leap to a point. Enemies at the landing are slowed.' },
+  // id keeps its historical 'arms.' prefix — saved skill_unlocks and item affixes reference it; tree membership is the data that moved.
+  { id: 'arms.crushing_landing', name: 'Crushing Landing', tree: 'gladiator_utility', tier: 2, cost: 2, isSpell: false, description: 'Stronger landing slow per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Seismic Slam', description: 'Leap\'s landing also deals 60 damage in the slow radius.' } },
   { id: 'arms.serrated_edge',   name: 'Serrated Edge',   tree: 'arms', tier: 3, cost: 2, isSpell: false, description: 'Spear Throw leaves a bleed. Stronger per rank.', stackable: { softCap: 3, baseEffect: 4 },
     keystone: { name: 'Hemorrhage', description: 'Targets moving above 70% speed bleed 50% faster.' } },
-  { id: 'arms.spear_flurry',    name: 'Spear Flurry',    tree: 'arms', tier: 5, cost: 2, isSpell: true,  description: 'A 1s burst of 5 cone thrusts at your cursor. 30–45 each.' },
-  { id: 'arms.extended_flurry', name: 'Extended Flurry', tree: 'arms', tier: 6, cost: 1, isSpell: false, description: '+1 flurry hit per rank.', stackable: { softCap: 3, baseEffect: 1 },
+  { id: 'arms.spear_flurry',    name: 'Spear Flurry',    tree: 'arms', tier: 4, cost: 2, isSpell: true,  description: 'A 1s burst of 5 cone thrusts at your cursor. 30–45 each.' },
+  { id: 'arms.extended_flurry', name: 'Extended Flurry', tree: 'arms', tier: 5, cost: 1, isSpell: false, description: '+1 flurry hit per rank.', stackable: { softCap: 3, baseEffect: 1 },
     keystone: { name: 'Bloodsong', description: 'Landing every flurry hit on one target stuns them for 0.5s.' } },
-  { id: 'arms.harpoon',         name: 'Harpoon',         tree: 'arms', tier: 6, cost: 3, isSpell: true,  description: 'Skillshot that drags the victim to melee range. 70–90 damage.' },
-  { id: 'arms.quick_reel',      name: 'Quick Reel',      tree: 'arms', tier: 7, cost: 1, isSpell: false, description: 'Harpoon cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
+  { id: 'arms.harpoon',         name: 'Harpoon',         tree: 'arms', tier: 5, cost: 3, isSpell: true,  description: 'Skillshot that drags the victim to melee range. 70–90 damage.' },
+  { id: 'arms.quick_reel',      name: 'Quick Reel',      tree: 'arms', tier: 6, cost: 1, isSpell: false, description: 'Harpoon cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Skewer', description: 'If the victim lands in Jab range, your next Jab within 2s deals double damage.' } },
   // Bulwark tree
   { id: 'bulwark.bracing',       name: 'Bracing',       tree: 'bulwark', tier: 1, cost: 1, isSpell: false, description: '+2% Block damage reduction per rank.', stackable: { softCap: 5, baseEffect: 0.02 },
@@ -235,6 +240,10 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Vanish', description: 'Leaving your own dust grants 0.5s of invisibility.' } },
   { id: 'bulwark.iron_skin',    name: 'Iron Skin',       tree: 'bulwark', tier: 5, cost: 2, isSpell: false, description: '+25 max HP per rank.', stackable: { softCap: 3, baseEffect: 25 },
     keystone: { name: 'Juggernaut', description: 'Below 30% HP, Block reduces 15% more damage.' } },
+  // Footwork utility tree — Leap and Crushing Landing live here (as arms.* ids, above).
+  { id: 'gladiator_utility.soaring_reach', name: 'Soaring Reach', tree: 'gladiator_utility', tier: 2, cost: 2, isSpell: false, description: '+8% Leap range per rank.', stackable: { softCap: 3, baseEffect: 0.08 } },
+  { id: 'gladiator_utility.momentum',      name: 'Momentum',      tree: 'gladiator_utility', tier: 3, cost: 3, isSpell: false, description: 'Leap cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
+    keystone: { name: 'Skirmisher', description: 'Landing a Leap instantly readies your Block.' } },
   // ── Frost tree ────────────────────────────────────────────────────────────
   { id: 'frost.ice_bolt',         name: 'Ice Bolt',         tree: 'frost', tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile that chills on hit. 60–85 damage.' },
   { id: 'frost.bitter_chill',     name: 'Bitter Chill',     tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt\'s chill is stronger and lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.05 },

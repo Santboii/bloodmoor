@@ -292,6 +292,10 @@ export function advanceState(
       dashing.add(id);
       // Leap: the landing shockwave slows nearby enemies the tick the dash ends.
       if (done && p.leapLanding && p.hp > 0) {
+        // Skirmisher keystone: landing a Leap instantly readies Block.
+        if (gladMods[id]?.leap.skirmisher) {
+          players[id] = { ...players[id], blockCooldownUntil: undefined };
+        }
         const landPos = players[id].position;
         for (const [oid, other] of Object.entries(players)) {
           if (oid === id || other.hp <= 0) continue;
@@ -590,6 +594,7 @@ export function advanceState(
       cooldownMultiplier = rangerMods[id]!.evade.cooldownMultiplier;
     }
     if (spell === 22 && gladMods[id]) cooldownMultiplier = gladMods[id]!.harpoon.cooldownMultiplier;
+    if (spell === 16 && gladMods[id]) cooldownMultiplier = gladMods[id]!.leap.cooldownMultiplier;
     // Field Kit reduces the cooldown of all three hunter spells.
     if ((spell === 17 || spell === 18 || spell === 19) && rangerMods[id]) {
       cooldownMultiplier = rangerMods[id]!.trap.cooldownMultiplier;

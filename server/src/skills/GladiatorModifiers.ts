@@ -10,7 +10,7 @@ export type GladiatorSpellModifiers = {
   jab:     { damageMin: number; damageMax: number; damageMultiplier: number; executioner: boolean };
   spear:   { damageMin: number; damageMax: number; stunTicks: number; bleedDps: number; hemorrhage: boolean };
   reflect: { windowTicks: number; mirrorGuard: boolean };
-  leap:    { range: number; slowFactor: number; slowTicks: number; seismicSlam: boolean };
+  leap:    { range: number; slowFactor: number; slowTicks: number; seismicSlam: boolean; cooldownMultiplier: number; skirmisher: boolean };
   block:   { damageReduction: number; moveMult: number; riposte: boolean; unstoppableGuard: boolean; juggernaut: boolean };
   warCry:  { radius: number; slowFactor: number; slowTicks: number; rally: boolean };
   harpoon: { damageMin: number; damageMax: number; cooldownMultiplier: number; skewer: boolean };
@@ -27,6 +27,8 @@ export function buildGladiatorModifiers(skills: Map<NodeId, number>): GladiatorS
   const heavyRank = rank('arms.heavy_thrust');
   const stunRank = rank('arms.stunning_blow');
   const crushRank = rank('arms.crushing_landing');
+  const soaringRank = rank('gladiator_utility.soaring_reach');
+  const momentumRank = rank('gladiator_utility.momentum');
   const bracingRank = rank('bulwark.bracing');
   const guardRank = rank('bulwark.mobile_guard');
   const perfectRank = rank('bulwark.perfect_guard');
@@ -56,12 +58,14 @@ export function buildGladiatorModifiers(skills: Map<NodeId, number>): GladiatorS
       mirrorGuard: ks('bulwark.perfect_guard'),
     },
     leap: {
-      range: LEAP_RANGE,
+      range: LEAP_RANGE * (1 + effectAtRank(0.08, soaringRank)),
       // Base landing slow is 30% (factor 0.7); Crushing Landing deepens it,
       // floored at a 60% slow so it never becomes a pseudo-root.
       slowFactor: Math.max(0.4, 1 - Math.min(0.6, 0.30 * (1 + effectAtRank(0.10, crushRank)))),
       slowTicks: LEAP_SLOW_TICKS,
       seismicSlam: ks('arms.crushing_landing'),
+      cooldownMultiplier: 1 - effectAtRank(0.10, momentumRank),
+      skirmisher: ks('gladiator_utility.momentum'),
     },
     block: {
       damageReduction: Math.min(0.75, BLOCK_DAMAGE_REDUCTION + effectAtRank(0.02, bracingRank)),

@@ -638,7 +638,7 @@ export const TALENT_AFFIX_WEIGHT = 0.25;
 const CLASS_TREES: Record<CharacterClass, SkillTree[]> = {
   mage: ['fire', 'frost', 'utility'],
   ranger: ['archer', 'archer_utility', 'hunter'],
-  gladiator: ['arms', 'bulwark'],
+  gladiator: ['arms', 'bulwark', 'gladiator_utility'],
 };
 
 function rollInRange([lo, hi]: [number, number], rng: () => number): number {
