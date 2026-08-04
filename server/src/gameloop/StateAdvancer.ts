@@ -439,9 +439,16 @@ export function advanceState(
     // this tick once movement resolves, so it lives here rather than in the
     // §0.5 base-bleed pass. Dead players never reach this loop (guarded
     // above), so there's no corpse-bleed concern.
-    if ((p.bleedUntil ?? 0) > tick && p.bleedHemorrhage && p.bleedDps) {
-      const dx = players[id].position.x - p.position.x;
-      const dy = players[id].position.y - p.position.y;
+    // Measured against the pre-tick snapshot (state.players[id]), not this
+    // tick's local `p` — a dashing player (evade/leap in §0, harpoon drag in
+    // §0b) already has its moved position baked into `p` by the time this
+    // loop runs and skips movePlayer below, so a `p`-relative delta would be
+    // deterministically 0 for exactly the fastest-moving victims. A same-tick
+    // teleport (§2) lands after this check and correctly isn't included.
+    const prePos = state.players[id]?.position;
+    if (prePos && (p.bleedUntil ?? 0) > tick && p.bleedHemorrhage && p.bleedDps) {
+      const dx = players[id].position.x - prePos.x;
+      const dy = players[id].position.y - prePos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist >= PLAYER_SPEED * DELTA * HEMORRHAGE_SPEED_THRESHOLD) {
         players[id] = {

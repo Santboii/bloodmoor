@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts';
-import { BLEED_TICKS, TICK_RATE, TEAM_DUEL_MODE } from '@arena/shared';
+import { BLEED_TICKS, TICK_RATE, TEAM_DUEL_MODE, HARPOON_DRAG_TICKS } from '@arena/shared';
 import type { InputFrame, NodeId } from '@arena/shared';
 
 const frame = (over: Partial<InputFrame> = {}): InputFrame =>
@@ -144,5 +144,39 @@ describe('Serrated Edge bleed', () => {
     expect(s.players.B.bleedUntil).toBeUndefined();
     expect(s.players.B.bleedDps).toBeUndefined();
     expect(s.players.B.bleedHemorrhage).toBeUndefined();
+  });
+
+  it('Hemorrhage still fires during a harpoon drag — a dashing-set player must not read as stationary', () => {
+    // Bleed fields are stamped directly (deterministic, same convention as
+    // harpoon.test.ts's "directly stage the drag" case) — this isolates the
+    // movement-delta bug from spear-hit/keystone-rank plumbing already
+    // covered above. Drag movement (§0b, ~HARPOON_DRAG_MAX_STEP=30/tick) is
+    // resolved before §1's movePlayer, which the dragged victim skips
+    // entirely (the `dashing` set) — the surcharge must still see that
+    // movement rather than comparing against its own already-moved position.
+    function runScenario(dragged: boolean): number {
+      let s = makeInitialState([
+        { id: 'A', displayName: 'A', charClass: 'gladiator', spawnPos: { x: 600, y: 600 } },
+        { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1400, y: 600 } },
+      ]);
+      s.players.B.bleedUntil = s.tick + 200;
+      s.players.B.bleedDps = 20;
+      s.players.B.bleedHemorrhage = true;
+      if (dragged) {
+        s.players.B.draggedBy = 'A';
+        s.players.B.dragEndTick = s.tick + HARPOON_DRAG_TICKS;
+      }
+      const skills = { A: NO_SERRATED, B: MAGE };
+      const hpStart = s.players.B.hp;
+      for (let i = 0; i < HARPOON_DRAG_TICKS; i++) {
+        s = advanceState(s, { A: frame(), B: frame() }, skills);
+      }
+      return hpStart - s.players.B.hp;
+    }
+
+    const stationaryLoss = runScenario(false);
+    const draggedLoss = runScenario(true);
+    expect(draggedLoss).toBeGreaterThan(stationaryLoss * 1.4);
+    expect(draggedLoss).toBeLessThan(stationaryLoss * 1.6);
   });
 });
