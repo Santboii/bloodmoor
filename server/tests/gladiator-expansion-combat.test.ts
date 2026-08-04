@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { makeInitialState, advanceState, concealedByDust } from '../src/gameloop/StateAdvancer.ts';
 import { buildGladiatorModifiers } from '../src/skills/GladiatorModifiers.ts';
 import {
-  WAR_CRY_DAMAGE, FLURRY_HIT_INTERVAL_TICKS, BLOODSONG_STUN_TICKS, EXECUTIONER_BONUS,
+  WAR_CRY_DAMAGE, FLURRY_HIT_INTERVAL_TICKS, BLOODSONG_STUN_TICKS, EXECUTIONER_BONUS, RALLY_DAMAGE_MULT,
   HARPOON_DRAG_TICKS, VANISH_TICKS, IRON_SKIN_HP_PER_RANK, JUGGERNAUT_DR_BONUS, JUGGERNAUT_HP_THRESHOLD,
 } from '@arena/shared';
 import type { GameState, InputFrame, NodeId, Vec2 } from '@arena/shared';
@@ -115,8 +115,11 @@ describe('Full-kit v2 integration (gladiator with all 20 nodes vs a mage)', () =
 
     const dealt = hpBefore - s.players.B.hp;
     const execMult = 1 + EXECUTIONER_BONUS;
-    const minBound = gm.flurry.hits * gm.flurry.damageMin * gm.jab.damageMultiplier * execMult;
-    const maxBound = gm.flurry.hits * gm.flurry.damageMax * gm.jab.damageMultiplier * execMult;
+    // Beat (a)'s Rallying Roar armed a 180-tick rallyUntil on A, which easily
+    // outlives this ~103-tick burst — every hit's getDamageMultiplier call
+    // also carries RALLY_DAMAGE_MULT, so both bounds must include it too.
+    const minBound = gm.flurry.hits * gm.flurry.damageMin * gm.jab.damageMultiplier * execMult * RALLY_DAMAGE_MULT;
+    const maxBound = gm.flurry.hits * gm.flurry.damageMax * gm.jab.damageMultiplier * execMult * RALLY_DAMAGE_MULT;
     expect(dealt).toBeGreaterThanOrEqual(minBound - 1e-6);
     expect(dealt).toBeLessThanOrEqual(maxBound + 1e-6);
 
