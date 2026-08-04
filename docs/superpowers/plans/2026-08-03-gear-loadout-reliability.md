@@ -433,9 +433,10 @@ In `server/src/index.ts`, the join-room block currently reads (lines 245-255):
     }
 ```
 
-Add an else branch:
+Add an else branch that stashes the reason, and emit `loadout-load-failed` AFTER `room-joined` — the client's `LobbyUI.appendSystemMessage` early-returns until the chat DOM exists, and that DOM is only built once `room-joined` is handled client-side, so an emit inside the `else` branch (before `room-joined`) is always dropped:
 
 ```ts
+    let loadoutError: string | null = null;
     if (accessToken && characterId) {
       const skillResult = await loadSkillsForCharacter(accessToken, characterId);
       if (skillResult.ok) {
@@ -449,9 +450,30 @@ Add an else branch:
         // Without this the player silently fights as a gearless default
         // mage — the exact failure mode a missing item column caused once.
         console.error(`join-room: loadout load failed for character ${characterId}: ${skillResult.error}`);
-        socket.emit('loadout-load-failed', { reason: skillResult.error });
+        loadoutError = skillResult.error;
       }
     }
+
+    socket.join(roomId);
+    currentRoomId = roomId;
+
+    socket.emit('room-joined', {
+      roomId,
+      yourId: socket.id,
+      players: Object.fromEntries([...room.players.entries()].map(([id, p]) => [id, p.displayName])),
+      mode: room.mode.type,
+      teams: Object.fromEntries(room.teamAssignments),
+      readyPlayerIds: [...room.players.entries()].filter(([, p]) => p.ready).map(([id]) => id),
+    });
+    // After room-joined: the lobby chat pane only exists once the client
+    // has rendered the room, and appendSystemMessage drops messages sent
+    // before that.
+    if (loadoutError !== null) socket.emit('loadout-load-failed', { reason: loadoutError });
+    socket.to(roomId).emit('player-joined', {
+      id: socket.id,
+      displayName,
+      teamId: room.teamAssignments.get(socket.id),
+    });
 ```
 
 - [ ] **Step 2: Client — expose the event on SocketClient**
@@ -636,12 +658,19 @@ export async function refreshRoomLoadouts(room: Room): Promise<void> {
   await Promise.all([...room.characterIds.entries()].map(async ([socketId, characterId]) => {
     const userId = room.userIds.get(socketId);
     if (!userId) return;
-    const res = await loadCharacterState(userId, characterId);
-    if (res.ok) room.applyCharacterState(socketId, res.state);
-    else console.error(`rematch: loadout refresh failed for character ${characterId}: ${res.error}`);
+    try {
+      const res = await loadCharacterState(userId, characterId);
+      if (!room.players.has(socketId)) return; // left while the read was in flight
+      if (res.ok) room.applyCharacterState(socketId, res.state);
+      else console.error(`rematch: loadout refresh failed for character ${characterId}: ${res.error}`);
+    } catch (err) {
+      console.error(`rematch: loadout refresh failed for character ${characterId}:`, err);
+    }
   }));
 }
 ```
+
+The membership check guards against a player leaving mid-await: `removePlayer` cleans up their map entries, and without the check `applyCharacterState` would resurrect them for a socket that's already gone. The try/catch guards against a thrown (not returned) loader error rejecting the whole `Promise.all`.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -682,10 +711,16 @@ Change `socket.on('rematch', () => {` to `socket.on('rematch', async () => {` an
       rematchVotes.delete(roomId);
 
       await refreshRoomLoadouts(room);
-      // The room can be torn down, or lose a player below the match
-      // minimum, while the refresh awaits — don't start a match on a dead
-      // or under-filled room.
+      // The room can be torn down, or drop below the match minimum, while
+      // the refresh awaits (a disconnect deletes the room or a player).
       if (roomManager.getRoom(roomId) !== room || room.players.size < room.mode.minPlayers) return;
+      // A duplicate 'rematch' during the await (phase is still 'ended')
+      // re-arms the vote machinery — purge it, or its countdown timer
+      // kicks the other players ten seconds into the new match.
+      const staleTimer = rematchTimers.get(roomId);
+      if (staleTimer) clearTimeout(staleTimer);
+      rematchTimers.delete(roomId);
+      rematchVotes.delete(roomId);
 
       loops.get(roomId)?.stop();
       loops.delete(roomId);

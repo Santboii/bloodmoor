@@ -243,6 +243,7 @@ io.on('connection', socket => {
     if (result === 'full') { socket.emit('room-full'); return; }
     if (result === 'team-full') { socket.emit('team-full'); return; }
 
+    let loadoutError: string | null = null;
     if (accessToken && characterId) {
       const skillResult = await loadSkillsForCharacter(accessToken, characterId);
       if (skillResult.ok) {
@@ -256,7 +257,7 @@ io.on('connection', socket => {
         // Without this the player silently fights as a gearless default
         // mage — the exact failure mode a missing item column caused once.
         console.error(`join-room: loadout load failed for character ${characterId}: ${skillResult.error}`);
-        socket.emit('loadout-load-failed', { reason: skillResult.error });
+        loadoutError = skillResult.error;
       }
     }
 
@@ -271,6 +272,10 @@ io.on('connection', socket => {
       teams: Object.fromEntries(room.teamAssignments),
       readyPlayerIds: [...room.players.entries()].filter(([, p]) => p.ready).map(([id]) => id),
     });
+    // After room-joined: the lobby chat pane only exists once the client
+    // has rendered the room, and appendSystemMessage drops messages sent
+    // before that.
+    if (loadoutError !== null) socket.emit('loadout-load-failed', { reason: loadoutError });
     socket.to(roomId).emit('player-joined', {
       id: socket.id,
       displayName,
@@ -341,10 +346,16 @@ io.on('connection', socket => {
       rematchVotes.delete(roomId);
 
       await refreshRoomLoadouts(room);
-      // The room can be torn down, or lose a player below the match
-      // minimum, while the refresh awaits — don't start a match on a dead
-      // or under-filled room.
+      // The room can be torn down, or drop below the match minimum, while
+      // the refresh awaits (a disconnect deletes the room or a player).
       if (roomManager.getRoom(roomId) !== room || room.players.size < room.mode.minPlayers) return;
+      // A duplicate 'rematch' during the await (phase is still 'ended')
+      // re-arms the vote machinery — purge it, or its countdown timer
+      // kicks the other players ten seconds into the new match.
+      const staleTimer = rematchTimers.get(roomId);
+      if (staleTimer) clearTimeout(staleTimer);
+      rematchTimers.delete(roomId);
+      rematchVotes.delete(roomId);
 
       loops.get(roomId)?.stop();
       loops.delete(roomId);

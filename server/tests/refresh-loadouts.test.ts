@@ -73,4 +73,24 @@ describe('refreshRoomLoadouts', () => {
     await refreshRoomLoadouts(room);
     expect(loadCharacterState).not.toHaveBeenCalled();
   });
+
+  it('does not resurrect map entries for a socket that left mid-await', async () => {
+    const room = seatedRoom();
+    vi.mocked(loadCharacterState).mockImplementation(async () => {
+      room.removePlayer('s1');
+      return { ok: true, state: freshState };
+    });
+    await refreshRoomLoadouts(room);
+    expect(room.loadouts.has('s1')).toBe(false);
+    expect(room.skillSets.has('s1')).toBe(false);
+  });
+
+  it('logs and moves on when the loader rejects instead of resolving', async () => {
+    const room = seatedRoom();
+    const stale = room.loadouts.get('s1');
+    vi.mocked(loadCharacterState).mockRejectedValueOnce(new Error('boom'));
+    await expect(refreshRoomLoadouts(room)).resolves.toBeUndefined();
+    expect(room.loadouts.get('s1')).toBe(stale);
+    expect(room.skillSets.has('s1')).toBe(false);
+  });
 });
