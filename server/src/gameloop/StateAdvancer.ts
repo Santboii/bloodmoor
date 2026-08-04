@@ -57,6 +57,7 @@ export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
   appearance?: Appearance;
   items?: ItemRow[]; // equipped gear — computeLoadout folds these into the StatBlock below
+  skills?: Map<NodeId, number>; // merged effective skill set — talent hooks (e.g. Iron Skin) read this
 };
 
 /** Applies/refreshes the owner's elemental status on a tick-local player
@@ -136,14 +137,17 @@ export function makeInitialState(
   }
   for (const p of players) {
     const { statBlock } = computeLoadout(p.items ?? [], p.charClass);
+    const ironHp = p.charClass === 'gladiator' && p.skills?.has('arms.jab' as NodeId)
+      ? buildGladiatorModifiers(p.skills).ironSkinHp
+      : 0;
     playerMap[p.id] = {
       id: p.id,
       displayName: p.displayName,
       charClass: p.charClass,
       position: resolvePlayerPillarCollisions(clampToArena({ ...p.spawnPos })),
-      hp: statBlock.maxHp,
+      hp: statBlock.maxHp + ironHp,
       mana: statBlock.maxMana,
-      maxHp: statBlock.maxHp,
+      maxHp: statBlock.maxHp + ironHp,
       maxMana: statBlock.maxMana,
       statMults: {
         damage: statBlock.damageMult,

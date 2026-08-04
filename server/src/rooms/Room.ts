@@ -108,6 +108,7 @@ export class Room {
         spawnPos: this.mode.spawnPositions[i],
         appearance: this.appearances.get(id),
         items,
+        skills: this.effectiveSkillSets.get(id),
       };
     });
     let teams: Record<string, string[]> | undefined;
