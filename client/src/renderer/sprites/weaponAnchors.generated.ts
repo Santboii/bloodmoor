@@ -2649,5 +2649,260 @@ export const WEAPON_GRIPS: Record<string, WeaponGrips> =
     "front": null
    }
   }
+ },
+ "boar_spear": {
+  "source": [
+   "weapon/polearm/spear/background/dark",
+   "weapon/polearm/spear/foreground/dark"
+  ],
+  "oversize": false,
+  "anim": "walk",
+  "byDir": {
+   "up": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      7,
+      34,
+      51,
+      19
+     ],
+     "offset": [
+      -35.8,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "left": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      3,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -29.9,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "down": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      46,
+      40,
+      17,
+      8
+     ],
+     "offset": [
+      3.2,
+      -7.2
+     ]
+    },
+    "front": {
+     "rect": [
+      12,
+      47,
+      30,
+      12
+     ],
+     "offset": [
+      -30.8,
+      -0.2
+     ]
+    }
+   },
+   "right": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      10,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -20.1,
+      -12.1
+     ]
+    },
+    "front": null
+   }
+  }
+ },
+ "bronze_spear": {
+  "source": [
+   "weapon/polearm/spear/background/bronze",
+   "weapon/polearm/spear/foreground/bronze"
+  ],
+  "oversize": false,
+  "anim": "walk",
+  "byDir": {
+   "up": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      7,
+      34,
+      51,
+      19
+     ],
+     "offset": [
+      -35.8,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "left": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      3,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -29.9,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "down": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      46,
+      40,
+      17,
+      8
+     ],
+     "offset": [
+      3.2,
+      -7.2
+     ]
+    },
+    "front": {
+     "rect": [
+      12,
+      47,
+      30,
+      12
+     ],
+     "offset": [
+      -30.8,
+      -0.2
+     ]
+    }
+   },
+   "right": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      10,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -20.1,
+      -12.1
+     ]
+    },
+    "front": null
+   }
+  }
+ },
+ "serpent_pike": {
+  "source": [
+   "weapon/polearm/spear/background/silver",
+   "weapon/polearm/spear/foreground/silver"
+  ],
+  "oversize": false,
+  "anim": "walk",
+  "byDir": {
+   "up": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      7,
+      34,
+      51,
+      19
+     ],
+     "offset": [
+      -35.8,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "left": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      3,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -29.9,
+      -12.1
+     ]
+    },
+    "front": null
+   },
+   "down": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      46,
+      40,
+      17,
+      8
+     ],
+     "offset": [
+      3.2,
+      -7.2
+     ]
+    },
+    "front": {
+     "rect": [
+      12,
+      47,
+      30,
+      12
+     ],
+     "offset": [
+      -30.8,
+      -0.2
+     ]
+    }
+   },
+   "right": {
+    "frame": 0,
+    "behind": {
+     "rect": [
+      10,
+      36,
+      51,
+      19
+     ],
+     "offset": [
+      -20.1,
+      -12.1
+     ]
+    },
+    "front": null
+   }
+  }
  }
 };
