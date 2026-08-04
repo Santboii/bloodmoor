@@ -177,20 +177,30 @@ const ARMS_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'arms.jab':              { x: 50, row: 0 },
   'arms.heavy_thrust':     { x: 30, row: 1 },
   'arms.spear_throw':      { x: 70, row: 1 },
-  'arms.stunning_blow':    { x: 70, row: 2 },
+  'arms.serrated_edge':    { x: 25, row: 2 },
+  'arms.stunning_blow':    { x: 60, row: 2 },
   'arms.leap':             { x: 50, row: 3 },
-  'arms.crushing_landing': { x: 50, row: 4 },
+  'arms.crushing_landing': { x: 30, row: 4 },
+  'arms.spear_flurry':     { x: 70, row: 4 },
+  'arms.extended_flurry':  { x: 80, row: 5 },
+  'arms.harpoon':          { x: 45, row: 5 },
+  'arms.quick_reel':       { x: 45, row: 6 },
 };
 
 const BULWARK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
-  'bulwark.bracing':       { x: 50, row: 0 },
-  'bulwark.mobile_guard':  { x: 28, row: 1 },
-  'bulwark.reflect':       { x: 72, row: 1 },
-  'bulwark.perfect_guard': { x: 50, row: 2 },
+  'bulwark.bracing':           { x: 50, row: 0 },
+  'bulwark.mobile_guard':      { x: 28, row: 1 },
+  'bulwark.reflect':           { x: 72, row: 1 },
+  'bulwark.war_cry':           { x: 28, row: 2 },
+  'bulwark.perfect_guard':     { x: 72, row: 2 },
+  'bulwark.intimidating_presence': { x: 15, row: 3 },
+  'bulwark.kick_up_dust':      { x: 50, row: 3 },
+  'bulwark.sandstorm':         { x: 50, row: 4 },
+  'bulwark.iron_skin':         { x: 85, row: 4 },
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 5, BULWARK_ROWS = 3;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 7, BULWARK_ROWS = 5;
 
 /**
  * The tree used to be drawn at one fixed size tuned to survive a 720px
@@ -305,11 +315,11 @@ const TREE_ICON: Record<SkillNode['tree'], string> = {
 const TREE_CONFIG: Record<CharacterClass, {
   main: SkillTree; util: SkillTree; mainLabel: string; utilLabel: string;
   mainPositions: Partial<Record<NodeId, NodePos>>; utilPositions: Partial<Record<NodeId, NodePos>>;
-  mainRows: number;
+  mainRows: number; utilRows: number;
 }> = {
-  mage:      { main: 'fire',   util: 'utility',        mainLabel: 'Fire',   utilLabel: 'Shared Utility', mainPositions: FIRE_POSITIONS,   utilPositions: UTIL_POSITIONS,        mainRows: FIRE_ROWS },
-  ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS },
-  gladiator: { main: 'arms',   util: 'bulwark',        mainLabel: 'Arms',   utilLabel: 'Bulwark',        mainPositions: ARMS_POSITIONS,   utilPositions: BULWARK_POSITIONS,     mainRows: ARMS_ROWS },
+  mage:      { main: 'fire',   util: 'utility',        mainLabel: 'Fire',   utilLabel: 'Shared Utility', mainPositions: FIRE_POSITIONS,   utilPositions: UTIL_POSITIONS,        mainRows: FIRE_ROWS, utilRows: UTIL_ROWS },
+  ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS, utilRows: UTIL_ROWS },
+  gladiator: { main: 'arms',   util: 'bulwark',        mainLabel: 'Arms',   utilLabel: 'Bulwark',        mainPositions: ARMS_POSITIONS,   utilPositions: BULWARK_POSITIONS,     mainRows: ARMS_ROWS, utilRows: BULWARK_ROWS },
 };
 
 const STYLES = `
@@ -735,7 +745,7 @@ export class SkillTreeUI {
     this.scale = pickScale(window.innerHeight / uiZoom());
     const s = this.scale;
     const mainContainerHeight = `${treeHeight(cfg.mainRows, s)}px`;
-    const utilContainerHeight = `${treeHeight(UTIL_ROWS, s)}px`;
+    const utilContainerHeight = `${treeHeight(cfg.utilRows, s)}px`;
     const frostContainerHeight = `${treeHeight(FROST_ROWS, s)}px`;
     const workspaceH = workspaceHeight(s);
     const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px`;
