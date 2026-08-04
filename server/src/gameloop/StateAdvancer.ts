@@ -31,6 +31,7 @@ import {
   RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
   WAR_CRY_DAMAGE, WAR_CRY_ALLY_SPEED_FACTOR, WAR_CRY_ALLY_SPEED_TICKS, RALLY_TICKS, RALLY_DAMAGE_MULT,
   FLURRY_HIT_INTERVAL_TICKS, FLURRY_MOVE_MULT, BLOODSONG_STUN_TICKS,
+  BLEED_TICKS, HEMORRHAGE_SPEED_THRESHOLD, HEMORRHAGE_MULT,
   HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, HARPOON_DRAG_MAX_STEP, SKEWER_WINDOW_TICKS,
   VANISH_TICKS,
   computeLoadout,
@@ -324,8 +325,10 @@ export function advanceState(
       if ((p.burnUntil ?? 0) > tick && p.burnDps) p.hp = Math.max(0, p.hp - p.burnDps / TICK_RATE);
       if ((p.poisonUntil ?? 0) > tick && p.poisonDps) p.hp = Math.max(0, p.hp - p.poisonDps / TICK_RATE);
       if ((p.poisonUntil ?? 0) > tick && p.poisonManaDrain) p.mana = Math.max(0, p.mana - p.poisonManaDrain / TICK_RATE);
+      if ((p.bleedUntil ?? 0) > tick && p.bleedDps) p.hp = Math.max(0, p.hp - p.bleedDps / TICK_RATE);
     }
     if ((p.burnUntil ?? 0) <= tick) { p.burnUntil = undefined; p.burnDps = undefined; }
+    if ((p.bleedUntil ?? 0) <= tick) { p.bleedUntil = undefined; p.bleedDps = undefined; p.bleedHemorrhage = undefined; }
     if ((p.slowUntil ?? 0) <= tick) { p.slowUntil = undefined; p.slowFactor = undefined; }
     if ((p.speedBoostUntil ?? 0) <= tick) { p.speedBoostUntil = undefined; p.speedBoostFactor = undefined; }
     if ((p.rallyUntil ?? 0) <= tick) p.rallyUntil = undefined;
@@ -431,6 +434,22 @@ export function advanceState(
       blocking,
       blockCooldownUntil,
     };
+
+    // Hemorrhage keystone: the bleed surcharge only knows the victim moved
+    // this tick once movement resolves, so it lives here rather than in the
+    // §0.5 base-bleed pass. Dead players never reach this loop (guarded
+    // above), so there's no corpse-bleed concern.
+    if ((p.bleedUntil ?? 0) > tick && p.bleedHemorrhage && p.bleedDps) {
+      const dx = players[id].position.x - p.position.x;
+      const dy = players[id].position.y - p.position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= PLAYER_SPEED * DELTA * HEMORRHAGE_SPEED_THRESHOLD) {
+        players[id] = {
+          ...players[id],
+          hp: Math.max(0, players[id].hp - p.bleedDps * (HEMORRHAGE_MULT - 1) / TICK_RATE),
+        };
+      }
+    }
 
     // Vanish keystone: stepping out of one's own dust cloud (inside pre-move,
     // outside post-move) grants a brief window of invisibility. Stateless —
@@ -1129,6 +1148,14 @@ export function advanceState(
               players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam && next.hp > 0) {
               next.stunUntil = tick + (moved.stunTicks ?? SPEAR_STUN_TICKS);
+            }
+            // Serrated Edge: bleed DoT. Attacker's damage mult is baked in at
+            // apply time (burn convention) since the target has no way to
+            // read the attacker's stat block later.
+            if (!sameTeam && next.hp > 0 && (gladMods[moved.ownerId]?.spear.bleedDps ?? 0) > 0) {
+              next.bleedUntil = tick + BLEED_TICKS;
+              next.bleedDps = gladMods[moved.ownerId]!.spear.bleedDps * (players[moved.ownerId]?.statMults.damage ?? 1);
+              next.bleedHemorrhage = gladMods[moved.ownerId]!.spear.hemorrhage || undefined;
             }
             players[pid] = next;
           }

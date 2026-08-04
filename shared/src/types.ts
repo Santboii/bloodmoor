@@ -88,6 +88,7 @@ export type PlayerState = {
   flurryHits?: Record<string, number>; // per-target landed hits this burst (Bloodsong)
   bleedUntil?: number;         // Serrated Edge DoT
   bleedDps?: number;
+  bleedHemorrhage?: boolean;   // Hemorrhage keystone: surcharge while sprinting
   stunnedBy?: string;          // who applied the current stun (Concussion)
 };
 
