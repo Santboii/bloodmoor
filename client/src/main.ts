@@ -1,7 +1,7 @@
 import { Scene } from './renderer/Scene';
 import { Arena } from './renderer/Arena';
 import { CharacterMesh } from './renderer/CharacterMesh';
-import { SpellRenderer, ArrowElement, isInvisibleToViewer } from './renderer/SpellRenderer';
+import { SpellRenderer, ArrowElement, isConcealedFromViewer } from './renderer/SpellRenderer';
 import { RestAuraRenderer } from './renderer/RestAuraRenderer';
 import { StateBuffer } from './network/StateBuffer';
 import { Predictor, PredictOpts } from './network/Predictor';
@@ -904,8 +904,8 @@ scene.startRenderLoop(() => {
 
     mesh.update(delta, pendingCastAnim.has(id));
     if (player.hp <= 0) mesh.die();
-    // Shadowstep: invisible to enemies; you still see yourself.
-    const invisible = isInvisibleToViewer(player, myId, state.tick);
+    // Shadowstep / Kick Up Dust: concealed from enemies; you still see yourself.
+    const invisible = isConcealedFromViewer(player, state.players[myId], state.fireWalls, state.tick);
     mesh.setVisible(!invisible);
     mesh.updateLabel(scene.camera, scene.getCanvasRect());
   }

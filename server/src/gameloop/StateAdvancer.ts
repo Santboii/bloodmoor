@@ -32,6 +32,7 @@ import {
   WAR_CRY_DAMAGE, WAR_CRY_ALLY_SPEED_FACTOR, WAR_CRY_ALLY_SPEED_TICKS, RALLY_TICKS, RALLY_DAMAGE_MULT,
   FLURRY_HIT_INTERVAL_TICKS, FLURRY_MOVE_MULT, BLOODSONG_STUN_TICKS,
   HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, HARPOON_DRAG_MAX_STEP, SKEWER_WINDOW_TICKS,
+  VANISH_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -96,6 +97,20 @@ function exposedMultiplier(ownerId: string, ownerAM: RangerSpellModifiers | null
     fw.shape === 'circle' && fw.kind === 'rain' && fw.ownerId === ownerId &&
     (targetPos.x - fw.center!.x) ** 2 + (targetPos.y - fw.center!.y) ** 2 <= (fw.radius! + PLAYER_HALF_SIZE) ** 2);
   return inZone ? EXPOSED_DAMAGE_MULT : 1;
+}
+
+/** True when `target` stands inside any dust cloud that `viewerPos` is outside of. */
+export function concealedByDust(target: Vec2, viewerPos: Vec2, fireWalls: FireWallState[], tick: number): boolean {
+  return fireWalls.some(fw => fw.kind === 'dust' && tick < fw.expiresAt && fw.center && fw.radius !== undefined &&
+    (target.x - fw.center.x) ** 2 + (target.y - fw.center.y) ** 2 <= (fw.radius + PLAYER_HALF_SIZE) ** 2 &&
+    (viewerPos.x - fw.center.x) ** 2 + (viewerPos.y - fw.center.y) ** 2 > (fw.radius + PLAYER_HALF_SIZE) ** 2);
+}
+
+/** True when `pos` stands inside any dust cloud owned by `ownerId` — used
+ *  by the Vanish keystone to detect the inside-to-outside transition. */
+function insideOwnDust(pos: Vec2, ownerId: string, fireWalls: FireWallState[], tick: number): boolean {
+  return fireWalls.some(fw => fw.kind === 'dust' && fw.ownerId === ownerId && tick < fw.expiresAt && fw.center && fw.radius !== undefined &&
+    (pos.x - fw.center.x) ** 2 + (pos.y - fw.center.y) ** 2 <= (fw.radius + PLAYER_HALF_SIZE) ** 2);
 }
 
 function getSpellNodeMap(charClass: CharacterClass): Partial<Record<SpellId, NodeId>> {
@@ -416,6 +431,20 @@ export function advanceState(
       blocking,
       blockCooldownUntil,
     };
+
+    // Vanish keystone: stepping out of one's own dust cloud (inside pre-move,
+    // outside post-move) grants a brief window of invisibility. Stateless —
+    // compares the pre-tick snapshot (state.players[id]) against this tick's
+    // moved position (players[id], just written above), both read against
+    // the same pre-tick zone set so a same-tick dust re-cast can't interfere.
+    const gm = gladMods[id];
+    if (gm?.dust.vanish) {
+      const wasInside = insideOwnDust(state.players[id].position, id, state.fireWalls, tick);
+      const nowInside = insideOwnDust(players[id].position, id, state.fireWalls, tick);
+      if (wasInside && !nowInside) {
+        players[id] = { ...players[id], invisibleUntil: tick + VANISH_TICKS };
+      }
+    }
   }
 
   // 2. Process spell casts
@@ -636,7 +665,7 @@ export function advanceState(
         let nearestDist = Infinity;
         for (const other of Object.values(players)) {
           if (other.id === id || other.hp <= 0) continue;
-          if ((other.invisibleUntil ?? 0) > tick) continue;
+          if ((other.invisibleUntil ?? 0) > tick || concealedByDust(other.position, p.position, fireWalls, tick)) continue;
           if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[id].teamId) continue;
           const d = (other.position.x - p.position.x) ** 2 + (other.position.y - p.position.y) ** 2;
           if (d < nearestDist) { nearestDist = d; nearest = other; }
@@ -683,7 +712,7 @@ export function advanceState(
         for (const other of Object.values(players)) {
           if (other.id === id || other.hp <= 0) continue;
           // Shadowstepped players can't be auto-targeted (would reveal them).
-          if ((other.invisibleUntil ?? 0) > tick) continue;
+          if ((other.invisibleUntil ?? 0) > tick || concealedByDust(other.position, origin, fireWalls, tick)) continue;
           if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[id].teamId) continue;
           const d = (other.position.x - origin.x) ** 2 + (other.position.y - origin.y) ** 2;
           if (d < nearestDist) { nearestDist = d; nearest = other; }
@@ -801,6 +830,21 @@ export function advanceState(
         flurryNextHitAt: tick,
         flurryHits: {},
       };
+    } else if (spell === 19) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      fireWalls = [...fireWalls, {
+        id: `dust_${id}_${tick}`,
+        kind: 'dust',
+        ownerId: id,
+        segments: [],
+        spawnedAt: tick,
+        expiresAt: tick + gm.dust.durationTicks,
+        shape: 'circle' as const,
+        center: { ...p.position },
+        radius: gm.dust.radius,
+        noDamage: true,
+      }];
     }
   }
 
@@ -949,7 +993,8 @@ export function advanceState(
     let nearestDist = Infinity;
     for (const other of Object.values(players)) {
       if (other.id === fw.ownerId || other.hp <= 0) continue;
-      if ((other.invisibleUntil ?? 0) > tick) continue;
+      if ((other.invisibleUntil ?? 0) > tick ||
+          concealedByDust(other.position, players[fw.ownerId]?.position ?? fw.center!, fireWalls, tick)) continue;
       if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === players[fw.ownerId]?.teamId) continue;
       const d = (other.position.x - fw.center!.x) ** 2 + (other.position.y - fw.center!.y) ** 2;
       if (d < nearestDist) { nearestDist = d; nearest = other; }
@@ -971,8 +1016,9 @@ export function advanceState(
     const candidates = Object.entries(players).filter(([pid]) =>
       pid !== proj.ownerId &&
       players[pid].hp > 0 &&
-      // Shadowstepped (invisible) players can't be tracked by homing.
+      // Shadowstepped (invisible) or dust-concealed players can't be tracked by homing.
       (players[pid].invisibleUntil ?? 0) <= tick &&
+      !concealedByDust(players[pid].position, players[proj.ownerId]?.position ?? proj.position, fireWalls, tick) &&
       // Homing must not steer toward teammates in team modes.
       !(resolvedMode.teamsEnabled &&
         players[proj.ownerId]?.teamId !== undefined &&
@@ -1222,7 +1268,8 @@ export function advanceState(
               let nearestDist = Infinity;
               for (const [otherId, other] of Object.entries(players)) {
                 if (otherId === pid || otherId === moved.ownerId || other.hp <= 0) continue;
-                if ((other.invisibleUntil ?? 0) > tick) continue;
+                if ((other.invisibleUntil ?? 0) > tick ||
+                    concealedByDust(other.position, players[moved.ownerId]?.position ?? moved.position, fireWalls, tick)) continue;
                 if (resolvedMode.teamsEnabled &&
                     players[moved.ownerId]?.teamId !== undefined &&
                     other.teamId === players[moved.ownerId].teamId) continue;
@@ -1520,6 +1567,7 @@ export function advanceState(
   // Stormcall-drifted above, before the arrow-hit section)
   const rainTicked = new Set<string>();   // `${ownerId}:${pid}` — one zone tick per owner per target per tick
   for (const fw of fireWalls) {
+    if (fw.kind === 'dust') continue;
     const isRainZone = fw.kind === 'rain';
     const isBlizzard = fw.kind === 'blizzard';
     const widthMult = isRainZone || isBlizzard ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);

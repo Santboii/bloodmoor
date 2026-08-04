@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
-  iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL,
+  iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL, PLAYER_HALF_SIZE,
   aurasForGear, type AuraAnchor, type Vec2,
 } from '@arena/shared';
 import type { FireWallState, PlayerState } from '@arena/shared';
@@ -265,16 +265,45 @@ export function isMoving(prev: Vec2 | undefined, next: Vec2): boolean {
   return Math.hypot(next.x - prev.x, next.y - prev.y) > AURA_MOVE_EPSILON;
 }
 
-/** Mirrors main.ts's own visibility rule for Shadowstep (archer_utility.shadowstep):
- * every viewer sees themselves; everyone else sees nobody once their
- * invisibleUntil tick is still ahead of the current tick. Shared so a
- * unique's aura can't out itself as an invisible player's glow. */
+/** Same `(pos - center)² <= (radius + PLAYER_HALF_SIZE)²` test the server's
+ *  dust helpers use, kept local since this is the only client-side caller. */
+function inCircle(pos: Vec2, fw: FireWallState): boolean {
+  return (pos.x - fw.center!.x) ** 2 + (pos.y - fw.center!.y) ** 2 <= (fw.radius! + PLAYER_HALF_SIZE) ** 2;
+}
+
+/** Mirrors main.ts's / the server's visibility rule: every viewer sees
+ * themselves; everyone else is hidden once their invisibleUntil tick is
+ * still ahead of the current tick (Shadowstep), OR they stand inside a dust
+ * cloud (Kick Up Dust) the viewer is outside of. Shared so a unique's aura
+ * can't out itself as a concealed player's glow. */
+export function isConcealedFromViewer(
+  player: { id: string; position: Vec2; invisibleUntil?: number },
+  viewer: { id: string; position: Vec2 } | undefined,
+  fireWalls: FireWallState[],
+  tick: number,
+): boolean {
+  if (player.id === viewer?.id) return false;
+  if ((player.invisibleUntil ?? 0) > tick) return true;
+  if (!viewer) return false;
+  return fireWalls.some(fw => fw.kind === 'dust' && tick < fw.expiresAt && fw.center && fw.radius !== undefined &&
+    inCircle(player.position, fw) && !inCircle(viewer.position, fw));
+}
+
+/** Legacy signature (no dust concealment — kept for any caller not yet
+ *  updated to pass positions/fireWalls) delegating to isConcealedFromViewer;
+ *  an empty fireWalls list makes the two equivalent whenever dust isn't a
+ *  factor, since the shadowstep check above runs identically either way. */
 export function isInvisibleToViewer(
   player: { id: string; invisibleUntil?: number },
   viewerId: string,
   tick: number,
 ): boolean {
-  return player.id !== viewerId && (player.invisibleUntil ?? 0) > tick;
+  return isConcealedFromViewer(
+    { id: player.id, position: { x: 0, y: 0 }, invisibleUntil: player.invisibleUntil },
+    { id: viewerId, position: { x: 0, y: 0 } },
+    [],
+    tick,
+  );
 }
 
 export class SpellRenderer {
@@ -824,18 +853,19 @@ export class SpellRenderer {
    * stars are the legibility-critical one: they're the only on-screen signal
    * telling a stunned player why their inputs are dead.
    *
-   * Also drops all three the moment a player is a corpse or invisible to
-   * this viewer — mirrors syncUniqueAuras's hp<=0 / isInvisibleToViewer
+   * Also drops all three the moment a player is a corpse or concealed from
+   * this viewer — mirrors syncUniqueAuras's hp<=0 / isConcealedFromViewer
    * guard exactly (including its viewer-aware semantics: a player always
-   * sees their own effects, per isInvisibleToViewer's `player.id !== viewerId`
+   * sees their own effects, per isConcealedFromViewer's `player.id === viewer?.id`
    * check). Without it, a corpse's stale `blocking` flag (the server's §1
    * loop skips hp<=0 players, so it never latches back to false) would leave
-   * the shield arc rendering forever, and a Shadowstepped player's exact
-   * position would leak through the shield/shimmer/stars to every other
-   * viewer. */
+   * the shield arc rendering forever, and a Shadowstepped or dust-concealed
+   * player's exact position would leak through the shield/shimmer/stars to
+   * every other viewer. */
     private syncGladiatorStatus(state: GameState): void {
+    const viewer = state.players[this.myId];
     const hidden = (p: PlayerState | undefined): boolean =>
-      !p || p.hp <= 0 || isInvisibleToViewer(p, this.myId, state.tick);
+      !p || p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick);
 
     for (const [id, entry] of this.blockShields) {
       const p = state.players[id];
@@ -862,7 +892,7 @@ export class SpellRenderer {
     }
 
     for (const p of Object.values(state.players)) {
-      if (p.hp <= 0 || isInvisibleToViewer(p, this.myId, state.tick)) continue;
+      if (p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick)) continue;
 
       if (p.blocking) {
         if (!this.blockShields.has(p.id)) {
@@ -1096,9 +1126,10 @@ export class SpellRenderer {
     if (!this.shouldEmitAura) return;
     const height = spriteWorldHeight();
     const live = new Set<string>();
+    const viewer = state.players[this.myId];
     for (const player of Object.values(state.players)) {
       live.add(player.id);
-      if (player.hp <= 0 || isInvisibleToViewer(player, this.myId, state.tick)) continue;
+      if (player.hp <= 0 || isConcealedFromViewer(player, viewer, state.fireWalls, state.tick)) continue;
       const position = player.id === this.myId && selfPosition ? selfPosition : player.position;
       const auras = aurasForGear(player.gear ?? {});
       const prev = this.prevAuraPositions.get(player.id);
