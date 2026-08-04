@@ -3,7 +3,7 @@ import {
   GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
   iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL, PLAYER_HALF_SIZE,
   aurasForGear, type AuraAnchor, type Vec2,
-  WAR_CRY_RADIUS, FLURRY_CONE_RANGE, FLURRY_CONE_HALF_ANGLE, FLURRY_HIT_INTERVAL_TICKS,
+  WAR_CRY_RADIUS, FLURRY_CONE_HALF_ANGLE, FLURRY_HIT_INTERVAL_TICKS,
 } from '@arena/shared';
 import type { FireWallState, PlayerState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
@@ -30,7 +30,8 @@ type DustEntry = {
   heights: number[];
   phase: number;
 };
-type FlurryEntry = { mesh: THREE.Mesh };
+type FlurryJab = { group: THREE.Group; angle: number; born: number };
+type FlurryEntry = { jabs: FlurryJab[]; lastSpawnTick: number };
 type WarCryRingEntry = { mesh: THREE.Mesh; spawnTime: number };
 type BlockShieldEntry = { mesh: THREE.Mesh };
 type ReflectEntry = { mesh: THREE.Mesh };
@@ -104,10 +105,14 @@ const SPEAR_TIP_GEO = new THREE.ConeGeometry(2.2, 5, 6).rotateZ(-Math.PI / 2);
 // same convention as ICE_RAY_BEAM_GEO below.
 const HARPOON_CHAIN_GEO = new THREE.BoxGeometry(1, 1, 1);
 const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Math.PI);
-// 90° pie slice (thetaLength = 2 * half-angle) reaching the spell's actual
-// cone range, centered on local +X — same convention BLOCK_SHIELD_GEO uses so
-// rotation.set(-PI/2, 0, -facing) opens it toward the caster's facing.
-const FLURRY_CONE_GEO = new THREE.RingGeometry(0, FLURRY_CONE_RANGE, 20, 1, -FLURRY_CONE_HALF_ANGLE, FLURRY_CONE_HALF_ANGLE * 2);
+// Each Flurry hit spawns a short-lived fan of jab spears (reusing the spear
+// shaft/tip shapes) that dart out from the caster and retract — see
+// syncFlurryJabs. Life is the full out-and-back duration in seconds; the
+// spawn count and reach are per-jab, independent of FLURRY_JABS_PER_HIT.
+const FLURRY_JAB_LIFE = 0.18;
+const FLURRY_JABS_PER_HIT = 3;
+const FLURRY_JAB_MIN_EXT = 40;
+const FLURRY_JAB_MAX_EXT = 90;
 // Unit-scale seed ring scaled up to WAR_CRY_RADIUS over its lifetime —
 // TeleportEffect's ringGeometry(radius 1)/scale.setScalar(RING_MAX_RADIUS*t)
 // pattern exactly: the geometry's own radius must stay ~1 so `scale.setScalar`
@@ -214,7 +219,7 @@ const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
   SPEAR_SHAFT_GEO, SPEAR_TIP_GEO, BLOCK_SHIELD_GEO, REFLECT_RING_GEO,
   ICE_BOLT_GEO, FALLING_SHARD_GEO, ICE_RAY_BEAM_GEO,
-  HARPOON_CHAIN_GEO, FLURRY_CONE_GEO, WAR_CRY_RING_GEO,
+  HARPOON_CHAIN_GEO, WAR_CRY_RING_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
@@ -389,7 +394,7 @@ export class SpellRenderer {
   private harpoons = new Map<string, HarpoonEntry>();
   private dragHarpoons = new Map<string, HarpoonEntry>();
   private dustClouds = new Map<string, DustEntry>();
-  private flurryCones = new Map<string, FlurryEntry>();
+  private flurryJabs = new Map<string, FlurryEntry>();
   private warCryRings: WarCryRingEntry[] = [];
   // Edge-detection state for War Cry: the last GameState.tick a ring was
   // spawned for, per caster id. `castingSpell === 21` is a single-tick pulse
@@ -531,7 +536,7 @@ export class SpellRenderer {
     this.syncIceRays(state, delta);
     this.syncTraps(state);
     this.syncGladiatorStatus(state);
-    this.syncFlurryCones(state);
+    this.syncFlurryJabs(state);
     this.syncWarCryRings(state);
     this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
@@ -1330,42 +1335,77 @@ export class SpellRenderer {
    *  `flurryUntil` holds, flashing bright right after each hit resolves and
    *  fading out over the interval until the next one — same hidden/corpse
    *  guards as syncGladiatorStatus above. */
-  private syncFlurryCones(state: GameState): void {
+  /** Flurry: a fan of jab spears bursts out from and retracts back to the
+   *  caster once per hit interval, rather than a single lingering cone —
+   *  each jab is a short-lived spear mesh (reusing SPEAR_SHAFT/TIP) animated
+   *  out-and-back along its own randomized angle within the cone. Spawning
+   *  is keyed to the server's hit-interval tick phase (not elapsedTime) so
+   *  render fps can't spawn more waves than the server actually swings. */
+  private syncFlurryJabs(state: GameState): void {
     const viewer = state.players[this.myId];
     const hidden = (p: PlayerState | undefined): boolean =>
       !p || p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick);
 
-    for (const [id, entry] of this.flurryCones) {
+    for (const [id, entry] of this.flurryJabs) {
       const p = state.players[id];
-      if (hidden(p) || !((p!.flurryUntil ?? 0) > state.tick)) {
-        this.scene.remove(entry.mesh);
-        disposeObject3D(entry.mesh);
-        this.flurryCones.delete(id);
+      const active = !hidden(p) && (p!.flurryUntil ?? 0) > state.tick;
+      if (!active && entry.jabs.every(j => this.elapsedTime - j.born > FLURRY_JAB_LIFE)) {
+        for (const j of entry.jabs) { this.scene.remove(j.group); disposeObject3D(j.group); }
+        this.flurryJabs.delete(id);
+        continue;
       }
+      // Age out finished jabs even mid-burst, so a long flurry doesn't pile
+      // up every wave's meshes at once.
+      entry.jabs = entry.jabs.filter(j => {
+        if (this.elapsedTime - j.born > FLURRY_JAB_LIFE) {
+          this.scene.remove(j.group);
+          disposeObject3D(j.group);
+          return false;
+        }
+        return true;
+      });
     }
 
     for (const p of Object.values(state.players)) {
       if (hidden(p) || !((p.flurryUntil ?? 0) > state.tick)) continue;
 
-      if (!this.flurryCones.has(p.id)) {
-        const material = new THREE.MeshBasicMaterial({
-          color: 0xd9a45b, transparent: true, opacity: 0, side: THREE.DoubleSide,
-          blending: THREE.AdditiveBlending, depthWrite: false,
-        });
-        const mesh = new THREE.Mesh(FLURRY_CONE_GEO, material);
-        this.scene.add(mesh);
-        this.flurryCones.set(p.id, { mesh });
+      let entry = this.flurryJabs.get(p.id);
+      if (!entry) {
+        entry = { jabs: [], lastSpawnTick: -1 };
+        this.flurryJabs.set(p.id, entry);
       }
 
-      const entry = this.flurryCones.get(p.id)!;
-      entry.mesh.position.set(p.position.x, 2, p.position.y);
-      entry.mesh.rotation.set(-Math.PI / 2, 0, -p.facing);
+      // One wave of jabs per hit interval, keyed to the server tick phase so
+      // render fps doesn't multiply how many spawn.
+      const hitPhase = Math.floor(state.tick / FLURRY_HIT_INTERVAL_TICKS);
+      if (hitPhase !== entry.lastSpawnTick) {
+        entry.lastSpawnTick = hitPhase;
+        for (let i = 0; i < FLURRY_JABS_PER_HIT; i++) {
+          const angle = p.facing + (Math.random() * 2 - 1) * FLURRY_CONE_HALF_ANGLE;
+          const group = new THREE.Group();
+          const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
+          shaft.scale.setScalar(0.7);
+          const tip = new THREE.Mesh(SPEAR_TIP_GEO, SPEAR_TIP_MAT);
+          tip.scale.setScalar(0.7);
+          tip.position.x = 13 * 0.7;
+          group.add(shaft, tip);
+          this.scene.add(group);
+          entry.jabs.push({ group, angle, born: this.elapsedTime });
+        }
+      }
 
-      // Ticks remaining until the next scheduled hit, wrapped back into "how
-      // long since the last one" so the flash is brightest right on impact.
-      const remaining = Math.max(0, Math.min(FLURRY_HIT_INTERVAL_TICKS, (p.flurryNextHitAt ?? state.tick) - state.tick));
-      const fade = remaining / FLURRY_HIT_INTERVAL_TICKS;
-      (entry.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * fade;
+      // Animate: extend then retract along each jab's own fixed angle.
+      for (const j of entry.jabs) {
+        const t = Math.min(1, (this.elapsedTime - j.born) / FLURRY_JAB_LIFE);
+        const outback = t < 0.5 ? t * 2 : (1 - t) * 2; // 0 -> 1 -> 0
+        const ext = FLURRY_JAB_MIN_EXT + (FLURRY_JAB_MAX_EXT - FLURRY_JAB_MIN_EXT) * outback;
+        j.group.position.set(
+          p.position.x + Math.cos(j.angle) * ext, 30, p.position.y + Math.sin(j.angle) * ext,
+        );
+        // Same orientation convention as syncSpears — SPEAR_SHAFT_GEO's local
+        // +X is "forward" after the geometry's own rotateZ(-PI/2) bake-in.
+        j.group.rotation.set(-Math.PI / 2, 0, -j.angle);
+      }
     }
   }
 
@@ -1637,7 +1677,9 @@ export class SpellRenderer {
       disposeObject3D(entry.chain);
     }
     for (const entry of this.dustClouds.values()) { this.scene.remove(entry.group); disposeObject3D(entry.group); }
-    for (const entry of this.flurryCones.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.flurryJabs.values()) {
+      for (const j of entry.jabs) { this.scene.remove(j.group); disposeObject3D(j.group); }
+    }
     for (const entry of this.warCryRings) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.blockShields.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.reflectShimmers.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
@@ -1668,7 +1710,7 @@ export class SpellRenderer {
     this.harpoons.clear();
     this.dragHarpoons.clear();
     this.dustClouds.clear();
-    this.flurryCones.clear();
+    this.flurryJabs.clear();
     this.warCryRings.length = 0;
     this.warCryLastTick.clear();
     this.blockShields.clear();
