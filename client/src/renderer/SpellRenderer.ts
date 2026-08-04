@@ -668,8 +668,13 @@ export class SpellRenderer {
   /** Harpoon head reuses the spear shaft/tip shapes (recolored); the chain is
    *  a thin box re-stretched every frame between the caster's LIVE position
    *  (they can keep moving mid-drag) and the flying/embedded head, so it
-   *  never looks anchored to where the cast started. */
+   *  never looks anchored to where the cast started. The head is a physical
+   *  object in flight and always stays visible; the chain, however, anchors
+   *  on the caster, so it is hidden whenever the caster is concealed from
+   *  this viewer (hp<=0 / isConcealedFromViewer) — same invariant
+   *  syncHarpoonDrags enforces on both drag endpoints. */
   private syncHarpoons(state: GameState): void {
+    const viewer = state.players[this.myId];
     const activeIds = new Set(state.projectiles.filter(p => p.type === 'harpoon').map(p => p.id));
 
     for (const [id, entry] of this.harpoons) {
@@ -712,15 +717,26 @@ export class SpellRenderer {
       entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
 
       // Chain: caster's live position -> the head, using the same midpoint/
-      // scale/rotate convention as the Ice Ray beam (ICE_RAY_BEAM_GEO).
-      const owner = state.players[proj.ownerId]?.position ?? proj.position;
-      const dx = wx - owner.x;
-      const dz = wz - owner.y;
-      const length = Math.sqrt(dx * dx + dz * dz);
-      const chainAngle = Math.atan2(dz, dx);
-      entry.chain.position.set((owner.x + wx) / 2, wy, (owner.y + wz) / 2);
-      entry.chain.rotation.set(-Math.PI / 2, 0, -chainAngle);
-      entry.chain.scale.set(Math.max(length, 0.001), 1.5, 1.5);
+      // scale/rotate convention as the Ice Ray beam (ICE_RAY_BEAM_GEO). If the
+      // owner is concealed from this viewer, the chain would leak the
+      // caster's live position for the whole flight — hide it and leave the
+      // head (a physical object) visible.
+      const ownerPlayer = state.players[proj.ownerId];
+      const ownerHidden =
+        !ownerPlayer || ownerPlayer.hp <= 0 || isConcealedFromViewer(ownerPlayer, viewer, state.fireWalls, state.tick);
+      if (ownerHidden) {
+        entry.chain.visible = false;
+      } else {
+        entry.chain.visible = true;
+        const owner = ownerPlayer.position;
+        const dx = wx - owner.x;
+        const dz = wz - owner.y;
+        const length = Math.sqrt(dx * dx + dz * dz);
+        const chainAngle = Math.atan2(dz, dx);
+        entry.chain.position.set((owner.x + wx) / 2, wy, (owner.y + wz) / 2);
+        entry.chain.rotation.set(-Math.PI / 2, 0, -chainAngle);
+        entry.chain.scale.set(Math.max(length, 0.001), 1.5, 1.5);
+      }
     }
   }
 

@@ -1861,6 +1861,7 @@ function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, P
       teleported: undefined,
       evadeOrigin: p.evadeOrigin ? { ...p.evadeOrigin } : undefined,
       evadeTarget: p.evadeTarget ? { ...p.evadeTarget } : undefined,
+      flurryHits: p.flurryHits ? { ...p.flurryHits } : undefined,
     };
   }
   return copy;

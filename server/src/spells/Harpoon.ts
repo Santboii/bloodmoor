@@ -1,5 +1,6 @@
 import { Projectile, Vec2, HARPOON_SPEED, HARPOON_RADIUS,
-  PLAYER_HALF_SIZE, ARENA_SIZE, DELTA, PILLARS } from '@arena/shared';
+  PLAYER_HALF_SIZE, ARENA_SIZE, DELTA, PILLARS,
+  HARPOON_DAMAGE_MIN, HARPOON_DAMAGE_MAX } from '@arena/shared';
 import { circleHitsAABB } from '../physics/Collision.ts';
 
 let _id = 0;
@@ -21,8 +22,8 @@ export function spawnHarpoon(
     position: { x: from.x, y: from.y },
     velocity: { x: (dx / len) * HARPOON_SPEED, y: (dy / len) * HARPOON_SPEED },
     radius: HARPOON_RADIUS,
-    damageMin: cfg.damageMin ?? 70,
-    damageMax: cfg.damageMax ?? 90,
+    damageMin: cfg.damageMin ?? HARPOON_DAMAGE_MIN,
+    damageMax: cfg.damageMax ?? HARPOON_DAMAGE_MAX,
   };
 }
 
@@ -46,6 +47,6 @@ export function harpoonHitsPlayer(p: Projectile, playerPos: Vec2, playerId: stri
   return circleHitsAABB(p.position, r, { x: playerPos.x, y: playerPos.y, halfSize: PLAYER_HALF_SIZE });
 }
 
-export function harpoonDamage(min = 70, max = 90): number {
+export function harpoonDamage(min = HARPOON_DAMAGE_MIN, max = HARPOON_DAMAGE_MAX): number {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
