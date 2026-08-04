@@ -3,8 +3,9 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-// 1-8 mage/ranger, 9-12 frost (12 = channelled Ice Ray), 13-16 gladiator, 17-20 gladiator expansion.
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20;
+// 1-8 mage/ranger, 9-12 frost (12 = channelled Ice Ray), 13-16 gladiator,
+// 17-19 hunter (ranger), 20-23 gladiator expansion (flurry/war cry/harpoon/dust).
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23;
 
 export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard' | 'spear' | 'harpoon';
 
@@ -132,7 +133,7 @@ export type Projectile = {
  *  and one array; this is what distinguishes them. Previously inferred by
  *  string-matching the id prefix, which silently mis-attributed any id that
  *  happened to share a prefix. */
-export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard' | 'dust';
+export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard' | 'dust' | 'caltrops';
 
 export type FireWallState = {
   id: string;
@@ -208,6 +209,33 @@ export type FrozenOrbState = {
   detonateOnExpiry?: boolean;
 };
 
+export type TrapKind = 'spike' | 'deadfall';
+
+/** A planted, dormant, proximity-triggered device. Visible to both players.
+ *  Every payload value is snapshotted from the caster's modifiers at plant
+ *  time — a trap that outlives a respec still fires the build that planted
+ *  it, and nothing here is re-read from the owner at trigger time. */
+export type TrapState = {
+  id: string;
+  ownerId: string;
+  kind: TrapKind;
+  position: Vec2;
+  armedAt: number;    // absolute tick; before this the trap cannot trigger
+  expiresAt: number;  // absolute tick
+  triggerRadius: number;
+  blastRadius: number;
+  damageMin: number;
+  damageMax: number;
+  shardCount: number;            // 0 when Shrapnel is unskilled
+  shardsHome: boolean;           // Scattershot
+  slowFactor: number;            // 1 when Hamstring is unskilled
+  slowTicks: number;
+  roots: boolean;                // Maimed (deadfall only)
+  countermeasure: boolean;       // also triggers on an enemy dash/leap/teleport landing
+  chainRadius: number;           // deadfall only; Infinity with Daisy Chain
+  chainDamageMultiplier: number; // Cascade — applied to traps this one sets off
+};
+
 export type GameState = {
   tick: number;
   players: Record<string, PlayerState>;
@@ -217,6 +245,7 @@ export type GameState = {
   rainOfArrows: RainOfArrowsState[];
   echoVolleys?: EchoVolleyState[];
   frozenOrbs: FrozenOrbState[];
+  traps: TrapState[];
   phase: 'waiting' | 'countdown' | 'dueling' | 'ended';
   winner: string | null;
   gameMode: GameModeType;
@@ -424,6 +453,40 @@ export const BLIZZARD_RADIUS = 90;
 export const BLIZZARD_DURATION_TICKS = 4 * TICK_RATE;            // 240
 export const BLIZZARD_DAMAGE_PER_TICK = 45 / TICK_RATE;
 
+// ── Hunter (ranger trap tree) ───────────────────────────────────────────────
+export const TRAP_ARM_TICKS = Math.round(0.5 * TICK_RATE);         // 30
+export const TRAP_LIFETIME_TICKS = 12 * TICK_RATE;                 // 720
+export const TRAP_TRIGGER_RADIUS = 70;
+export const TRAP_BLAST_RADIUS = 90;
+export const TRAP_DAMAGE_MIN = 80;
+export const TRAP_DAMAGE_MAX = 110;
+export const TRAP_BASE_CAP = 2;
+
+export const DEADFALL_ARM_TICKS = 1 * TICK_RATE;                   // 60
+export const DEADFALL_TRIGGER_RADIUS = 110;
+export const DEADFALL_BLAST_RADIUS = 130;
+export const DEADFALL_DAMAGE_MIN = 180;
+export const DEADFALL_DAMAGE_MAX = 240;
+export const DEADFALL_CHAIN_RADIUS = 250;
+
+export const HAMSTRING_SLOW_FACTOR = 0.60;                         // 40% slow
+export const HAMSTRING_SLOW_TICKS = 2 * TICK_RATE;                 // 120
+export const COUNTERMEASURE_RADIUS_RATIO = 1.5;
+export const SHRAPNEL_SPEED = 420;
+export const SHRAPNEL_DAMAGE_MIN = 25;
+export const SHRAPNEL_DAMAGE_MAX = 40;
+export const REARM_REFUND_RATIO = 0.5;
+
+export const CALTROPS_RADIUS = 130;
+export const CALTROPS_DURATION_TICKS = 6 * TICK_RATE;              // 360
+export const CALTROPS_DAMAGE_PER_TICK = 15 / TICK_RATE;
+export const CALTROPS_SLOW_FACTOR = 0.65;                          // 35% slow
+export const CALTROPS_SLOW_TICKS = Math.round(0.25 * TICK_RATE);   // 15 — refreshed every tick inside
+export const MIRE_LINGER_TICKS = Math.round(1.5 * TICK_RATE);      // 90
+export const SECOND_HANDFUL_RADIUS_RATIO = 0.5;
+export const BLEEDING_GROUND_DPS = 12;
+export const BLEEDING_GROUND_DURATION_TICKS = 3 * TICK_RATE;       // 180
+
 export const FROZEN_ORB_SPEED = 140;
 export const FROZEN_ORB_LIFETIME_TICKS = Math.round(2.5 * TICK_RATE);  // 150
 export const FROZEN_ORB_VOLLEY_INTERVAL_TICKS = 15;              // 10 volleys
@@ -479,10 +542,13 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   14: { manaCost: 40,  cooldownTicks: 360 },
   15: { manaCost: 40,  cooldownTicks: 480 },
   16: { manaCost: 30,  cooldownTicks: 180 },
-  17: { manaCost: 50,  cooldownTicks: 720 },
-  18: { manaCost: 60,  cooldownTicks: 600 },
-  19: { manaCost: 40,  cooldownTicks: 840 },
+  17: { manaCost: 30,  cooldownTicks: 150 },
+  18: { manaCost: 50,  cooldownTicks: 300 },
+  19: { manaCost: 100, cooldownTicks: 480 },
   20: { manaCost: 55,  cooldownTicks: 480 },
+  21: { manaCost: 50,  cooldownTicks: 720 },
+  22: { manaCost: 60,  cooldownTicks: 600 },
+  23: { manaCost: 40,  cooldownTicks: 840 },
 };
 
 export const TELEPORT_MAX_RANGE = 600;

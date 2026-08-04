@@ -201,10 +201,10 @@ describe('rollLootboxItem / rollMatchDropItem', () => {
 
   it('rolls an eligible unique deterministically when maxCharLevel qualifies', () => {
     // A constant 0.9999 lands rollRarity on 'unique' and then selects the
-    // last eligible entry — the_quiet_hour, the final manifest item. This is
+    // last eligible entry — the_patient_wall, the final manifest item. This is
     // one of the few places manifest order is load-bearing: re-sorting
     // UNIQUE_ITEMS means updating this id.
-    const expected = UNIQUE_ITEMS.find(u => u.id === 'the_quiet_hour')!;
+    const expected = UNIQUE_ITEMS.find(u => u.id === 'the_patient_wall')!;
     const result = rollMatchDropItem(weights, 10, () => 0.9999);
     expect(result.rarity).toBe('unique');
     expect(result.base.id).toBe(expected.baseId);

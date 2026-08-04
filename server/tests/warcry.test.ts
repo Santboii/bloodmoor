@@ -28,7 +28,7 @@ describe('War Cry (spell 17)', () => {
     let s = duel({ x: 650, y: 600 }); // distance 50, well inside the 150 radius
     const skills = { A: WARCRY_GLAD, B: RANGER };
     const hp0 = s.players.B.hp;
-    s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: { x: 650, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 21, aimTarget: { x: 650, y: 600 } }), B: frame() }, skills);
     expect(hp0 - s.players.B.hp).toBeCloseTo(WAR_CRY_DAMAGE, 5);
     expect((s.players.B.slowUntil ?? 0)).toBeGreaterThan(s.tick);
     expect(s.players.B.slowFactor).toBeCloseTo(WAR_CRY_SLOW_FACTOR, 5);
@@ -38,7 +38,7 @@ describe('War Cry (spell 17)', () => {
     let s = duel({ x: 900, y: 600 }); // distance 300, outside the 150 radius
     const skills = { A: WARCRY_GLAD, B: RANGER };
     const hp0 = s.players.B.hp;
-    s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: { x: 900, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 21, aimTarget: { x: 900, y: 600 } }), B: frame() }, skills);
     expect(s.players.B.hp).toBe(hp0);
     expect(s.players.B.slowUntil).toBeUndefined();
   });
@@ -57,7 +57,7 @@ describe('War Cry (spell 17)', () => {
     const hp0 = s0.players.C.hp;
     const s = advanceState(
       s0,
-      { A: frame({ castSpell: 17, aimTarget: { x: 650, y: 600 } }), C: frame(), B: frame() },
+      { A: frame({ castSpell: 21, aimTarget: { x: 650, y: 600 } }), C: frame(), B: frame() },
       skills,
       TEAM_DUEL_MODE,
     );
@@ -83,7 +83,7 @@ describe('War Cry (spell 17)', () => {
     s = advanceState(
       s,
       {
-        A: frame({ castSpell: 17, aimTarget: { x: 650, y: 600 } }),
+        A: frame({ castSpell: 21, aimTarget: { x: 650, y: 600 } }),
         B: frame({ blocking: true, aimTarget: { x: 600, y: 600 } }), // B faces A
       },
       skills,
@@ -98,7 +98,7 @@ describe('War Cry (spell 17)', () => {
       // Rally run: cast War Cry (arming the self-rally), then Jab the same tick's target.
       let s = duel({ x: 640, y: 600 }); // inside jab range (90) after the war cry cast
       const raSkills = { A: RALLY_GLAD, B: RANGER };
-      s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
+      s = advanceState(s, { A: frame({ castSpell: 21, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
       expect((s.players.A.rallyUntil ?? 0)).toBeGreaterThan(s.tick);
       const hp0 = s.players.B.hp;
       s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
@@ -126,7 +126,7 @@ describe('War Cry (spell 17)', () => {
       let s = duel({ x: 640, y: 600 });
       const raSkills = { A: RALLY_GLAD, B: RANGER };
       s.players.A.rallyUntil = s.tick + 50;
-      s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
+      s = advanceState(s, { A: frame({ castSpell: 21, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
       expect((s.players.A.rallyUntil ?? 0)).toBeGreaterThan(s.tick);
       const hp0 = s.players.B.hp;
       s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);

@@ -220,6 +220,9 @@ const WEAPONS = {
   iron_spear: { ref: ['weapon/polearm/spear/background/iron', 'weapon/polearm/spear/foreground/iron'], anim: 'walk' },
   war_spear: { ref: ['weapon/polearm/spear/background/steel', 'weapon/polearm/spear/foreground/steel'], anim: 'walk' },
   champion_spear: { ref: ['weapon/polearm/spear/background/gold', 'weapon/polearm/spear/foreground/gold'], anim: 'walk' },
+  boar_spear: { ref: ['weapon/polearm/spear/background/dark', 'weapon/polearm/spear/foreground/dark'], anim: 'walk' },
+  bronze_spear: { ref: ['weapon/polearm/spear/background/bronze', 'weapon/polearm/spear/foreground/bronze'], anim: 'walk' },
+  serpent_pike: { ref: ['weapon/polearm/spear/background/silver', 'weapon/polearm/spear/foreground/silver'], anim: 'walk' },
 };
 
 const REF = {

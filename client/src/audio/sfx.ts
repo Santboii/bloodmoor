@@ -67,18 +67,31 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   14: 'cast_bow',
   15: 'teleport',
   16: 'evade',
+  // Hunter: no dedicated trap samples in the bank either. Same rule as the
+  // frost block above — reuse the closest existing cast by spell shape.
+  17: 'cast_firewall', // Spike Trap: places a persistent thing on the ground
+  18: 'cast_rain',     // Caltrops: scatters an area, same shape as Rain's cast
+  19: 'cast_meteor',   // Deadfall: heavy, deliberate, acts later
   // Gladiator expansion (17-20): no dedicated samples exist yet — reusing the
   // closest shape per spell exactly like 9-14 above. Follow-up: audition and
   // record proper War Cry / Harpoon / Kick Up Dust / Spear Flurry stings.
-  17: 'duel_begin', // War Cry: shout-like sting, closest existing match
-  18: 'cast_bow',   // Harpoon: skillshot launch, same shape as the bow cast
-  19: 'evade',      // Kick Up Dust: quick burst at the caster's feet
+  21: 'duel_begin', // War Cry: shout-like sting, closest existing match
+  22: 'cast_bow',   // Harpoon: skillshot launch, same shape as the bow cast
+  23: 'evade',      // Kick Up Dust: quick burst at the caster's feet
   20: 'cast_bow',   // Spear Flurry: jab-like whip, same shape as 13/14
 };
 
 export function playCast(spell: SpellId): void {
   if (!ready() || throttle(`cast${spell}`, 120)) return;
   playSample(CAST_SAMPLE[spell] ?? 'cast_fire');
+}
+
+/** A trap fires. Reuses the fireball detonation — a sharp, close burst is the
+ *  right shape, and it is the one sound in the bank that reads as "that just
+ *  went off underneath someone". */
+export function playTrapTrigger(): void {
+  if (!ready() || throttle('trapTrigger', 60)) return;
+  playSample('fireball_explode');
 }
 
 /** Projectile leaves the caster: short airy sweep. */

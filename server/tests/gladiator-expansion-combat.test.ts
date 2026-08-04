@@ -93,7 +93,7 @@ describe('Full-kit v2 integration (gladiator with all 20 nodes vs a mage)', () =
 
   it('a. War Cry lands: mage slowed + damaged, caster rallied (Rallying Roar)', () => {
     const hp0 = s.players.B.hp;
-    s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: bPos }), B: idle() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 21, aimTarget: bPos }), B: idle() }, skills);
     expect(hp0 - s.players.B.hp).toBeCloseTo(WAR_CRY_DAMAGE, 5);
     expect((s.players.B.slowUntil ?? 0)).toBeGreaterThan(s.tick);
     expect(s.players.B.slowFactor).toBeCloseTo(gm.warCry.slowFactor, 5);
@@ -169,7 +169,7 @@ describe('Full-kit v2 integration (gladiator with all 20 nodes vs a mage)', () =
     const retreatDist = s.players.B.position.x - s.players.A.position.x;
     expect(retreatDist).toBeGreaterThan(150); // well clear of War Cry's and Flurry's ranges
 
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: s.players.B.position }), B: idle() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: s.players.B.position }), B: idle() }, skills);
     expect(s.projectiles.some(p => p.type === 'harpoon')).toBe(true);
     for (let i = 0; i < 150 && s.players.B.draggedBy === undefined; i++) {
       s = advanceState(s, { A: idle(), B: idle() }, skills);
@@ -253,7 +253,7 @@ describe('Full-kit v2 integration (gladiator with all 20 nodes vs a mage)', () =
   });
 
   it('e. Kick Up Dust conceals the caster from an outside viewer; Vanish grants invisibility on exit', () => {
-    s = advanceState(s, { A: frame({ castSpell: 19 }), B: idle() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 23 }), B: idle() }, skills);
     const zone = s.fireWalls.find(fw => fw.kind === 'dust' && fw.ownerId === 'A');
     expect(zone).toBeDefined();
     expect(zone!.center).toEqual(s.players.A.position);

@@ -57,7 +57,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
     ]);
     const skills = { A: HARPOON_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect(s.projectiles.some(p => p.type === 'harpoon')).toBe(true);
     for (let i = 0; i < 80 && s.players.B.draggedBy === undefined; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
@@ -85,7 +85,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
     ]);
     const skills = { A: HARPOON_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     for (let i = 0; i < 80 && s.players.B.draggedBy === undefined; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
     }
@@ -126,7 +126,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
     const idle = frame();
     s = advanceState(
       s,
-      { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: idle, C: idle, D: idle },
+      { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: idle, C: idle, D: idle },
       skills,
       TEAM_DUEL_MODE,
     );
@@ -150,7 +150,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
     ]);
     s.players.B.reflectUntil = s.tick + 1000;
     const skills = { A: HARPOON_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect(s.projectiles.some(p => p.type === 'harpoon')).toBe(true);
     for (let i = 0; i < 160 && s.players.A.draggedBy === undefined; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
@@ -177,7 +177,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
     // B faces A (aiming back toward the caster) so the front-arc block applies.
     s = advanceState(
       s,
-      { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame({ blocking: true, aimTarget: { x: 600, y: 600 } }) },
+      { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame({ blocking: true, aimTarget: { x: 600, y: 600 } }) },
       skills,
     );
     expect(s.projectiles.some(p => p.type === 'harpoon')).toBe(true);
@@ -201,7 +201,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
     ]);
     const skills = { A: SKEWER_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     for (let i = 0; i < 80 && s.players.B.draggedBy === undefined; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
     }
@@ -229,8 +229,8 @@ describe('Harpoon cast (spell 18) — drag', () => {
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
     ]);
     const skills = { A: REEL2_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
-    expect(s.players.A.cooldowns[18]).toBeLessThan(600);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    expect(s.players.A.cooldowns[22]).toBeLessThan(600);
   });
 
   it('an Evade dash mid-drag stretches the distance without an unbounded catch-up snap', () => {
@@ -239,7 +239,7 @@ describe('Harpoon cast (spell 18) — drag', () => {
       { id: 'B', displayName: 'B', charClass: 'ranger',    spawnPos: { x: 1000, y: 600 } },
     ]);
     const skills = { A: SKEWER_GLAD, B: EVADE_RANGER };
-    s = advanceState(s, { A: frame({ castSpell: 18, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 22, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     for (let i = 0; i < 80 && s.players.B.draggedBy === undefined; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
     }

@@ -83,6 +83,12 @@ const LAYERS = [
   'weapon/polearm/spear/foreground/steel',
   'weapon/polearm/spear/background/gold',
   'weapon/polearm/spear/foreground/gold',
+  'weapon/polearm/spear/background/dark',
+  'weapon/polearm/spear/foreground/dark',
+  'weapon/polearm/spear/background/bronze',
+  'weapon/polearm/spear/foreground/bronze',
+  'weapon/polearm/spear/background/silver',
+  'weapon/polearm/spear/foreground/silver',
 ];
 
 // A layer path either ends in a color (upstream: <dir>/<anim>/<color>.png)

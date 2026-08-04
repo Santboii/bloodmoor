@@ -24,7 +24,7 @@ describe('Kick Up Dust (spell 19) — cast', () => {
       { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 1400, y: 600 } },
     ]);
     const skills = { A: DUST_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 19 }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 23 }), B: frame() }, skills);
     const zone = s.fireWalls.find(fw => fw.kind === 'dust');
     expect(zone).toBeDefined();
     expect(zone!.ownerId).toBe('A');
@@ -40,7 +40,7 @@ describe('Kick Up Dust (spell 19) — cast', () => {
       { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 1400, y: 600 } },
     ]);
     const skills = { A: VANISH_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 19 }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 23 }), B: frame() }, skills);
     const zone = s.fireWalls.find(fw => fw.kind === 'dust')!;
     const mult = 1 + effectAtRank(0.15, 4);
     expect(zone.radius).toBeCloseTo(DUST_RADIUS * mult, 5);
@@ -53,7 +53,7 @@ describe('Kick Up Dust (spell 19) — cast', () => {
       { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 650, y: 600 } }, // dist 50, inside DUST_RADIUS
     ]);
     const skills = { A: DUST_GLAD, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 19 }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 23 }), B: frame() }, skills);
     expect(s.fireWalls.some(fw => fw.kind === 'dust')).toBe(true);
     const hp0 = s.players.B.hp;
     for (let i = 0; i < 120; i++) { // 2s at 60 ticks/sec, well inside the zone's 150-tick life
@@ -172,7 +172,7 @@ describe('Vanish keystone', () => {
       { id: 'B', displayName: 'B', charClass: 'mage', spawnPos: { x: 1400, y: 600 } },
     ]);
     const skillSets = { A: skills, B: MAGE };
-    s = advanceState(s, { A: frame({ castSpell: 19 }), B: frame() }, skillSets);
+    s = advanceState(s, { A: frame({ castSpell: 23 }), B: frame() }, skillSets);
     expect(s.fireWalls.some(fw => fw.kind === 'dust' && fw.ownerId === 'A')).toBe(true);
     return { s, skillSets };
   }

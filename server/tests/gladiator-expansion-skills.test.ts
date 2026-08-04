@@ -5,20 +5,20 @@ import type { NodeId } from '@arena/shared';
 
 describe('Gladiator expansion manifests', () => {
   it('binds 17-20 to gladiator with NO default slots', () => {
-    const rows = SPELL_BINDINGS.filter(b => [17, 18, 19, 20].includes(b.spell));
+    const rows = SPELL_BINDINGS.filter(b => [20, 21, 22, 23].includes(b.spell));
     expect(rows.map(b => [b.spell, b.node, b.charClass, b.defaultSlot])).toEqual([
-      [17, 'bulwark.war_cry', 'gladiator', undefined],
-      [18, 'arms.harpoon', 'gladiator', undefined],
-      [19, 'bulwark.kick_up_dust', 'gladiator', undefined],
       [20, 'arms.spear_flurry', 'gladiator', undefined],
+      [21, 'bulwark.war_cry', 'gladiator', undefined],
+      [22, 'arms.harpoon', 'gladiator', undefined],
+      [23, 'bulwark.kick_up_dust', 'gladiator', undefined],
     ]);
-    expect(classOfSpell(18)).toBe('gladiator');
+    expect(classOfSpell(22)).toBe('gladiator');
   });
 
   it('has SPELL_CONFIG for 17-20', () => {
-    expect(SPELL_CONFIG[17]).toEqual({ manaCost: 50, cooldownTicks: 720 });
-    expect(SPELL_CONFIG[18]).toEqual({ manaCost: 60, cooldownTicks: 600 });
-    expect(SPELL_CONFIG[19]).toEqual({ manaCost: 40, cooldownTicks: 840 });
+    expect(SPELL_CONFIG[21]).toEqual({ manaCost: 50, cooldownTicks: 720 });
+    expect(SPELL_CONFIG[22]).toEqual({ manaCost: 60, cooldownTicks: 600 });
+    expect(SPELL_CONFIG[23]).toEqual({ manaCost: 40, cooldownTicks: 840 });
     expect(SPELL_CONFIG[20]).toEqual({ manaCost: 55, cooldownTicks: 480 });
   });
 

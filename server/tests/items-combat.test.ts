@@ -3,7 +3,7 @@ import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts
 import { buildSpellModifiers } from '../src/skills/SpellModifiers.ts';
 import { buildRangerModifiers } from '../src/skills/RangerModifiers.ts';
 import type { NodeId, InputFrame, ItemRow } from '@arena/shared';
-import { MAX_HP, MAX_MANA, computeLoadout, deriveElement } from '@arena/shared';
+import { MAX_HP, MAX_MANA, computeLoadout, deriveElement, hasKeystone, UNIQUE_ITEMS, ITEM_BASES } from '@arena/shared';
 
 const idle = (aim = { x: 0, y: 0 }): InputFrame => ({ move: { x: 0, y: 0 }, castSpell: null, aimTarget: aim, channel: null });
 
@@ -194,5 +194,60 @@ describe('deriveElement', () => {
     expect(deriveElement(new Map([
       ['archer.burn' as NodeId, 2], ['archer.freeze' as NodeId, 3],
     ]))).toBe('freeze');
+  });
+});
+
+describe('gladiator uniques — archetype payloads', () => {
+  // A shipped unique as an equipped ItemRow with every affix at one end of
+  // its range ('max' = the lucky end, for grants and drawbacks alike).
+  const uniqueRow = (id: string, end: 'min' | 'max'): ItemRow => {
+    const u = UNIQUE_ITEMS.find(x => x.id === id)!;
+    const base = ITEM_BASES.find(b => b.id === u.baseId)!;
+    return {
+      id: `u_${id}`, base_id: u.baseId, rarity: 'unique',
+      affixes: u.affixes.map(s => ({ id: s.id, value: s[end], ...(s.node === undefined ? {} : { node: s.node }) })),
+      level_req: u.levelReq, equipped_by: 'char1', equipped_slot: 'weapon', slot: base.slot,
+      unique_id: u.id,
+    };
+  };
+
+  it('Crowd-Pleaser grants arms.spear_throw to a gladiator with an empty tree (oskill)', () => {
+    const { talentRanks } = computeLoadout([uniqueRow('crowd_pleaser', 'max')], 'gladiator');
+    expect(talentRanks.get('arms.spear_throw')).toBe(1);
+  });
+
+  it('The Short Road grants arms.leap plus crushing-landing ranks', () => {
+    const { talentRanks } = computeLoadout([uniqueRow('the_short_road', 'max')], 'gladiator');
+    expect(talentRanks.get('arms.leap')).toBe(1);
+    expect(talentRanks.get('arms.crushing_landing')).toBe(2);
+  });
+
+  it('gladiator weapon talent affixes are inert for other classes', () => {
+    expect(computeLoadout([uniqueRow('crowd_pleaser', 'max')], 'mage').talentRanks.size).toBe(0);
+    expect(computeLoadout([uniqueRow('the_patient_wall', 'max')], 'ranger').talentRanks.size).toBe(0);
+  });
+
+  it("max-roll Headsman's Reach + 3 invested Heavy Thrust ranks trips Executioner's Thrust; 2 do not", () => {
+    const { talentRanks } = computeLoadout([uniqueRow('headsmans_reach', 'max')], 'gladiator');
+    const itemRanks = talentRanks.get('arms.heavy_thrust') ?? 0;
+    expect(itemRanks).toBe(3);
+    expect(hasKeystone('arms.heavy_thrust', 3 + itemRanks)).toBe(true);
+    expect(hasKeystone('arms.heavy_thrust', 2 + itemRanks)).toBe(false);
+  });
+
+  it('max-roll Patient Wall + 3 invested Bracing ranks trips Riposte; the item alone never does', () => {
+    const { talentRanks } = computeLoadout([uniqueRow('the_patient_wall', 'max')], 'gladiator');
+    const itemRanks = talentRanks.get('bulwark.bracing') ?? 0;
+    expect(itemRanks).toBe(3);
+    expect(hasKeystone('bulwark.bracing', 3 + itemRanks)).toBe(true);
+    expect(hasKeystone('bulwark.bracing', itemRanks)).toBe(false);
+  });
+
+  it('drawback floors hold: min-roll Headsman\'s Reach alone cannot sink maxMana below the floor', () => {
+    // -120 mana (the worst roll) against the 500 base stays well above the
+    // 50 floor; the assertion pins the clamp path, not the exact number.
+    const { statBlock } = computeLoadout([uniqueRow('headsmans_reach', 'min')], 'gladiator');
+    expect(statBlock.maxMana).toBeGreaterThanOrEqual(50);
+    expect(statBlock.maxMana).toBe(MAX_MANA - 120);
   });
 });

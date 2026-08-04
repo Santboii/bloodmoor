@@ -24,17 +24,17 @@ describe('Gladiator character class', () => {
 });
 
 describe('Gladiator spells and skill tree', () => {
-  it('binds spells 13-16 to gladiator with default slots 1-4, and 17-20 with no default slots', () => {
+  it('binds spells 13-16 to gladiator with default slots 1-4, and 20-23 with no default slots', () => {
     const glad = SPELL_BINDINGS.filter(b => b.charClass === 'gladiator');
     expect(glad.map(b => [b.spell, b.node, b.defaultSlot])).toEqual([
       [13, 'arms.jab', 1],
       [14, 'arms.spear_throw', 2],
       [15, 'bulwark.reflect', 3],
       [16, 'arms.leap', 4],
-      [17, 'bulwark.war_cry', undefined],
-      [18, 'arms.harpoon', undefined],
-      [19, 'bulwark.kick_up_dust', undefined],
       [20, 'arms.spear_flurry', undefined],
+      [21, 'bulwark.war_cry', undefined],
+      [22, 'arms.harpoon', undefined],
+      [23, 'bulwark.kick_up_dust', undefined],
     ]);
     expect(CLASS_DEFAULT_NODE.gladiator).toBe('arms.jab');
     expect(MOBILITY_SPELLS.gladiator).toBe(16);
@@ -76,8 +76,8 @@ describe('Gladiator spells and skill tree', () => {
 });
 
 describe('Gladiator weapons', () => {
-  it('ships gladiator-restricted spears at bands 1/7/10', () => {
+  it('ships gladiator-restricted spears at bands 1/1/4/7/7/10', () => {
     const spears = ITEM_BASES.filter(b => b.slot === 'weapon' && b.classRestriction === 'gladiator');
-    expect(spears.map(s => s.itemLevel).sort((a, b) => a - b)).toEqual([1, 7, 10]);
+    expect(spears.map(s => s.itemLevel).sort((a, b) => a - b)).toEqual([1, 1, 4, 7, 7, 10]);
   });
 });

@@ -37,6 +37,21 @@ type ReflectEntry = { mesh: THREE.Mesh };
 type StunEntry = { sprites: THREE.Sprite[] };
 type IceBoltEntry = { mesh: THREE.Group };
 type FrozenOrbEntry = { mesh: THREE.Mesh };
+
+/** A planted trap: the body marker plus the trigger ring that tells BOTH
+ *  players where not to walk. The ring is the whole point of the tree — a
+ *  visible trap denies ground by existing — so it is sized from the trap's
+ *  own triggerRadius (Tripwire changes it) rather than a constant. */
+type TrapEntry = {
+  group: THREE.Group;
+  ring: THREE.Mesh;
+  ringMaterial: THREE.MeshBasicMaterial;
+  position: Vec2;
+  blastRadius: number;
+  /** True once the trap has outlived expiresAt — a quiet expiry must not play
+   *  the detonation burst that a real trigger does. */
+  expired: boolean;
+};
 // spinAngle accumulates every frame so the beam's rotation about its own
 // length axis is continuous even though its base orientation (rotation.set)
 // is recomputed from scratch each frame to track the caster's current aim.
@@ -377,7 +392,7 @@ export class SpellRenderer {
   private flurryCones = new Map<string, FlurryEntry>();
   private warCryRings: WarCryRingEntry[] = [];
   // Edge-detection state for War Cry: the last GameState.tick a ring was
-  // spawned for, per caster id. `castingSpell === 17` is a single-tick pulse
+  // spawned for, per caster id. `castingSpell === 21` is a single-tick pulse
   // on the SERVER, but the render loop calls update() once per animation
   // frame against StateBuffer.getInterpolated()'s result, whose `tick` is
   // pinned to the interpolation window's upper-bound snapshot — it only
@@ -395,6 +410,7 @@ export class SpellRenderer {
   private iceBolts = new Map<string, IceBoltEntry>();
   private frozenOrbs = new Map<string, FrozenOrbEntry>();
   private iceRays = new Map<string, IceRayEntry>();
+  private traps = new Map<string, TrapEntry>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
   private clock = new THREE.Clock();
@@ -513,6 +529,7 @@ export class SpellRenderer {
     this.syncRainOfArrows(state);
     this.syncFrozenOrbs(state);
     this.syncIceRays(state, delta);
+    this.syncTraps(state);
     this.syncGladiatorStatus(state);
     this.syncFlurryCones(state);
     this.syncWarCryRings(state);
@@ -866,17 +883,21 @@ export class SpellRenderer {
     for (const fw of state.fireWalls) {
       const isRainZone = fw.kind === 'rain';
       const isBlizzard = fw.kind === 'blizzard';
+      const isCaltrops = fw.kind === 'caltrops';
 
       if (!this.fireWalls.has(fw.id)) {
-        if (!isRainZone && !isBlizzard) sfx.startFireWallLoop(fw.id);
+        if (!isRainZone && !isBlizzard && !isCaltrops) sfx.startFireWallLoop(fw.id);
         const group = new THREE.Group();
         if (fw.shape === 'circle' && fw.center && fw.radius) {
           const disc = new THREE.Mesh(
             new THREE.CircleGeometry(fw.radius, 32),
             new THREE.MeshBasicMaterial({
-              color: isBlizzard ? ELEMENT_COLORS.freeze : isRainZone ? ELEMENT_COLORS[this.arrowElement] : 0xff2200,
+              // Caltrops is a movement tax, not a damage zone. Muted iron-brown
+              // at low opacity so it does not read as something that will kill
+              // you — players who treat it as a wall are misreading it.
+              color: isBlizzard ? ELEMENT_COLORS.freeze : isRainZone ? ELEMENT_COLORS[this.arrowElement] : isCaltrops ? 0x8a7a5c : 0xff2200,
               transparent: true,
-              opacity: isBlizzard ? 0.18 : isRainZone ? 0.15 : 0.2,
+              opacity: isBlizzard ? 0.18 : isRainZone ? 0.15 : isCaltrops ? 0.13 : 0.2,
               side: THREE.DoubleSide,
             }),
           );
@@ -1119,6 +1140,89 @@ export class SpellRenderer {
       (entry.circle.material as THREE.MeshBasicMaterial).opacity = 0.12 + t * 0.23;
       entry.arrowMaterial.opacity = Math.min(1, t * 2);
       this.updateFallingArrows(entry);
+    }
+  }
+
+  /** Planted traps. Three states, all derived from the trap's own fields
+   *  against the current tick:
+   *
+   *    arming   (tick < armedAt)  pulsing, incomplete ring — the only warning
+   *                               an opponent gets for a trap dropped at their
+   *                               feet, so it has to be unmistakable
+   *    dormant  (tick >= armedAt) steady ring at the true trigger radius
+   *    fired    (left the array)  one-shot burst at the blast radius
+   *
+   *  Leaving the array means either "fired" or "expired quietly", and those
+   *  must not look the same. Expiry is silent: `expiresAt` is known
+   *  client-side, so a trap whose lifetime simply ran out fades rather than
+   *  detonating. */
+  private syncTraps(state: GameState): void {
+    const activeIds = new Set(state.traps.map(t => t.id));
+
+    for (const [id, entry] of this.traps) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.group);
+        disposeObject3D(entry.group);
+        // Only a trap that actually fired gets the burst. `expired` is
+        // tracked by the entry outliving its own expiresAt, checked below.
+        if (!entry.expired) {
+          this.particles.emitRainImpact(entry.position.x, 0, entry.position.y, entry.blastRadius);
+          sfx.playTrapTrigger();
+        }
+        this.traps.delete(id);
+      }
+    }
+
+    for (const trap of state.traps) {
+      if (!this.traps.has(trap.id)) {
+        const group = new THREE.Group();
+
+        const isDeadfall = trap.kind === 'deadfall';
+        const body = new THREE.Mesh(
+          new THREE.CircleGeometry(isDeadfall ? 16 : 10, 12),
+          new THREE.MeshBasicMaterial({
+            color: isDeadfall ? 0x8a6a3a : 0x6f7f52,
+            transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+          }),
+        );
+        body.rotation.x = -Math.PI / 2;
+        body.position.set(trap.position.x, 1.5, trap.position.y);
+        group.add(body);
+
+        // RingGeometry rather than a filled disc: a trap must not read as a
+        // damage zone you are already standing in. The boundary is the
+        // information — cross it and it goes off.
+        const ringMaterial = new THREE.MeshBasicMaterial({
+          color: isDeadfall ? 0xc98b3a : 0x9fd06a,
+          transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+        });
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(trap.triggerRadius - 2, trap.triggerRadius, 40),
+          ringMaterial,
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(trap.position.x, 1, trap.position.y);
+        group.add(ring);
+
+        this.scene.add(group);
+        this.traps.set(trap.id, {
+          group, ring, ringMaterial,
+          position: { ...trap.position },
+          blastRadius: trap.blastRadius,
+          expired: false,
+        });
+      }
+
+      const entry = this.traps.get(trap.id)!;
+      entry.expired = state.tick >= trap.expiresAt;
+
+      if (state.tick < trap.armedAt) {
+        // Arming: pulse hard so it is impossible to miss, and hold the ring
+        // visibly thinner than its armed state.
+        entry.ringMaterial.opacity = 0.15 + 0.25 * (0.5 + 0.5 * Math.sin(this.elapsedTime * 12));
+      } else {
+        entry.ringMaterial.opacity = 0.4;
+      }
     }
   }
 
@@ -1555,6 +1659,7 @@ export class SpellRenderer {
     }
     for (const entry of this.frozenOrbs.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.iceRays.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.traps.values()) { this.scene.remove(entry.group); disposeObject3D(entry.group); }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();
@@ -1574,6 +1679,7 @@ export class SpellRenderer {
     this.rainOfArrows.clear();
     this.frozenOrbs.clear();
     this.iceRays.clear();
+    this.traps.clear();
     this.teleportEffects.length = 0;
     this.particles.dispose();
   }

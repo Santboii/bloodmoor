@@ -75,6 +75,19 @@ const NODE_ICONS: Record<NodeId, string> = {
   'frost.shard_storm':      'fa-burst',
   'frost.glacial_drift':    'fa-gauge-simple-low',
   'frost.cold_mastery':     'fa-award',
+  'hunter.spike_trap':      'fa-bomb',
+  'hunter.serrated_spikes': 'fa-khanda',
+  'hunter.trap_cache':      'fa-boxes-stacked',
+  'hunter.tripwire':        'fa-grip-lines',
+  'hunter.shrapnel':        'fa-burst',
+  'hunter.caltrops':        'fa-splotch',
+  'hunter.rusted_barbs':    'fa-bacteria',
+  'hunter.wide_scatter':    'fa-maximize',
+  'hunter.barbed_wire':     'fa-diagram-project',
+  'hunter.deadfall':        'fa-skull-crossbones',
+  'hunter.heavy_jaws':      'fa-weight-hanging',
+  'hunter.cascade':         'fa-share-nodes',
+  'hunter.field_kit':       'fa-toolbox',
 };
 
 function esc(s: string): string {
@@ -144,6 +157,22 @@ const FROST_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'frost.cold_mastery':     { x: 80, row: 6 },
 };
 
+const HUNTER_POSITIONS: Partial<Record<NodeId, NodePos>> = {
+  'hunter.spike_trap':      { x: 50, row: 0 },
+  'hunter.serrated_spikes': { x: 20, row: 1 },
+  'hunter.trap_cache':      { x: 80, row: 1 },
+  'hunter.tripwire':        { x: 30, row: 2 },
+  'hunter.shrapnel':        { x: 70, row: 2 },
+  'hunter.caltrops':        { x: 50, row: 3 },
+  'hunter.rusted_barbs':    { x: 20, row: 4 },
+  'hunter.wide_scatter':    { x: 50, row: 4 },
+  'hunter.barbed_wire':     { x: 80, row: 4 },
+  'hunter.deadfall':        { x: 50, row: 5 },
+  'hunter.heavy_jaws':      { x: 20, row: 6 },
+  'hunter.cascade':         { x: 50, row: 6 },
+  'hunter.field_kit':       { x: 80, row: 6 },
+};
+
 const UTIL_POSITIONS: Partial<Record<NodeId, NodePos>> = {
   'utility.teleport':      { x: 50, row: 0 },
   'utility.phase_shift':   { x: 28, row: 1 },
@@ -200,7 +229,7 @@ const BULWARK_POSITIONS: Partial<Record<NodeId, NodePos>> = {
 };
 
 /** Row count of the deepest branch in each tree, used to size containers. */
-const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 7, BULWARK_ROWS = 5;
+const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS = 7, BULWARK_ROWS = 5, HUNTER_ROWS = 7;
 
 /**
  * The tree used to be drawn at one fixed size tuned to survive a 720px
@@ -274,6 +303,9 @@ const TREE_ACCENT: Record<SkillNode['tree'], string> = {
   archer_utility: '#b48cff',
   arms: '#d9a45b',
   bulwark: '#8ca9ff',
+  // Hunter: mossy green — the ranger's third column has to read as its own
+  // element beside archer's orange rather than a second warm tree.
+  hunter: '#7fae5c',
 };
 
 /** Which CSS-only backdrop each tree panel gets (`.st-tree-panel-body[data-motif]`
@@ -291,6 +323,9 @@ const TREE_MOTIF: Record<SkillNode['tree'], 'ember' | 'frost' | 'arcane'> = {
   // Gladiator: warm martial bronze for Arms, cool guarded violet for Bulwark.
   arms: 'ember',
   bulwark: 'arcane',
+  // There is no earth motif; ember is the closest of the three to Hunter's
+  // ground-and-iron feel, and the green accent carries the distinction.
+  hunter: 'ember',
 };
 
 /** Icon shown beside the spec name in each panel header — the WoW reference's
@@ -305,20 +340,28 @@ const TREE_ICON: Record<SkillNode['tree'], string> = {
   archer_utility: 'fa-person-running',
   arms: 'fa-hand-fist',
   bulwark: 'fa-shield-halved',
+  hunter: 'fa-bomb',
 };
 
-/** Per-class tree layout: which two `SKILL_NODES` trees render in the main
+/** Per-class tree layout: which `SKILL_NODES` trees render in the main, third
  *  and side columns, their labels, and their node positions. `mainRows`
  *  sizes the main column's container; `WORKSPACE_H` above stays pinned to
  *  the single deepest tree across all classes so the page height never
- *  depends on which class is open. */
+ *  depends on which class is open.
+ *
+ *  `third` is optional — a class with only two trees (gladiator) omits it and
+ *  renders two columns. It exists because both the mage and the ranger now
+ *  have a third tree; before that, frost was hardcoded at six sites here. */
 const TREE_CONFIG: Record<CharacterClass, {
   main: SkillTree; util: SkillTree; mainLabel: string; utilLabel: string;
   mainPositions: Partial<Record<NodeId, NodePos>>; utilPositions: Partial<Record<NodeId, NodePos>>;
   mainRows: number; utilRows: number;
+  third?: { tree: SkillTree; label: string; positions: Partial<Record<NodeId, NodePos>>; rows: number };
 }> = {
-  mage:      { main: 'fire',   util: 'utility',        mainLabel: 'Fire',   utilLabel: 'Shared Utility', mainPositions: FIRE_POSITIONS,   utilPositions: UTIL_POSITIONS,        mainRows: FIRE_ROWS, utilRows: UTIL_ROWS },
-  ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS, utilRows: UTIL_ROWS },
+  mage:      { main: 'fire',   util: 'utility',        mainLabel: 'Fire',   utilLabel: 'Shared Utility', mainPositions: FIRE_POSITIONS,   utilPositions: UTIL_POSITIONS,        mainRows: FIRE_ROWS, utilRows: UTIL_ROWS,
+               third: { tree: 'frost',  label: 'Frost',  positions: FROST_POSITIONS,  rows: FROST_ROWS } },
+  ranger:    { main: 'archer', util: 'archer_utility', mainLabel: 'Archer', utilLabel: 'Evasion',        mainPositions: ARCHER_POSITIONS, utilPositions: ARCHER_UTIL_POSITIONS, mainRows: ARCHER_ROWS, utilRows: UTIL_ROWS,
+               third: { tree: 'hunter', label: 'Hunter', positions: HUNTER_POSITIONS, rows: HUNTER_ROWS } },
   gladiator: { main: 'arms',   util: 'bulwark',        mainLabel: 'Arms',   utilLabel: 'Bulwark',        mainPositions: ARMS_POSITIONS,   utilPositions: BULWARK_POSITIONS,     mainRows: ARMS_ROWS, utilRows: BULWARK_ROWS },
 };
 
@@ -335,9 +378,9 @@ const STYLES = `
 /* ── three-column workspace ─────────────────────────────────────────── */
 .st-columns{display:flex;gap:24px;width:100%;max-width:1400px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
 .st-col-main{flex:1 1 480px;min-width:380px;max-width:560px;}
-.st-columns.has-frost .st-col-main{flex-basis:400px;max-width:480px;}
+.st-columns.has-third .st-col-main{flex-basis:400px;max-width:480px;}
 .st-col-side{flex:1 1 340px;min-width:340px;max-width:400px;}
-.st-col-frost{flex:1 1 380px;min-width:380px;max-width:480px;}
+.st-col-third{flex:1 1 380px;min-width:380px;max-width:480px;}
 /* Every column is pinned to the same workspace height (set inline) so the
    panels line up in a clean row regardless of how many rows the tree inside
    actually uses. */
@@ -731,7 +774,6 @@ export class SkillTreeUI {
     const pts = this.skillPoints;
 
     const cls = normalizeCharacterClass(this.charClass);
-    const isMage = cls === 'mage';
     const cfg = TREE_CONFIG[cls];
     const mainNodes = SKILL_NODES.filter(n => n.tree === cfg.main);
     const utilNodes = SKILL_NODES.filter(n => n.tree === cfg.util);
@@ -740,21 +782,22 @@ export class SkillTreeUI {
     const mainLabel = cfg.mainLabel;
     const mainTree = cfg.main;
     const utilTree = cfg.util;
-    const frostNodes = SKILL_NODES.filter(n => n.tree === 'frost');
+    const third = cfg.third;
+    const thirdNodes = third ? SKILL_NODES.filter(n => n.tree === third.tree) : [];
 
     this.scale = pickScale(window.innerHeight / uiZoom());
     const s = this.scale;
     const mainContainerHeight = `${treeHeight(cfg.mainRows, s)}px`;
     const utilContainerHeight = `${treeHeight(cfg.utilRows, s)}px`;
-    const frostContainerHeight = `${treeHeight(FROST_ROWS, s)}px`;
+    const thirdContainerHeight = third ? `${treeHeight(third.rows, s)}px` : '0px';
     const workspaceH = workspaceHeight(s);
     const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px`;
 
     // Keystones and "choose one" groups aren't universal across every tree,
     // and a legend entry for a marker the open class never draws is just
-    // noise. Mages draw fire + frost + utility; rangers and gladiators draw
-    // their two class trees.
-    const shown = isMage ? [...mainNodes, ...frostNodes, ...utilNodes] : [...mainNodes, ...utilNodes];
+    // noise. Classes with a third tree (mage: frost, ranger: hunter) draw all
+    // three; the gladiator draws its two.
+    const shown = [...mainNodes, ...thirdNodes, ...utilNodes];
     const hasKeystones = shown.some(n => n.keystone);
     const hasExclusive = shown.some(n => GATES[n.id]?.mutuallyExclusive?.length);
     const hasGear = this.gearRanks.size > 0;
@@ -784,7 +827,7 @@ export class SkillTreeUI {
           </defs>
         </svg>
 
-        <div class="st-columns${isMage ? ' has-frost' : ''}">
+        <div class="st-columns${third ? ' has-third' : ''}">
           <div class="st-col-main" style="height:${workspaceH}px">
             <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[mainTree]}">
               <div class="st-tree-panel-header">
@@ -799,17 +842,17 @@ export class SkillTreeUI {
               </div>
             </div>
           </div>
-          ${isMage ? `
-          <div class="st-col-frost" style="height:${workspaceH}px">
-            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT.frost}">
+          ${third ? `
+          <div class="st-col-third" style="height:${workspaceH}px">
+            <div class="st-tree-panel" style="--st-tree-accent:${TREE_ACCENT[third.tree]}">
               <div class="st-tree-panel-header">
-                <span class="st-tree-header-name"><i class="fa ${TREE_ICON.frost}"></i>Frost</span>
-                <span class="st-tree-header-pts">${this.pointsSpent(frostNodes)} pts</span>
+                <span class="st-tree-header-name"><i class="fa ${TREE_ICON[third.tree]}"></i>${third.label}</span>
+                <span class="st-tree-header-pts">${this.pointsSpent(thirdNodes)} pts</span>
               </div>
-              <div class="st-tree-panel-body" data-motif="${TREE_MOTIF.frost}">
-                <div class="st-tree-container" style="height:${frostContainerHeight}">
-                  <svg id="st-frost-svg" class="st-tree-svg"></svg>
-                  ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
+              <div class="st-tree-panel-body" data-motif="${TREE_MOTIF[third.tree]}">
+                <div class="st-tree-container" style="height:${thirdContainerHeight}">
+                  <svg id="st-third-svg" class="st-tree-svg"></svg>
+                  ${thirdNodes.map(n => this.renderNode(n, pts, third.positions[n.id])).join('')}
                 </div>
               </div>
             </div>
@@ -873,7 +916,7 @@ export class SkillTreeUI {
 
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
-    this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
+    if (third) this.drawConnections('st-third-svg', third.positions, thirdNodes, pts);
     this.attachNodeListeners(pts);
     this.renderSelectionBar();
     // A purchase/refund/slot-change re-renders the whole tree (new node

@@ -7,21 +7,21 @@ import { SPELL_BINDINGS } from '@arena/shared';
 const aimTarget = { x: 10, y: 20 };
 
 describe('sanitizeInput castSpell', () => {
-  it('accepts every spell id currently bound in SPELL_BINDINGS (1-20)', () => {
+  it('accepts every spell id currently bound in SPELL_BINDINGS (1-23)', () => {
     // Driven by SPELL_BINDINGS itself (the same source sanitizeInput's
     // VALID_SPELL_IDS is built from) rather than a hardcoded list, so a
     // future spell added to the manifest without widening sanitizeInput's
     // accepted range fails here instead of silently drifting out of test
     // coverage. The equality check pins the currently-expected bound set.
     const ids = SPELL_BINDINGS.map(b => b.spell).sort((a, b) => a - b);
-    expect(ids).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    expect(ids).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
     for (const spell of ids) {
       expect(sanitizeInput({ aimTarget, castSpell: spell })?.castSpell).toBe(spell);
     }
   });
 
   it('rejects out-of-range and malformed values to null', () => {
-    for (const spell of [0, 21, 'x', null]) {
+    for (const spell of [0, 24, 'x', null]) {
       const result = sanitizeInput({ aimTarget, castSpell: spell });
       // castSpell: null is itself a legal "no cast" value and round-trips as
       // null rather than being rejected outright — assert on the frame.
