@@ -29,6 +29,10 @@ import {
   SPEAR_STUN_TICKS,
   LEAP_DURATION_TICKS, LEAP_SLOW_RADIUS,
   RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
+  SHRAPNEL_SPEED, SHRAPNEL_DAMAGE_MIN, SHRAPNEL_DAMAGE_MAX, REARM_REFUND_RATIO,
+  SECOND_HANDFUL_RADIUS_RATIO,
+  CALTROPS_DAMAGE_PER_TICK, CALTROPS_SLOW_FACTOR, CALTROPS_SLOW_TICKS,
+  MIRE_LINGER_TICKS, BLEEDING_GROUND_DPS, BLEEDING_GROUND_DURATION_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -41,6 +45,8 @@ import { spawnFireball, advanceFireball, isFireballExpired, fireballHitsPlayer, 
 import { spawnIceBolt, advanceIceBolt, isIceBoltExpired, iceBoltHitsPlayer, iceBoltDamage } from '../spells/IceBolt.ts';
 import { iceRayEnd, iceRayHitsPlayer } from '../spells/IceRay.ts';
 import { spawnBlizzard } from '../spells/Blizzard.ts';
+import { spawnSpikeTrap, spawnDeadfall, trapIsExpired, trapTriggersOn, trapDamagesPlayer, collectChain, evictOldest } from '../spells/Trap.ts';
+import { spawnCaltrops } from '../spells/Caltrops.ts';
 import { spawnFrozenOrb, advanceFrozenOrb, isFrozenOrbExpired, orbVolleyDue, spawnOrbVolley } from '../spells/FrozenOrb.ts';
 import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, wallDamagePerTick, advanceWall } from '../spells/FireWall.ts';
 import { spawnMeteor, steerMeteor, meteorDetonates, meteorHitsPlayer, meteorDamage } from '../spells/Meteor.ts';
@@ -68,8 +74,13 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
     target.burnUntil = tick + Math.round(el.burn.duration * TICK_RATE);
     target.burnDps = el.burn.damagePerSecond * atkDamageMult;
   } else if (ownerAM.element === 'freeze') {
-    target.slowUntil = tick + Math.round(el.freeze.duration * TICK_RATE);
-    target.slowFactor = Math.max(0, 1 - el.freeze.slowPercent);
+    // Strongest slow wins. Every frost path already resolves this way; this
+    // one overwrote, which mattered little until Caltrops made the overlap
+    // routine (a freeze-arrow ranger standing in their own field).
+    const incoming = Math.max(0, 1 - el.freeze.slowPercent);
+    const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+    target.slowFactor = Math.min(existing, incoming);
+    target.slowUntil = Math.max(target.slowUntil ?? 0, tick + Math.round(el.freeze.duration * TICK_RATE));
     if (el.freeze.deepFreeze && (target.freezeRootReadyAt ?? 0) <= tick) {
       target.rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
       target.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
@@ -80,6 +91,29 @@ function applyElementStatus(target: PlayerState, ownerAM: RangerSpellModifiers, 
     target.poisonManaReduction = el.poison.manaRegenReduction;
     target.poisonManaDrain = el.poison.manaDrainPerSecond > 0 ? el.poison.manaDrainPerSecond : undefined;
   }
+}
+
+/** Nearest valid enemy to `ownerId` — skips the caster, the dead, the
+ *  invisible (shadowstepped players must not be revealed by auto-targeting),
+ *  and teammates. Shared by Twin Storm and Scattershot. */
+function nearestEnemyPosition(
+  ownerId: string,
+  players: Record<string, PlayerState>,
+  tick: number,
+  mode: GameModeConfig,
+): Vec2 | undefined {
+  let nearest: Vec2 | undefined;
+  let nearestDist = Infinity;
+  const from = players[ownerId]?.position;
+  if (!from) return undefined;
+  for (const other of Object.values(players)) {
+    if (other.id === ownerId || other.hp <= 0) continue;
+    if ((other.invisibleUntil ?? 0) > tick) continue;
+    if (mode.teamsEnabled && other.teamId !== undefined && other.teamId === players[ownerId].teamId) continue;
+    const d = (other.position.x - from.x) ** 2 + (other.position.y - from.y) ** 2;
+    if (d < nearestDist) { nearestDist = d; nearest = other.position; }
+  }
+  return nearest;
 }
 
 /** Exposed keystone: 1.15 when the target stands in one of the owner's rain
@@ -173,17 +207,24 @@ export function advanceState(
   const modifiers = Object.fromEntries(
     Object.keys(players).map(id => [id, buildSpellModifiers(skillSets[id] ?? new Map())])
   );
+  // Read the class off the player, not off their node set. Sniffing for the
+  // class's starter node happened to work — it is granted free by
+  // CLASS_DEFAULT_NODE — but it is the same inference bug the gladiator work
+  // fixed in getSpellNodeMap, and three more ranger spells now depend on
+  // these being present. `skills.size > 0` preserves guest behaviour: a guest
+  // has no skill system, gets no modifiers, and the cast-site guards keep
+  // blocking their class spells.
   const rangerMods = Object.fromEntries(
     Object.keys(players).map(id => {
       const skills = skillSets[id] ?? new Map();
-      const isRanger = skills.has('archer.power_shot' as NodeId);
+      const isRanger = players[id].charClass === 'ranger' && skills.size > 0;
       return [id, isRanger ? buildRangerModifiers(skills) : null];
     })
   );
   const gladMods = Object.fromEntries(
     Object.keys(players).map(id => {
       const skills = skillSets[id] ?? new Map();
-      const isGladiator = skills.has('arms.jab' as NodeId);
+      const isGladiator = players[id].charClass === 'gladiator' && skills.size > 0;
       return [id, isGladiator ? buildGladiatorModifiers(skills) : null];
     })
   );
@@ -403,6 +444,10 @@ export function advanceState(
     let cooldownMultiplier = 1;
     if (spell === 8 && rangerMods[id]) {
       cooldownMultiplier = rangerMods[id]!.evade.cooldownMultiplier;
+    }
+    // Field Kit reduces the cooldown of all three hunter spells.
+    if ((spell === 17 || spell === 18 || spell === 19) && rangerMods[id]) {
+      cooldownMultiplier = rangerMods[id]!.trap.cooldownMultiplier;
     }
     const cooldownTicks = Math.round(cfg.cooldownTicks * cooldownMultiplier * p.statMults.cooldown);
 
@@ -638,6 +683,23 @@ export function advanceState(
           })];
         }
       }
+    } else if (spell === 17) {
+      const aMods = rangerMods[id];
+      if (!aMods) continue;
+      traps = evictOldest(traps, id, 'spike', aMods.trap.maxArmed);
+      traps = [...traps, spawnSpikeTrap(id, input.aimTarget, tick, aMods.trap)];
+    } else if (spell === 18) {
+      const aMods = rangerMods[id];
+      if (!aMods) continue;
+      fireWalls = [...fireWalls, spawnCaltrops(id, input.aimTarget, tick, aMods.caltrops)];
+      if (aMods.caltrops.secondHandful) {
+        fireWalls = [...fireWalls, spawnCaltrops(id, p.position, tick, aMods.caltrops, SECOND_HANDFUL_RADIUS_RATIO)];
+      }
+    } else if (spell === 19) {
+      const aMods = rangerMods[id];
+      if (!aMods) continue;
+      traps = evictOldest(traps, id, 'deadfall', 1);
+      traps = [...traps, spawnDeadfall(id, input.aimTarget, tick, aMods.trap, aMods.deadfall)];
     } else if (spell === 13) {
       const gm = gladMods[id];
       if (!gm) continue;
@@ -1324,7 +1386,8 @@ export function advanceState(
   for (const fw of fireWalls) {
     const isRainZone = fw.kind === 'rain';
     const isBlizzard = fw.kind === 'blizzard';
-    const widthMult = isRainZone || isBlizzard ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
+    const isCaltrops = fw.kind === 'caltrops';
+    const widthMult = isRainZone || isBlizzard || isCaltrops ? 1 : (modifiers[fw.ownerId]?.firewall.widthMultiplier ?? 1);
     for (const [pid] of Object.entries(players)) {
       if (fireWallDamagesPlayer(fw, players[pid].position, pid, widthMult)) {
         if (isRainZone) {
@@ -1354,6 +1417,8 @@ export function advanceState(
                 * exposedMultiplier(fw.ownerId, rangerMods[fw.ownerId], players[pid].position, fireWalls)
             : isBlizzard
             ? (fw.noDamage ? 0 : BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1) * rimeheartMult)
+            : isCaltrops
+            ? CALTROPS_DAMAGE_PER_TICK * (rangerMods[fw.ownerId]?.caltrops.damageMultiplier ?? 1)
             : wallDamagePerTick(fw, tick) * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode)) };
           if (isRainZone) {
@@ -1381,6 +1446,25 @@ export function advanceState(
               // Absolute Cold: +50% chill duration.
               const chillDurationMult = modifiers[fw.ownerId]?.frozenOrb.absoluteCold ? 1.5 : 1;
               target.slowUntil = tick + Math.round(ICEBOLT_CHILL_TICKS * chillDurationMult);
+            }
+          }
+          if (isCaltrops && players[pid].hp > 0) {
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[fw.ownerId]?.teamId !== undefined &&
+              players[fw.ownerId].teamId === players[pid].teamId;
+            if (!sameTeam) {
+              const cm = rangerMods[fw.ownerId]?.caltrops;
+              const target = players[pid];
+              const incoming = cm?.slowFactor ?? CALTROPS_SLOW_FACTOR;
+              const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+              target.slowFactor = Math.min(existing, incoming);
+              // Refreshed every tick while inside. Mire extends the tail after
+              // they leave; without it the slow lapses almost immediately.
+              target.slowUntil = tick + (cm?.mire ? MIRE_LINGER_TICKS : CALTROPS_SLOW_TICKS);
+              if (cm?.bleedingGround) {
+                target.burnUntil = tick + BLEEDING_GROUND_DURATION_TICKS;
+                target.burnDps = BLEEDING_GROUND_DPS;
+              }
             }
           }
         }
@@ -1511,6 +1595,99 @@ export function advanceState(
     }
   }
   rainOfArrows = survivingRain;
+
+  // 5b-bis. Trap triggers. Collect first, then resolve — Deadfall's chain must
+  // be assembled before anything fires so a chained trap cannot re-enter the
+  // chain and nothing fires twice.
+  {
+    const live = traps.filter(t => !trapIsExpired(t, tick));
+    const firing = new Map<string, TrapState>();   // id → trap, dedup by id
+
+    for (const trap of live) {
+      if (firing.has(trap.id)) continue;
+      let tripped = false;
+      for (const [pid, target] of Object.entries(players)) {
+        if (target.hp <= 0) continue;
+        if (resolvedMode.teamsEnabled && target.teamId !== undefined && target.teamId === players[trap.ownerId]?.teamId) continue;
+        // A mobility spell resolved this tick if the player was displaced by
+        // one: teleport stamps `teleported`, dashes end on `evadeEndTick`.
+        const mobilityLanded = target.teleported !== undefined || target.evadeEndTick === tick;
+        if (trapTriggersOn(trap, target.position, pid, { tick, mobilityLanded })) { tripped = true; break; }
+      }
+      if (!tripped) continue;
+
+      const chain = trap.kind === 'deadfall' ? collectChain(trap, live) : [trap];
+      for (const member of chain) {
+        if (!firing.has(member.id)) firing.set(member.id, member);
+      }
+    }
+
+    if (firing.size > 0) {
+      const detonator = [...firing.values()].find(t => t.kind === 'deadfall');
+      for (const trap of firing.values()) {
+        // Cascade applies only to traps a Deadfall set off, not the Deadfall.
+        const dmgMult = (trap.kind !== 'deadfall' && detonator) ? detonator.chainDamageMultiplier : 1;
+        const raw = trap.damageMin + Math.random() * (trap.damageMax - trap.damageMin);
+
+        for (const [pid] of Object.entries(players)) {
+          if (!trapDamagesPlayer(trap, players[pid].position, pid)) continue;
+          if ((players[pid].invulnUntil ?? 0) > tick) continue;
+          const dmg = raw * dmgMult * getDamageMultiplier(trap.ownerId, pid, players, resolvedMode);
+          players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg) };
+          if (players[pid].hp <= 0) continue;
+
+          const sameTeam = resolvedMode.teamsEnabled &&
+            players[trap.ownerId]?.teamId !== undefined &&
+            players[trap.ownerId].teamId === players[pid].teamId;
+          if (sameTeam) continue;
+
+          // Hamstring — strongest slow wins, never last-writer-wins.
+          if (trap.slowFactor < 1) {
+            const existing = (players[pid].slowUntil ?? 0) > tick ? (players[pid].slowFactor ?? 1) : 1;
+            players[pid].slowFactor = Math.min(existing, trap.slowFactor);
+            players[pid].slowUntil = tick + trap.slowTicks;
+          }
+          // Maimed — the tree's only root, on the shared deep-freeze envelope.
+          if (trap.roots && (players[pid].freezeRootReadyAt ?? 0) <= tick) {
+            players[pid].rootUntil = tick + DEEP_FREEZE_ROOT_TICKS;
+            players[pid].freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
+          }
+        }
+
+        // Shrapnel — an even radial fan of arrows from the trap.
+        if (trap.shardCount > 0) {
+          const homeTarget = trap.shardsHome
+            ? nearestEnemyPosition(trap.ownerId, players, tick, resolvedMode)
+            : undefined;
+          const shards = [];
+          for (let i = 0; i < trap.shardCount; i++) {
+            const angle = (i / trap.shardCount) * Math.PI * 2;
+            const target = homeTarget ?? {
+              x: trap.position.x + Math.cos(angle) * 500,
+              y: trap.position.y + Math.sin(angle) * 500,
+            };
+            shards.push(spawnArrow(trap.ownerId, trap.position, target, {
+              speed: SHRAPNEL_SPEED,
+              damageMin: SHRAPNEL_DAMAGE_MIN,
+              damageMax: SHRAPNEL_DAMAGE_MAX,
+              homing: trap.shardsHome ? 1 : 0,
+            }));
+          }
+          projectiles = [...projectiles, ...shards];
+        }
+
+        // Rearm — refund half the planting spell's remaining cooldown.
+        const owner = players[trap.ownerId];
+        if (owner && rangerMods[trap.ownerId]?.trap.rearm) {
+          const spellId: SpellId = trap.kind === 'deadfall' ? 19 : 17;
+          const remaining = owner.cooldowns[spellId] ?? 0;
+          owner.cooldowns = { ...owner.cooldowns, [spellId]: Math.round(remaining * REARM_REFUND_RATIO) };
+        }
+      }
+    }
+
+    traps = live.filter(t => !firing.has(t.id));
+  }
 
   // 5c. Damage breaks rest: any hp loss since the post-regen snapshot —
   // projectile, zone, meteor, or DoT — cancels the wind-up and the regen.
