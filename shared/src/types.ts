@@ -3,10 +3,10 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-// 1-8 mage/ranger, 9-12 frost (12 = channelled Ice Ray), 13-16 gladiator.
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+// 1-8 mage/ranger, 9-12 frost (12 = channelled Ice Ray), 13-16 gladiator, 17-20 gladiator expansion.
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20;
 
-export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard' | 'spear';
+export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard' | 'spear' | 'harpoon';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
@@ -76,6 +76,19 @@ export type PlayerState = {
   riposteReadyUntil?: number;  // Riposte keystone: free empowered Jab window
   dashDurationTicks?: number;  // dash length for the §0 interpolator (default EVADE_DURATION_TICKS)
   leapLanding?: { slowFactor: number; slowTicks: number }; // set while a Leap dash flies; applied at landing
+  // Gladiator expansion — absolute ticks throughout
+  speedBoostUntil?: number;    // War Cry ally surge
+  speedBoostFactor?: number;
+  rallyUntil?: number;         // Rallying Roar: +10% damage dealt while set
+  draggedBy?: string;          // Harpoon: dragger's id while the drag runs
+  dragEndTick?: number;
+  skewerJabUntil?: number;     // Skewer: next Jab in window deals double
+  flurryUntil?: number;        // Spear Flurry burst window
+  flurryNextHitAt?: number;
+  flurryHits?: Record<string, number>; // per-target landed hits this burst (Bloodsong)
+  bleedUntil?: number;         // Serrated Edge DoT
+  bleedDps?: number;
+  stunnedBy?: string;          // who applied the current stun (Concussion)
 };
 
 export type Projectile = {
@@ -118,7 +131,7 @@ export type Projectile = {
  *  and one array; this is what distinguishes them. Previously inferred by
  *  string-matching the id prefix, which silently mis-attributed any id that
  *  happened to share a prefix. */
-export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard';
+export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard' | 'dust';
 
 export type FireWallState = {
   id: string;
@@ -357,6 +370,44 @@ export const RIPOSTE_WINDOW_TICKS = 3 * TICK_RATE;         // 180
 export const RIPOSTE_JAB_STUN_TICKS = Math.round(0.5 * TICK_RATE); // 30
 export const EXECUTIONER_BONUS = 0.5;      // +50% Jab damage vs stunned/slowed
 
+// ── Gladiator expansion constants ──────────────────────────────────────────
+export const WAR_CRY_RADIUS = 150;
+export const WAR_CRY_DAMAGE = 40;
+export const WAR_CRY_SLOW_FACTOR = 0.75;
+export const WAR_CRY_SLOW_TICKS = Math.round(1.5 * TICK_RATE);   // 90
+export const WAR_CRY_ALLY_SPEED_FACTOR = 1.15;
+export const WAR_CRY_ALLY_SPEED_TICKS = 2 * TICK_RATE;           // 120
+export const RALLY_DAMAGE_MULT = 1.10;
+export const RALLY_TICKS = 3 * TICK_RATE;                        // 180
+export const HARPOON_SPEED = 450;
+export const HARPOON_RADIUS = 8;
+export const HARPOON_DAMAGE_MIN = 70;
+export const HARPOON_DAMAGE_MAX = 90;
+export const HARPOON_DRAG_TICKS = Math.round(0.35 * TICK_RATE);  // 21
+export const HARPOON_DRAG_STOP_DISTANCE = 40;  // lands just outside melee
+export const SKEWER_WINDOW_TICKS = 2 * TICK_RATE;                // 120
+export const DUST_RADIUS = 120;
+export const DUST_DURATION_TICKS = Math.round(2.5 * TICK_RATE);  // 150
+export const VANISH_TICKS = Math.round(0.5 * TICK_RATE);         // 30
+export const FLURRY_HITS = 5;
+export const FLURRY_HIT_INTERVAL_TICKS = 12;
+export const FLURRY_CONE_RANGE = 100;
+export const FLURRY_CONE_HALF_ANGLE = Math.PI / 4;               // 90° cone
+export const FLURRY_HIT_DAMAGE_MIN = 30;
+export const FLURRY_HIT_DAMAGE_MAX = 45;
+export const FLURRY_MOVE_MULT = 0.5;
+export const BLOODSONG_STUN_TICKS = Math.round(0.5 * TICK_RATE); // 30
+export const BLEED_BASE_DPS = 8;
+export const BLEED_TICKS = 3 * TICK_RATE;                        // 180
+export const HEMORRHAGE_SPEED_THRESHOLD = 0.7;  // of PLAYER_SPEED, per tick
+export const HEMORRHAGE_MULT = 1.5;
+export const CONCUSSION_MULT = 1.15;
+export const SEISMIC_SLAM_DAMAGE = 60;
+export const MIRROR_GUARD_MULT = 1.5;
+export const JUGGERNAUT_DR_BONUS = 0.15;
+export const JUGGERNAUT_HP_THRESHOLD = 0.30;
+export const IRON_SKIN_HP_PER_RANK = 25;
+
 // ── Frost constants ────────────────────────────────────────────────────────
 export const ICEBOLT_SPEED = 480;
 export const ICEBOLT_RADIUS = 8;
@@ -426,6 +477,10 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   14: { manaCost: 40,  cooldownTicks: 360 },
   15: { manaCost: 40,  cooldownTicks: 480 },
   16: { manaCost: 30,  cooldownTicks: 180 },
+  17: { manaCost: 50,  cooldownTicks: 720 },
+  18: { manaCost: 60,  cooldownTicks: 600 },
+  19: { manaCost: 40,  cooldownTicks: 840 },
+  20: { manaCost: 55,  cooldownTicks: 480 },
 };
 
 export const TELEPORT_MAX_RANGE = 600;
