@@ -276,8 +276,9 @@ function getDustSpriteTexture(): THREE.CanvasTexture {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
-    gradient.addColorStop(0.6, 'rgba(255,255,255,0.35)');
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.45, 'rgba(255,255,255,0.8)');
+    gradient.addColorStop(0.75, 'rgba(255,255,255,0.35)');
     gradient.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
@@ -978,7 +979,7 @@ export class SpellRenderer {
     }
   }
 
-  /** Kick Up Dust zones: one entry per fw.id, 10-14 sand sprites drifting on
+  /** Kick Up Dust zones: one entry per fw.id, a bank of sand sprites drifting on
    *  independent polar orbits inside the zone's radius. Concealment lives
    *  entirely in isConcealedFromViewer (what it hides), not here (the cloud
    *  itself is always visible to everyone — only the players inside it are
@@ -998,7 +999,7 @@ export class SpellRenderer {
       if (fw.kind !== 'dust' || !fw.center || !fw.radius) continue;
 
       if (!this.dustClouds.has(fw.id)) {
-        const count = 28;
+        const count = 72;
         const material = new THREE.SpriteMaterial({
           map: getDustSpriteTexture(), color: 0xc9b37e, transparent: true, depthWrite: false,
         });
@@ -1009,13 +1010,16 @@ export class SpellRenderer {
         const heights: number[] = [];
         for (let i = 0; i < count; i++) {
           const sprite = new THREE.Sprite(material);
-          const scale = (20 + Math.random() * 16) * 1.6;
+          const scale = (26 + Math.random() * 22) * 1.6;
           sprite.scale.set(scale, scale, 1);
           group.add(sprite);
           angles.push(Math.random() * Math.PI * 2);
-          radii.push(Math.random() * fw.radius);
+          // sqrt keeps the puffs area-uniform instead of clumping at the
+          // center — the rim has to be as opaque as the middle for the cloud
+          // to read as solid cover rather than a haze with a bright core.
+          radii.push(Math.sqrt(Math.random()) * fw.radius);
           angularSpeeds.push((Math.random() - 0.5) * 0.36);
-          heights.push(4 + Math.random() * 14);
+          heights.push(3 + Math.random() * 26);
         }
         this.scene.add(group);
         this.dustClouds.set(fw.id, {
@@ -1033,7 +1037,7 @@ export class SpellRenderer {
           fw.center.y + Math.sin(entry.angles[i]) * entry.radii[i],
         );
       }
-      entry.material.opacity = 0.45 + Math.sin(this.elapsedTime * 1.5 + entry.phase) * 0.25;
+      entry.material.opacity = 0.72 + Math.sin(this.elapsedTime * 1.5 + entry.phase) * 0.12;
     }
   }
 
@@ -1163,7 +1167,11 @@ export class SpellRenderer {
    *  client-side, so a trap whose lifetime simply ran out fades rather than
    *  detonating. */
   private syncTraps(state: GameState): void {
-    const activeIds = new Set(state.traps.map(t => t.id));
+    // Deploy skew defense (rolling deploy): a server predating traps omits
+    // the array; an unguarded read here threw every frame and blanked ALL
+    // character rendering in prod (2026-08-04). Same rule as frozenOrbs.
+    const stateTraps = state.traps ?? [];
+    const activeIds = new Set(stateTraps.map(t => t.id));
 
     for (const [id, entry] of this.traps) {
       if (!activeIds.has(id)) {
@@ -1179,7 +1187,7 @@ export class SpellRenderer {
       }
     }
 
-    for (const trap of state.traps) {
+    for (const trap of stateTraps) {
       if (!this.traps.has(trap.id)) {
         const group = new THREE.Group();
 
