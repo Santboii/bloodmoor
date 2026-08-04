@@ -188,16 +188,26 @@ const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_ROWS = 3, FROST_ROWS = 7, ARMS_ROWS =
  * discrete steps rather than a CSS transform: everything here is pixel art and
  * a 7px bitmap font, and a fractional scale would blur both.
  *
- * `row` is the vertical pitch between rows — it has to clear `block` plus the
- * few pixels a corner badge pokes above the next circle. `block` is the
- * tallest node: a spell circle + gap + one-line name, which just edges out a
- * mod circle + gap + two-line name.
+ * Nodes carry no name label any more (it moved to the hover tooltip), so
+ * `block` is just the icon circle itself — the tallest node is the spell
+ * circle. `row` is `block` plus a fixed clearance, not a scaled one: the
+ * corner badge and keystone marker are both fixed-px overlays (7px/9px
+ * bitmap font, constant padding) regardless of which step is picked, so the
+ * gap a neighbouring row's badge/keymark needs to clear the next circle
+ * doesn't grow with the icon.
  */
-type Scale = { row: number; spell: number; mod: number; name: number; block: number; icon: number; modIcon: number };
+type Scale = { row: number; spell: number; mod: number; block: number; icon: number; modIcon: number };
+const ROW_CLEARANCE = 16;
+// Circle/icon sizes are carried over unchanged from the previous (named)
+// pass — they were already tuned for legibility, and now that the icon is
+// the only on-screen identifier there's no reason to shrink them further.
+// The entire win here is `block` collapsing from "circle + gap + name" down
+// to just the circle, which — multiplied across every row of a 7-row tree —
+// is where the real compaction comes from.
 const SCALES: Scale[] = [
-  { row: 52,  spell: 28, mod: 20, name: 7, block: 44,  icon: 0.7,  modIcon: 0.55 },
-  { row: 88,  spell: 62, mod: 46, name: 8, block: 79,  icon: 1.5,  modIcon: 1.25 },
-  { row: 102, spell: 72, mod: 54, name: 9, block: 92,  icon: 1.75, modIcon: 1.45 },
+  { row: 28 + ROW_CLEARANCE, spell: 28, mod: 20, block: 28, icon: 0.7,  modIcon: 0.55 },
+  { row: 62 + ROW_CLEARANCE, spell: 62, mod: 46, block: 62, icon: 1.5,  modIcon: 1.25 },
+  { row: 72 + ROW_CLEARANCE, spell: 72, mod: 54, block: 72, icon: 1.75, modIcon: 1.45 },
 ];
 
 const treeHeight = (rows: number, s: Scale) => (rows - 1) * s.row + s.block;
@@ -244,6 +254,23 @@ const TREE_ACCENT: Record<SkillNode['tree'], string> = {
   archer_utility: '#b48cff',
   arms: '#d9a45b',
   bulwark: '#8ca9ff',
+};
+
+/** Which CSS-only backdrop each tree panel gets (`.st-tree-panel-body[data-motif]`
+ *  below) — no image assets, so each element is built from layered gradients
+ *  and repeating patterns instead of art. Grouped by accent family: fire and
+ *  archer read as the same warm-orange element, both trees' evasion/utility
+ *  columns share the violet arcane haze. */
+const TREE_MOTIF: Record<SkillNode['tree'], 'ember' | 'frost' | 'arcane'> = {
+  fire: 'ember',
+  lightning: 'ember',
+  archer: 'ember',
+  frost: 'frost',
+  utility: 'arcane',
+  archer_utility: 'arcane',
+  // Gladiator: warm martial bronze for Arms, cool guarded violet for Bulwark.
+  arms: 'ember',
+  bulwark: 'arcane',
 };
 
 /** Icon shown beside the spec name in each panel header — the WoW reference's
@@ -298,22 +325,54 @@ const STYLES = `
 .st-tree-panel-header{flex:0 0 auto;padding:7px 10px;background:#101117;box-shadow:inset 0 -2px 0 0 var(--st-tree-accent,var(--px-accent));font-family:'VT323',monospace;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--st-tree-accent,var(--px-accent));display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .st-tree-header-name{display:flex;align-items:center;gap:8px;min-width:0;}
 .st-tree-header-pts{font-size:12px;letter-spacing:0.06em;opacity:0.85;white-space:nowrap;flex:0 0 auto;}
-/* Stand-in for the reference's per-tree illustrated backdrop: no art asset,
-   so the tree's accent colour is washed faintly down the panel and the edges
-   are vignetted dark — just enough to make each column feel like its own
-   place without competing with the node icons for attention. */
+/* Per-tree elemental backdrop: no art asset, so each element is built purely
+   from layered gradients, a repeating-pattern texture and a box-shadow
+   vignette, kept dark enough that it never competes with the node icons —
+   atmosphere, not saturation. The data-motif attribute (set from JS, see
+   TREE_MOTIF) picks the element; the shared base rule supplies the vignette
+   and fallback every motif builds on. */
 .st-tree-panel-body{flex:1 1 auto;min-height:0;padding:16px 10px 10px;box-sizing:border-box;position:relative;
-  background:
-    radial-gradient(120% 60% at 50% 0%,color-mix(in srgb,var(--st-tree-accent,var(--px-accent)) 20%,transparent) 0%,transparent 65%),
-    linear-gradient(180deg,color-mix(in srgb,var(--st-tree-accent,var(--px-accent)) 10%,transparent) 0%,transparent 40%,rgba(0,0,0,0.5) 100%),
-    radial-gradient(85% 85% at 50% 50%,transparent 40%,rgba(0,0,0,0.6) 100%),
-    #101116;}
+  background:radial-gradient(85% 85% at 50% 50%,transparent 40%,rgba(0,0,0,0.6) 100%),#101116;
+  box-shadow:inset 0 0 46px 10px rgba(0,0,0,0.55);}
+/* Fire / Archer: an ember glow rising from the panel's base, with two faint
+   diagonal streak layers standing in for rising sparks. */
+.st-tree-panel-body[data-motif="ember"]{background:
+    radial-gradient(65% 42% at 50% 102%,rgba(232,96,32,0.32) 0%,rgba(232,96,32,0.12) 45%,transparent 78%),
+    repeating-linear-gradient(76deg,rgba(255,150,64,0.055) 0 2px,transparent 2px 27px),
+    repeating-linear-gradient(104deg,rgba(255,150,64,0.045) 0 2px,transparent 2px 36px),
+    radial-gradient(90% 55% at 50% 0%,rgba(232,96,32,0.08) 0%,transparent 60%),
+    radial-gradient(85% 85% at 50% 50%,transparent 38%,rgba(0,0,0,0.62) 100%),
+    #0d0a08;}
+/* Frost: a cold top-down wash with faint crystalline banding cut by two
+   opposed repeating-linear-gradients (facets, not brick). */
+.st-tree-panel-body[data-motif="frost"]{background:
+    radial-gradient(95% 50% at 50% 0%,rgba(111,211,242,0.24) 0%,rgba(111,211,242,0.07) 48%,transparent 78%),
+    repeating-linear-gradient(118deg,rgba(190,235,250,0.05) 0 1px,transparent 1px 23px),
+    repeating-linear-gradient(62deg,rgba(190,235,250,0.04) 0 1px,transparent 1px 31px),
+    radial-gradient(85% 85% at 50% 50%,transparent 38%,rgba(0,0,0,0.62) 100%),
+    #090d10;}
+/* Utility / Evasion: a dim, low-contrast arcane haze — soft radial bloom plus
+   a faint scattered-mote texture from a repeating-radial-gradient. */
+.st-tree-panel-body[data-motif="arcane"]{background:
+    radial-gradient(120% 55% at 50% 38%,rgba(180,140,255,0.16) 0%,transparent 72%),
+    repeating-radial-gradient(circle at 30% 20%,rgba(180,140,255,0.05) 0 2px,transparent 2px 38px),
+    repeating-radial-gradient(circle at 70% 65%,rgba(180,140,255,0.04) 0 2px,transparent 2px 46px),
+    radial-gradient(85% 85% at 50% 50%,transparent 38%,rgba(0,0,0,0.62) 100%),
+    #0b0a10;}
 .st-tree-container{position:relative;width:100%;}
 .st-util-container{position:relative;width:100%;}
 .st-tree-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
-/* ── nodes ──────────────────────────────────────────────────────────── */
-.st-node{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transform:translateX(-50%);}
+/* ── nodes: no name label any more (moved to the hover tooltip), so the node
+   is just its icon plate plus badges — a raised, beveled square rather than a
+   flat tile. ── */
+.st-node{position:absolute;cursor:pointer;transform:translateX(-50%);}
 .st-node-circle{border-radius:0;display:flex;align-items:center;justify-content:center;transition:filter 0.14s,transform 0.14s;position:relative;}
+/* Inner bevel: a hard-edged highlight/shadow pair (no blur, so it stays
+   pixel-art rather than painterly) that reads the plate as an inset object.
+   Lives on its own layer so every state below only has to declare its ring
+   colour, not repeat the bevel. */
+.st-node-circle::before{content:'';position:absolute;inset:0;pointer-events:none;
+  box-shadow:inset 2px 2px 0 rgba(255,255,255,0.12),inset -2px -2px 0 rgba(0,0,0,0.6);}
 .st-node-circle:hover{transform:scale(1.08);}
 /* The hover tooltip already shows a locked node's requirements the instant
    the cursor lands on it — there is nothing left for a click to reveal, so
@@ -323,20 +382,20 @@ const STYLES = `
 /* Sizes come from the picked Scale, set as custom properties on .st-ui. */
 .st-node-spell{width:var(--st-spell);height:var(--st-spell);}
 .st-node-mod{width:var(--st-mod);height:var(--st-mod);}
-.st-node-owned .st-node-circle{box-shadow:0 0 0 3px #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
-.st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 0 3px #e86020,0 0 12px rgba(232,96,32,0.25);}
+/* Every state ring leads with a 1px solid black frame before its colour —
+   the crisp edge the reference's beveled plate has against the backdrop,
+   independent of whatever's glowing behind it. */
+.st-node-owned .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 4px #e86020;background:radial-gradient(circle at 38% 38%,#2a0c00,#0e0400);}
+.st-node-owned.st-node-is-spell .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 4px #e86020,0 0 12px rgba(232,96,32,0.25);}
 .st-node-owned .st-node-icon{color:#e87040;}
-.st-node-owned .st-node-name{color:#d86040;}
-.st-node-purchasable .st-node-circle{box-shadow:0 0 0 2px var(--px-accent);background:radial-gradient(circle at 38% 38%,#201200,#0a0400);animation:st-pulse 1.6s ease-in-out infinite;}
+.st-node-purchasable .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 3px var(--px-accent);background:radial-gradient(circle at 38% 38%,#201200,#0a0400);animation:st-pulse 1.6s ease-in-out infinite;}
 .st-node-purchasable .st-node-icon{color:var(--px-accent);}
-.st-node-purchasable .st-node-name{color:var(--px-accent);}
-@keyframes st-pulse{0%,100%{box-shadow:0 0 0 2px var(--px-accent);}50%{box-shadow:0 0 0 2px var(--px-accent),0 0 14px rgba(255,179,71,0.55);}}
+@keyframes st-pulse{0%,100%{box-shadow:0 0 0 1px #000,0 0 0 3px var(--px-accent);}50%{box-shadow:0 0 0 1px #000,0 0 0 3px var(--px-accent),0 0 14px rgba(255,179,71,0.55);}}
 /* Locked is dim, not invisible: the unbought half of the tree is what the
    player plans against, and #555 on the lit brick backdrop read as empty
    space. Kept clearly below owned/purchasable in weight, still legible. */
-.st-node-locked .st-node-circle{box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;}
+.st-node-locked .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 2.5px #5b6270;background:#0e1015;}
 .st-node-locked .st-node-icon{color:#8d94a4;}
-.st-node-locked .st-node-name{color:#98a0b0;}
 /* Unavailable icons desaturate to greyscale (the reference's tell for "not
    yet available"), same as the excluded-by-choice state below already reads
    in muted red — exclusion keeps its own hue and is carved out below so the
@@ -344,42 +403,36 @@ const STYLES = `
 .st-node-locked:not(.st-node-excluded) .st-node-icon{filter:grayscale(1);}
 /* Excluded by a mutually-exclusive sibling — locked by a choice already made,
    not by a missing requirement, so it reads red rather than grey. */
-.st-node-excluded .st-node-circle{box-shadow:0 0 0 1.5px #6b3a3a;background:#150c0c;}
+.st-node-excluded .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 2.5px #6b3a3a;background:#150c0c;}
 .st-node-excluded .st-node-icon{color:#9a6a6a;}
-.st-node-excluded .st-node-name{color:#a87878;}
 /* Gear-granted ranks. Deliberately cool: owned, purchasable and supercharged
    are three warm hues on a torchlit backdrop already, and "this came from your
    gear, not your points" is the one distinction that must never be mistaken
    for one of them. Declared before the gold rules so a gear node pushed past
    its cap still reads as supercharged — the keystone matters more than where
    the ranks came from, and the cyan badge still says. */
-.st-node-gear .st-node-circle{box-shadow:0 0 0 3px #3f9fbd;background:radial-gradient(circle at 38% 38%,#04222c,#020c10);}
+.st-node-gear .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 4px #3f9fbd;background:radial-gradient(circle at 38% 38%,#04222c,#020c10);}
 .st-node-gear .st-node-icon{color:#6fc9e4;}
-.st-node-gear .st-node-name{color:#79cfe8;}
 .st-badge-gear,.st-badge-gearonly{color:#6fc9e4;}
 /* supercharged: ranks pushed past the soft cap — gold treatment */
-.st-node-supercharged .st-node-circle{box-shadow:0 0 0 3px #ddb84a,0 0 14px rgba(221,184,74,0.45);background:radial-gradient(circle at 38% 38%,#2a2000,#0e0a00);}
+.st-node-supercharged .st-node-circle{box-shadow:0 0 0 1px #000,0 0 0 4px #ddb84a,0 0 14px rgba(221,184,74,0.45);background:radial-gradient(circle at 38% 38%,#2a2000,#0e0a00);}
 .st-node-supercharged .st-node-icon{color:#ddb84a;}
-.st-node-supercharged .st-node-name{color:#ddb84a;}
 .st-keystone{margin-top:8px;padding:8px;background:rgba(221,184,74,0.06);box-shadow:0 0 0 1px rgba(221,184,74,0.3);font-size:11px}
 .st-keystone-name{color:#ddb84a;margin-bottom:4px}
 .st-keystone-active{background:rgba(221,184,74,0.14)}
 .st-node-selected .st-node-circle{outline:2px solid #fff;outline-offset:3px;}
-/* Wide enough that the longest name ("Rain of Arrows") stays on one line —
-   a wrapped spell name is what used to collide with the badge below it.
-   --st-namew is set from JS against the measured tree width (see
-   syncNameWidth). The 4-way black outline is what keeps names readable over
-   the torchlit masonry behind the tree — without it dim states dissolve into
-   the bricks. */
-.st-node-name{font-family:'Press Start 2P',monospace;font-size:var(--st-name);text-align:center;max-width:var(--st-namew);margin-top:4px;line-height:1.35;
-  text-shadow:1px 0 0 #05060a,-1px 0 0 #05060a,0 1px 0 #05060a,0 -1px 0 #05060a;}
-/* Corner rank plate, bottom-right of the icon — current/max, WoW-style.
-   Opposite corner from the keystone marker (top-left) so the two never
-   collide. Cost still lives in the hover tooltip. */
+/* Corner plate, bottom-right of the icon. Owned/gear/supercharged nodes (any
+   effective rank > 0) show current/max, WoW-style, for tracking progress;
+   everything still at rank 0 — locked, purchasable, or excluded — shows its
+   point cost instead, so a route through the tree can be planned without
+   hovering every node along it. The bare-number vs. fraction shape is itself
+   the tell between the two, on top of the colour. Opposite corner from the
+   keystone marker (top-left) so the two never collide. */
 .st-badge{position:absolute;right:-9px;bottom:-4px;font-family:'Press Start 2P',monospace;font-size:7px;padding:3px 4px;background:var(--px-border-dark);box-shadow:0 0 0 1px #000;pointer-events:none;z-index:2;}
 .st-badge-rank{color:#e87040;}
 .st-badge-rank.st-past-cap{color:#ddb84a;}
 .st-badge-lock{color:#98a0b0;}
+.st-badge-buyable{color:var(--px-accent);}
 .st-badge-excl{color:#c06a6a;}
 .st-badge-excl .fa{margin-right:3px;}
 /* Keystone marker, opposite corner from the cost/rank badge: dim while the
@@ -488,35 +541,17 @@ export class SkillTreeUI {
   }
 
   /** The scale only ever changes across a viewport-height threshold, so this
-   *  re-renders on the step change rather than on every resize event. Width
-   *  changes never need a re-render, only a fresh name cap. */
+   *  re-renders on the step change rather than on every resize event. Node
+   *  circles are fixed px per step and don't reflow with width, so a width
+   *  change with no step change needs no work at all. */
   private onResize = (): void => {
     if (this.resizeTimer !== null) window.clearTimeout(this.resizeTimer);
     this.resizeTimer = window.setTimeout(() => {
       this.resizeTimer = null;
       if (!this.hasRendered) return;
       if (pickScale(window.innerHeight / uiZoom()) !== this.scale) this.render();
-      else this.syncNameWidth();
     }, 150);
   };
-
-  /**
-   * Caps node names at 28% of the main tree's measured width — under the 30%
-   * gap between neighbouring columns, so two names can never collide however
-   * narrow the window gets — or at the scale's natural width, whichever is
-   * smaller. Has to be measured: the cap is relative to the tree, and no
-   * ancestor of the name is the tree. Applied as one shared CSS variable
-   * across all three tree columns (main/frost/util); the frost and util
-   * containers are usually narrower than main, so this is an approximation,
-   * not an exact per-column measurement.
-   */
-  private syncNameWidth(): void {
-    const ui = this.el.querySelector('.st-ui') as HTMLElement | null;
-    const tree = this.el.querySelector('.st-tree-container') as HTMLElement | null;
-    if (!ui || !tree) return;
-    const natural = Math.round(120 * this.scale.name / 7);
-    ui.style.setProperty('--st-namew', `${Math.min(natural, Math.round(tree.clientWidth * 0.28))}px`);
-  }
 
   constructor(
     container: HTMLElement,
@@ -693,7 +728,7 @@ export class SkillTreeUI {
     const utilContainerHeight = `${treeHeight(UTIL_ROWS, s)}px`;
     const frostContainerHeight = `${treeHeight(FROST_ROWS, s)}px`;
     const workspaceH = workspaceHeight(s);
-    const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px;--st-name:${s.name}px`;
+    const scaleVars = `--st-spell:${s.spell}px;--st-mod:${s.mod}px`;
 
     // Keystones and "choose one" groups aren't universal across every tree,
     // and a legend entry for a marker the open class never draws is just
@@ -736,7 +771,7 @@ export class SkillTreeUI {
                 <span class="st-tree-header-name"><i class="fa ${TREE_ICON[mainTree]}"></i>${mainLabel}</span>
                 <span class="st-tree-header-pts">${this.pointsSpent(mainNodes)} pts</span>
               </div>
-              <div class="st-tree-panel-body">
+              <div class="st-tree-panel-body" data-motif="${TREE_MOTIF[mainTree]}">
                 <div class="st-tree-container" style="height:${mainContainerHeight}">
                   <svg id="st-main-svg" class="st-tree-svg"></svg>
                   ${mainNodes.map(n => this.renderNode(n, pts, mainPositions[n.id])).join('')}
@@ -751,7 +786,7 @@ export class SkillTreeUI {
                 <span class="st-tree-header-name"><i class="fa ${TREE_ICON.frost}"></i>Frost</span>
                 <span class="st-tree-header-pts">${this.pointsSpent(frostNodes)} pts</span>
               </div>
-              <div class="st-tree-panel-body">
+              <div class="st-tree-panel-body" data-motif="${TREE_MOTIF.frost}">
                 <div class="st-tree-container" style="height:${frostContainerHeight}">
                   <svg id="st-frost-svg" class="st-tree-svg"></svg>
                   ${frostNodes.map(n => this.renderNode(n, pts, FROST_POSITIONS[n.id])).join('')}
@@ -765,7 +800,7 @@ export class SkillTreeUI {
                 <span class="st-tree-header-name"><i class="fa ${TREE_ICON[utilTree]}"></i>${cfg.utilLabel}</span>
                 <span class="st-tree-header-pts">${this.pointsSpent(utilNodes)} pts</span>
               </div>
-              <div class="st-tree-panel-body">
+              <div class="st-tree-panel-body" data-motif="${TREE_MOTIF[utilTree]}">
                 <div class="st-util-container" style="height:${utilContainerHeight}">
                   <svg id="st-util-svg" class="st-tree-svg" overflow="visible"></svg>
                   ${utilNodes.map(n => this.renderNode(n, pts, utilPositions[n.id])).join('')}
@@ -778,7 +813,7 @@ export class SkillTreeUI {
         <div class="st-legend">
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #e86020;background:#2a0c00;"></span>Owned</div>
           <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px var(--px-accent);background:#201200;"></span>Can learn — click it</div>
-          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked (cost on hover)</div>
+          <div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 1.5px #5b6270;background:#0e1015;"></span>Locked — badge shows cost</div>
           ${hasGear ? `<div class="st-legend-row"><span class="st-legend-swatch" style="box-shadow:0 0 0 2px #3f9fbd;background:#04222c;"></span>Rank from gear</div>` : ''}
           ${hasKeystones ? `<div class="st-legend-row"><span class="st-legend-mark"><i class="fa fa-bolt"></i></span>Keystone (past cap)</div>` : ''}
           <div class="st-legend-row"><span class="st-legend-swatch" style="background:repeating-linear-gradient(90deg,#c8860a 0 4px,transparent 4px 7px);"></span>Dashed line: needs any one parent</div>
@@ -816,7 +851,6 @@ export class SkillTreeUI {
       void this.assignSlot(this.pickingSlot, raw === 'clear' ? null : (Number(raw) as SpellId));
     });
 
-    this.syncNameWidth();
     this.drawConnections('st-main-svg', mainPositions, mainNodes, pts);
     this.drawConnections('st-util-svg', utilPositions, utilNodes, pts);
     this.drawConnections('st-frost-svg', FROST_POSITIONS, frostNodes, pts);
@@ -868,24 +902,29 @@ export class SkillTreeUI {
     const icon = NODE_ICONS[node.id] ?? 'fa-star';
     const state = (isOwned || gearOnly) ? 'owned' : (canBuyFirst ? 'purchasable' : 'locked');
 
-    // One compact corner badge carries the node's rank in current/max form —
-    // WoW's "0/3" — for every state, owned or not, so a locked node still
-    // names how many ranks it has to offer. Price lives in the hover tooltip
-    // now instead of competing for the same corner.
+    // One compact corner badge does double duty, the two uses never
+    // overlapping: a node with any effective rank (bought or from gear)
+    // shows current/max, WoW's "0/3", for tracking progress. A node still at
+    // rank 0 — locked, purchasable, or excluded — shows its point cost
+    // instead, so a route through the tree can be planned without hovering
+    // every node along it (names no longer do that job either, now that
+    // they've moved into the tooltip).
     const cap = isStackable(node) ? node.stackable!.softCap : 1;
-    // "3+2/5" — bought ranks and gear ranks stay separable, because only the
-    // bought half is refundable and only it costs points.
-    const gearPart = gear > 0 ? `<span class="st-badge-gear">+${gear}</span>` : '';
-    let badgeClass = 'st-badge-rank';
-    if (supercharged) badgeClass = 'st-badge-rank st-past-cap';
-    else if (gearOnly) badgeClass = 'st-badge-gearonly';
-    else if (excluded) badgeClass = 'st-badge-excl';
-    else if (!isOwned) badgeClass = 'st-badge-lock';
     // Excluded still needs its own tell beyond colour — it's locked by a
     // choice already made, not a missing requirement — so it keeps the ban
-    // glyph in front of the rank plate.
+    // glyph in front of the badge.
     const banIcon = excluded ? '<i class="fa fa-ban"></i> ' : '';
-    const badge = `<span class="st-badge ${badgeClass}">${banIcon}${currentRank}${gearPart}/${cap}</span>`;
+    let badge: string;
+    if (eff > 0) {
+      // "3+2/5" — bought ranks and gear ranks stay separable, because only
+      // the bought half is refundable and only it costs points.
+      const gearPart = gear > 0 ? `<span class="st-badge-gear">+${gear}</span>` : '';
+      const badgeClass = supercharged ? 'st-badge-rank st-past-cap' : (gearOnly ? 'st-badge-gearonly' : 'st-badge-rank');
+      badge = `<span class="st-badge ${badgeClass}">${currentRank}${gearPart}/${cap}</span>`;
+    } else {
+      const badgeClass = excluded ? 'st-badge-excl' : (canBuyFirst ? 'st-badge-buyable' : 'st-badge-lock');
+      badge = `<span class="st-badge ${badgeClass}">${banIcon}${node.cost}</span>`;
+    }
 
     // Keystones are the biggest payoff in the tree and used to be visible only
     // by hovering the right node; the marker advertises them from the tree.
@@ -900,7 +939,6 @@ export class SkillTreeUI {
         ${badge}
         ${keymark}
       </div>
-      <div class="st-node-name">${esc(node.name)}</div>
     </div>`;
   }
 
