@@ -189,9 +189,9 @@ function affixPoolFor(base: ItemBase): AffixId[] {
  * not a contract — tests anchor bases by id, never by array position, so
  * re-sorting this catalog must never change test outcomes.
  *
- * Every item-level band (1, 4, 7, 10) has at least one base of each of the
- * class-agnostic accessory slots and, separately, one weapon per class —
- * Phase 2's drop rolls and the admin grant tool pick bases by band.
+ * Weapons sit at bands 1, 7 and 10 for every class; gladiator additionally
+ * has bands 1 (boar_spear), 4 (bronze_spear) and 7 (serpent_pike) variants —
+ * the only L4 weapon in the game so far.
  */
 // Weapon layers carry `weaponRole` because a weapon is drawn twice: once
 // behind the body and once in front, so it can cross the character correctly
@@ -292,6 +292,33 @@ export const ITEM_BASES: ItemBase[] = [
     lpc: { layers: [
       { path: 'weapon/polearm/spear/background/gold', z: 5, weaponRole: 'behind' },
       { path: 'weapon/polearm/spear/foreground/gold', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
+  {
+    id: 'boar_spear', slot: 'weapon', name: 'Boar Spear', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 1, implicit: { id: 'max_health', value: 20 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/dark', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/dark', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
+  // The game's first level-4 weapon (all classes previously jumped 1 -> 7).
+  // Band 4 therefore gains its first class-restricted drop — a sellable
+  // dead drop for mage/ranger accounts, accepted in the 2026-08-04 spec.
+  {
+    id: 'bronze_spear', slot: 'weapon', name: 'Bronze Spear', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 4, implicit: { id: 'damage_pct', value: 4 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/bronze', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/bronze', z: 70, weaponRole: 'front' },
+    ], nativeAnims: ['thrust'] },
+  },
+  {
+    id: 'serpent_pike', slot: 'weapon', name: 'Serpent Pike', icon: 'fa-location-arrow',
+    classRestriction: 'gladiator', itemLevel: 7, implicit: { id: 'cast_speed_pct', value: 4 },
+    lpc: { layers: [
+      { path: 'weapon/polearm/spear/background/silver', z: 5, weaponRole: 'behind' },
+      { path: 'weapon/polearm/spear/foreground/silver', z: 70, weaponRole: 'front' },
     ], nativeAnims: ['thrust'] },
   },
 ];

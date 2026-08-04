@@ -72,8 +72,8 @@ describe('Gladiator spells and skill tree', () => {
 });
 
 describe('Gladiator weapons', () => {
-  it('ships gladiator-restricted spears at bands 1/7/10', () => {
+  it('ships gladiator-restricted spears at bands 1/7/10 plus the L4 bronze_spear variant', () => {
     const spears = ITEM_BASES.filter(b => b.slot === 'weapon' && b.classRestriction === 'gladiator');
-    expect(spears.map(s => s.itemLevel).sort((a, b) => a - b)).toEqual([1, 7, 10]);
+    expect(spears.map(s => s.itemLevel).sort((a, b) => a - b)).toEqual([1, 1, 4, 7, 7, 10]);
   });
 });

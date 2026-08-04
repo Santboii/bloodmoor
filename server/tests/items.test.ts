@@ -63,6 +63,15 @@ describe('manifests', () => {
       }
     }
   });
+  it('gladiator has a weapon base in every band, with varied implicits', () => {
+    const spears = ITEM_BASES.filter(b => b.slot === 'weapon' && b.classRestriction === 'gladiator');
+    for (const band of ITEM_LEVEL_BANDS) {
+      expect(spears.some(b => b.itemLevel === band), `band ${band}`).toBe(true);
+    }
+    expect(ITEM_BASES.find(b => b.id === 'boar_spear')!.implicit).toEqual({ id: 'max_health', value: 20 });
+    expect(ITEM_BASES.find(b => b.id === 'bronze_spear')!.implicit).toEqual({ id: 'damage_pct', value: 4 });
+    expect(ITEM_BASES.find(b => b.id === 'serpent_pike')!.implicit).toEqual({ id: 'cast_speed_pct', value: 4 });
+  });
   it('lpcTint only sits on bases that have an lpc manifest', () => {
     for (const u of UNIQUE_ITEMS) {
       if (!u.lpcTint) continue;
