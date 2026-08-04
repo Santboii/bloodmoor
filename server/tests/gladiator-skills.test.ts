@@ -57,9 +57,9 @@ describe('Gladiator spells and skill tree', () => {
     expect(SPELL_CONFIG[16]).toEqual({ manaCost: 30, cooldownTicks: 180 });
   });
 
-  it('has 13 arms nodes and 10 bulwark nodes', () => {
-    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(13);
-    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(10);
+  it('has 11 arms nodes and 9 bulwark nodes', () => {
+    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(11);
+    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(9);
   });
 
   it('gates leap behind spear_throw plus one tier-3 node', () => {

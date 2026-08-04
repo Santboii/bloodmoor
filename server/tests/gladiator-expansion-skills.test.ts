@@ -22,9 +22,9 @@ describe('Gladiator expansion manifests', () => {
     expect(SPELL_CONFIG[20]).toEqual({ manaCost: 55, cooldownTicks: 480 });
   });
 
-  it('grows arms to 13 and bulwark to 10 nodes', () => {
-    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(13);
-    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(10);
+  it('grows arms to 11 and bulwark to 9 nodes', () => {
+    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(11);
+    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(9);
   });
 
   it('every gladiator stackable now carries a keystone', () => {

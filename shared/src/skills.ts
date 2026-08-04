@@ -17,10 +17,8 @@ export type NodeId =
   | 'arms.jab' | 'arms.heavy_thrust' | 'arms.spear_throw'
   | 'arms.stunning_blow' | 'arms.leap' | 'arms.crushing_landing'
   | 'arms.serrated_edge' | 'arms.spear_flurry' | 'arms.extended_flurry' | 'arms.harpoon' | 'arms.quick_reel'
-  | 'arms.bleeding_mastery' | 'arms.blade_flurry'
   | 'bulwark.bracing' | 'bulwark.mobile_guard' | 'bulwark.reflect' | 'bulwark.perfect_guard'
   | 'bulwark.war_cry' | 'bulwark.intimidating_presence' | 'bulwark.kick_up_dust' | 'bulwark.sandstorm' | 'bulwark.iron_skin'
-  | 'bulwark.commanding_shout'
   | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance' | 'frost.ice_ray'
   | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
   | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
@@ -203,10 +201,6 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'arms.harpoon',         name: 'Harpoon',         tree: 'arms', tier: 6, cost: 3, isSpell: true,  description: 'Skillshot that drags the victim to melee range. 70–90 damage.' },
   { id: 'arms.quick_reel',      name: 'Quick Reel',      tree: 'arms', tier: 7, cost: 1, isSpell: false, description: 'Harpoon cooldown reduced per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
     keystone: { name: 'Skewer', description: 'If the victim lands in Jab range, your next Jab within 2s deals double damage.' } },
-  { id: 'arms.bleeding_mastery', name: 'Bleeding Mastery', tree: 'arms', tier: 3, cost: 1, isSpell: false, description: 'Stronger bleed effects per rank.', stackable: { softCap: 3, baseEffect: 0.15 },
-    keystone: { name: 'Vampirism', description: 'Bleed damage grants life steal.' } },
-  { id: 'arms.blade_flurry',    name: 'Blade Flurry',    tree: 'arms', tier: 5, cost: 1, isSpell: false, description: 'Enhanced flurry movement per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
-    keystone: { name: 'Momentum', description: 'Spear Flurry hits increase movement speed.' } },
   // Bulwark tree
   { id: 'bulwark.bracing',       name: 'Bracing',       tree: 'bulwark', tier: 1, cost: 1, isSpell: false, description: '+2% Block damage reduction per rank.', stackable: { softCap: 5, baseEffect: 0.02 },
     keystone: { name: 'Riposte', description: 'Blocked hits build stacks; at 3 your next Jab within 3s is free, ignores cooldown, and stuns for 0.5s.' } },
@@ -223,8 +217,6 @@ export const SKILL_NODES: SkillNode[] = [
     keystone: { name: 'Vanish', description: 'Leaving your own dust grants 0.5s of invisibility.' } },
   { id: 'bulwark.iron_skin',    name: 'Iron Skin',       tree: 'bulwark', tier: 5, cost: 2, isSpell: false, description: '+25 max HP per rank.', stackable: { softCap: 3, baseEffect: 25 },
     keystone: { name: 'Juggernaut', description: 'Below 30% HP, Block reduces 15% more damage.' } },
-  { id: 'bulwark.commanding_shout', name: 'Commanding Shout', tree: 'bulwark', tier: 3, cost: 1, isSpell: false, description: 'War Cry effect duration per rank.', stackable: { softCap: 3, baseEffect: 0.15 },
-    keystone: { name: 'Battle Cry', description: 'War Cry also stuns nearby enemies for 0.5s.' } },
   // ── Frost tree ────────────────────────────────────────────────────────────
   { id: 'frost.ice_bolt',         name: 'Ice Bolt',         tree: 'frost', tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile that chills on hit. 60–85 damage.' },
   { id: 'frost.bitter_chill',     name: 'Bitter Chill',     tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt\'s chill is stronger and lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.05 },
