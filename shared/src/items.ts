@@ -542,7 +542,7 @@ export const TALENT_AFFIX_WEIGHT = 0.25;
  * (mage) and archer/archer_utility (ranger) split used across skills.ts. */
 const CLASS_TREES: Record<CharacterClass, SkillTree[]> = {
   mage: ['fire', 'utility'],
-  ranger: ['archer', 'archer_utility'],
+  ranger: ['archer', 'archer_utility', 'hunter'],
   gladiator: ['arms', 'bulwark'],
 };
 

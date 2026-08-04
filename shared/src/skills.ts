@@ -21,9 +21,14 @@ export type NodeId =
   | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
   | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
   | 'frost.frozen_orb' | 'frost.shard_storm' | 'frost.glacial_drift'
-  | 'frost.cold_mastery';
+  | 'frost.cold_mastery'
+  | 'hunter.spike_trap' | 'hunter.serrated_spikes' | 'hunter.trap_cache'
+  | 'hunter.tripwire' | 'hunter.shrapnel' | 'hunter.caltrops'
+  | 'hunter.rusted_barbs' | 'hunter.wide_scatter' | 'hunter.barbed_wire'
+  | 'hunter.deadfall' | 'hunter.heavy_jaws' | 'hunter.cascade'
+  | 'hunter.field_kit';
 
-export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark';
+export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark' | 'hunter';
 
 export type StackableConfig = {
   softCap: number;
@@ -100,6 +105,19 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   'frost.shard_storm':      { requiresAll: ['frost.frozen_orb'] },
   'frost.glacial_drift':    { requiresAll: ['frost.frozen_orb'] },
   'frost.cold_mastery':     { requiresAll: ['frost.frozen_orb'] },
+  // Hunter tree — mirrors the fire/frost gate shape.
+  'hunter.serrated_spikes': { requiresAll: ['hunter.spike_trap'] },
+  'hunter.trap_cache':      { requiresAll: ['hunter.spike_trap'] },
+  'hunter.tripwire':        { requiresAll: ['hunter.spike_trap'] },
+  'hunter.shrapnel':        { requiresAll: ['hunter.spike_trap'] },
+  'hunter.caltrops':        { requiresAll: ['hunter.spike_trap'], requiresAny: ['hunter.serrated_spikes', 'hunter.trap_cache', 'hunter.tripwire', 'hunter.shrapnel'] },
+  'hunter.rusted_barbs':    { requiresAll: ['hunter.caltrops'] },
+  'hunter.wide_scatter':    { requiresAll: ['hunter.caltrops'] },
+  'hunter.barbed_wire':     { requiresAll: ['hunter.caltrops'] },
+  'hunter.deadfall':        { requiresAll: ['hunter.caltrops'], requiresAny: ['hunter.rusted_barbs', 'hunter.wide_scatter', 'hunter.barbed_wire'] },
+  'hunter.heavy_jaws':      { requiresAll: ['hunter.deadfall'] },
+  'hunter.cascade':         { requiresAll: ['hunter.deadfall'] },
+  'hunter.field_kit':       { requiresAll: ['hunter.deadfall'] },
 };
 
 export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): boolean {
@@ -209,6 +227,30 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'frost.glacial_drift',    name: 'Glacial Drift',    tree: 'frost', tier: 7, cost: 1, isSpell: false, description: 'Frozen Orb travels slower and lives longer per rank.', stackable: { softCap: 5, baseEffect: 0.12 } },
   { id: 'frost.cold_mastery',     name: 'Cold Mastery',     tree: 'frost', tier: 7, cost: 2, isSpell: false, description: '+6% damage to all frost spells per rank.', stackable: { softCap: 5, baseEffect: 0.06 },
     keystone: { name: 'Absolute Cold', description: 'Your chill lasts 50% longer.' } },
+  // ── Hunter tree ───────────────────────────────────────────────────────────
+  { id: 'hunter.spike_trap',      name: 'Spike Trap',      tree: 'hunter', tier: 1, cost: 1, isSpell: true,  description: 'Plant a dormant trap. Arms in 0.5s and fires once when an enemy comes near. 80–110 damage.' },
+  { id: 'hunter.serrated_spikes', name: 'Serrated Spikes', tree: 'hunter', tier: 2, cost: 1, isSpell: false, description: '+8% Spike Trap damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Hamstring', description: 'A triggered trap also slows 40% for 2s.' } },
+  { id: 'hunter.trap_cache',      name: 'Trap Cache',      tree: 'hunter', tier: 2, cost: 1, isSpell: false, description: 'Keep one more trap armed at once per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Quick Hands', description: 'Traps arm instantly.' } },
+  { id: 'hunter.tripwire',        name: 'Tripwire',        tree: 'hunter', tier: 3, cost: 2, isSpell: false, description: '+15% trap trigger radius per rank.', stackable: { softCap: 5, baseEffect: 0.15 },
+    keystone: { name: 'Countermeasure', description: 'Traps also trigger when an enemy dash, leap or teleport ends nearby.' } },
+  { id: 'hunter.shrapnel',        name: 'Shrapnel',        tree: 'hunter', tier: 3, cost: 2, isSpell: false, description: 'A triggered trap throws arrow shards outward. One more shard per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Scattershot', description: 'Shards home toward the nearest enemy.' } },
+  { id: 'hunter.caltrops',        name: 'Caltrops',        tree: 'hunter', tier: 4, cost: 2, isSpell: true,  description: 'Scatter a wide field. Little damage, but anyone inside is badly slowed.' },
+  { id: 'hunter.rusted_barbs',    name: 'Rusted Barbs',    tree: 'hunter', tier: 5, cost: 2, isSpell: false, description: 'Caltrops slow harder per rank.', stackable: { softCap: 5, baseEffect: 0.10 },
+    keystone: { name: 'Mire', description: 'The slow lingers 1.5s after leaving the field.' } },
+  { id: 'hunter.wide_scatter',    name: 'Wide Scatter',    tree: 'hunter', tier: 5, cost: 1, isSpell: false, description: '+20% Caltrops radius per rank.', stackable: { softCap: 5, baseEffect: 0.20 },
+    keystone: { name: 'Second Handful', description: 'Casting also scatters a half-size patch at your own feet.' } },
+  { id: 'hunter.barbed_wire',     name: 'Barbed Wire',     tree: 'hunter', tier: 5, cost: 2, isSpell: false, description: '+8% Caltrops damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Bleeding Ground', description: 'Leaving the field carries a 3s bleed.' } },
+  { id: 'hunter.deadfall',        name: 'Deadfall',        tree: 'hunter', tier: 6, cost: 3, isSpell: true,  description: 'A heavy trap. 180–240 damage, and it sets off your nearby armed traps where they stand.' },
+  { id: 'hunter.heavy_jaws',      name: 'Heavy Jaws',      tree: 'hunter', tier: 7, cost: 2, isSpell: false, description: '+10% Deadfall damage per rank.', stackable: { softCap: 3, baseEffect: 0.10 },
+    keystone: { name: 'Maimed', description: 'Deadfall roots for 0.4s.' } },
+  { id: 'hunter.cascade',         name: 'Cascade',         tree: 'hunter', tier: 7, cost: 2, isSpell: false, description: 'Traps set off by Deadfall deal +15% damage per rank.', stackable: { softCap: 3, baseEffect: 0.15 },
+    keystone: { name: 'Daisy Chain', description: 'Deadfall sets off every armed trap you own, at any range.' } },
+  { id: 'hunter.field_kit',       name: 'Field Kit',       tree: 'hunter', tier: 7, cost: 1, isSpell: false, description: '−8% cooldown on all Hunter spells per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Rearm', description: 'A trap that triggers refunds half its cooldown.' } },
 ];
 
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
@@ -246,6 +288,9 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 14, node: 'arms.spear_throw', defaultSlot: 2, charClass: 'gladiator' },
   { spell: 15, node: 'bulwark.reflect',  defaultSlot: 3, charClass: 'gladiator' },
   { spell: 16, node: 'arms.leap',        defaultSlot: 4, charClass: 'gladiator' },
+  { spell: 17, node: 'hunter.spike_trap', charClass: 'ranger' },
+  { spell: 18, node: 'hunter.caltrops',   charClass: 'ranger' },
+  { spell: 19, node: 'hunter.deadfall',   charClass: 'ranger' },
 ];
 
 export type SpellSlotRow = { slot: number; spell: number };

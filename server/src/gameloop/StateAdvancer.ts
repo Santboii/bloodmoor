@@ -33,7 +33,7 @@ import {
   gearVisualsFor,
 } from '@arena/shared';
 import type { CharacterClass, Appearance, ItemRow, Projectile } from '@arena/shared';
-import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, MeteorState, FrozenOrbState } from '@arena/shared';
+import type { GameModeConfig, RainOfArrowsState, EchoVolleyState, FireWallState, MeteorState, FrozenOrbState, TrapState } from '@arena/shared';
 import { SPELL_BINDINGS, classOfSpell, CLASS_DEFAULT_APPEARANCE, IGNITE_BURST_DAMAGE } from '@arena/shared';
 import { movePlayer, clampToArena, resolvePlayerPillarCollisions, clampTeleport } from '../physics/Movement.ts';
 import { hasLineOfSight, segmentsIntersect } from '../physics/LineOfSight.ts';
@@ -159,7 +159,7 @@ export function makeInitialState(
       gear: gearVisualsFor(p.items ?? []),
     };
   }
-  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], frozenOrbs: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
+  return { tick: 0, players: playerMap, projectiles: [], fireWalls: [], meteors: [], rainOfArrows: [], echoVolleys: [], frozenOrbs: [], traps: [], phase: 'dueling', winner: null, gameMode: mode?.type ?? '1v1', teams };
 }
 
 export function advanceState(
@@ -369,6 +369,7 @@ export function advanceState(
   let rainOfArrows: RainOfArrowsState[] = [...state.rainOfArrows];
   let echoVolleys: EchoVolleyState[] = [...(state.echoVolleys ?? [])];
   let frozenOrbs: FrozenOrbState[] = [...state.frozenOrbs];
+  let traps: TrapState[] = [...state.traps];
 
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
@@ -1530,7 +1531,7 @@ export function advanceState(
     winner = result.winner;
   }
 
-  return { tick: tick + 1, players, projectiles, fireWalls, meteors: [...survivingMeteors, ...newMeteors], rainOfArrows, echoVolleys, frozenOrbs, phase, winner, gameMode: state.gameMode, teams: state.teams };
+  return { tick: tick + 1, players, projectiles, fireWalls, meteors: [...survivingMeteors, ...newMeteors], rainOfArrows, echoVolleys, frozenOrbs, traps, phase, winner, gameMode: state.gameMode, teams: state.teams };
 }
 
 function deepCopyPlayers(players: Record<string, PlayerState>): Record<string, PlayerState> {
