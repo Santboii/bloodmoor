@@ -15,7 +15,7 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold, freshAccessToken } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank, FLURRY_MOVE_MULT } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -841,7 +841,20 @@ scene.startRenderLoop(() => {
           && me.charClass === 'gladiator'
           && !stunned
           && (me.blockCooldownUntil ?? 0) <= latest.tick;
-        opts.speedMult = slowMult * (predictedBlocking ? blockMoveMult : 1) * (me.statMults?.moveSpeed ?? 1);
+        // War Cry ally surge and Spear Flurry's committed-burst slow — both
+        // fold into the same product the server's §1 speed multiplier does.
+        const speedBoostMult = (me.speedBoostUntil ?? 0) > latest.tick ? (me.speedBoostFactor ?? 1) : 1;
+        const flurryMult = (me.flurryUntil ?? 0) > latest.tick ? FLURRY_MOVE_MULT : 1;
+        // A Harpoon drag is forced movement, not local input — the server
+        // never runs movePlayer for a dragged victim (StateAdvancer.ts §1:
+        // `dashing.has(id) ? p.position : movePlayer(...)`), so predicting it
+        // here would just fight the incoming snapshot every tick. Zeroing the
+        // multiplier is the same "don't predict this" move an evade dash
+        // relies on — no local displacement, reconcile snaps to the server's
+        // reeled-in position within ~1 RTT.
+        opts.speedMult = me.draggedBy
+          ? 0
+          : slowMult * speedBoostMult * flurryMult * (predictedBlocking ? blockMoveMult : 1) * (me.statMults?.moveSpeed ?? 1);
         // Predict teleport locally so it feels instant instead of arriving a
         // round-trip later as a slide. Only when the latest snapshot says the
         // server will actually accept the cast — a mispredicted teleport

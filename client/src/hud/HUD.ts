@@ -9,6 +9,9 @@ const SPELL_ICONS: Record<number, string> = {
   5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
   9: 'fa-icicles', 10: 'fa-snowflake', 11: 'fa-circle-nodes', 12: 'fa-bolt',
   13: 'fa-hand-fist', 14: 'fa-location-arrow', 15: 'fa-shield-halved', 16: 'fa-shoe-prints',
+  // Same Font Awesome Free 6.5.0 glyphs the skill tree uses for these nodes
+  // (SkillTreeUI.ts's NODE_ICONS) — all four ship in the free solid set.
+  17: 'fa-bullhorn', 18: 'fa-anchor', 19: 'fa-smog', 20: 'fa-wind',
 };
 
 // Spell-school tint for slot icons: fire / utility (mobility) / ranger / frost / melee.
@@ -17,6 +20,7 @@ const SPELL_TINTS: Record<number, string> = {
   5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
   9: '#6fd3f2', 10: '#6fd3f2', 11: '#6fd3f2', 12: '#6fd3f2',
   13: '#d9a45b', 14: '#d9a45b', 15: '#8ca9ff', 16: '#b48cff',
+  17: '#8ca9ff', 18: '#d9a45b', 19: '#c9b37e', 20: '#d9a45b',
 };
 
 // Chunky 20-gon staircase — a circle drawn at pixel-art resolution.

@@ -3,6 +3,7 @@ import {
   GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
   iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL, PLAYER_HALF_SIZE,
   aurasForGear, type AuraAnchor, type Vec2,
+  WAR_CRY_RADIUS, FLURRY_CONE_RANGE, FLURRY_CONE_HALF_ANGLE, FLURRY_HIT_INTERVAL_TICKS,
 } from '@arena/shared';
 import type { FireWallState, PlayerState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
@@ -13,6 +14,24 @@ import * as sfx from '../audio/sfx';
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
 type SpearEntry = { mesh: THREE.Group };
+// Harpoon head+shaft mirrors SpearEntry's mesh; `chain` is a separate object
+// so it can stretch independently between the (moving) caster and the head.
+type HarpoonEntry = { mesh: THREE.Group; chain: THREE.Mesh };
+// Sand sprites drift on independent polar coordinates around the zone's
+// center; angularSpeed/height/radius are fixed per-sprite at spawn so each
+// puff reads as an independent mote instead of the whole cloud pulsing in
+// lockstep.
+type DustEntry = {
+  group: THREE.Group;
+  material: THREE.SpriteMaterial;
+  angles: number[];
+  radii: number[];
+  angularSpeeds: number[];
+  heights: number[];
+  phase: number;
+};
+type FlurryEntry = { mesh: THREE.Mesh };
+type WarCryRingEntry = { mesh: THREE.Mesh; spawnTime: number };
 type BlockShieldEntry = { mesh: THREE.Mesh };
 type ReflectEntry = { mesh: THREE.Mesh };
 type StunEntry = { sprites: THREE.Sprite[] };
@@ -65,7 +84,19 @@ const METEOR_ROCK_GEO = new THREE.SphereGeometry(25, 6, 6);
 // exact group.rotation.set(-Math.PI/2, 0, -angle) velocity-orientation math.
 const SPEAR_SHAFT_GEO = new THREE.CylinderGeometry(1.2, 1.2, 26, 6).rotateZ(-Math.PI / 2);
 const SPEAR_TIP_GEO = new THREE.ConeGeometry(2.2, 5, 6).rotateZ(-Math.PI / 2);
+// Harpoon reuses the spear shaft/tip shapes above; only the chain is new
+// geometry. Unit box scaled per-frame to (length, thickness, thickness) —
+// same convention as ICE_RAY_BEAM_GEO below.
+const HARPOON_CHAIN_GEO = new THREE.BoxGeometry(1, 1, 1);
 const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Math.PI);
+// 90° pie slice (thetaLength = 2 * half-angle) reaching the spell's actual
+// cone range, centered on local +X — same convention BLOCK_SHIELD_GEO uses so
+// rotation.set(-PI/2, 0, -facing) opens it toward the caster's facing.
+const FLURRY_CONE_GEO = new THREE.RingGeometry(0, FLURRY_CONE_RANGE, 20, 1, -FLURRY_CONE_HALF_ANGLE, FLURRY_CONE_HALF_ANGLE * 2);
+// Thin seed ring scaled up to WAR_CRY_RADIUS over its lifetime (TeleportEffect's
+// ringGeometry/scale-up pattern).
+const WAR_CRY_RING_GEO = new THREE.RingGeometry(1, 6, 32);
+const WAR_CRY_RING_DURATION = 0.4; // seconds
 const REFLECT_RING_GEO = new THREE.RingGeometry(22, 25, 24);
 // Icicle shard, apex along +X so the same rotation math as the arrow shaft
 // (rotation.set(-PI/2, 0, -angle)) points it down the velocity vector.
@@ -88,6 +119,8 @@ const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
 const SPEAR_SHAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x9a8866 });
 const SPEAR_TIP_MAT = new THREE.MeshBasicMaterial({ color: 0xcfcfd8 });
+const HARPOON_HEAD_MAT = new THREE.MeshBasicMaterial({ color: 0xcfd6e0 });
+const HARPOON_CHAIN_MAT = new THREE.MeshBasicMaterial({ color: 0x777788 });
 const BLOCK_SHIELD_MAT = new THREE.MeshBasicMaterial({
   color: 0x8ca9ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
 });
@@ -164,11 +197,13 @@ const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
   SPEAR_SHAFT_GEO, SPEAR_TIP_GEO, BLOCK_SHIELD_GEO, REFLECT_RING_GEO,
   ICE_BOLT_GEO, FALLING_SHARD_GEO, ICE_RAY_BEAM_GEO,
+  HARPOON_CHAIN_GEO, FLURRY_CONE_GEO, WAR_CRY_RING_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
   SPEAR_SHAFT_MAT, SPEAR_TIP_MAT, BLOCK_SHIELD_MAT, REFLECT_RING_MAT,
   ICE_BOLT_MAT, FROZEN_ORB_CORE_MAT, FROZEN_ORB_GLOW_MAT,
+  HARPOON_HEAD_MAT, HARPOON_CHAIN_MAT,
 ]);
 
 // Stun stars are the one effect with no existing texture-based visual in
@@ -204,6 +239,29 @@ function getStunStarMaterial(): THREE.SpriteMaterial {
     sharedMaterials.add(stunStarMaterial);
   }
   return stunStarMaterial;
+}
+
+// Same lazy-canvas approach as the stun star above, but a soft radial blob
+// instead of a spiky glyph — reads as a puff of sand rather than a point
+// light. The texture is shared; each dust zone still gets its own
+// SpriteMaterial (below) so per-zone opacity can pulse independently.
+let dustSpriteTexture: THREE.CanvasTexture | null = null;
+function getDustSpriteTexture(): THREE.CanvasTexture {
+  if (!dustSpriteTexture) {
+    const size = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(0.6, 'rgba(255,255,255,0.35)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    dustSpriteTexture = new THREE.CanvasTexture(canvas);
+  }
+  return dustSpriteTexture;
 }
 
 const arrowShaftMats = new Map<number, THREE.MeshBasicMaterial>();
@@ -311,6 +369,10 @@ export class SpellRenderer {
   private wallSignatures = new Map<string, string>();
   private arrows = new Map<string, ArrowEntry>();
   private spears = new Map<string, SpearEntry>();
+  private harpoons = new Map<string, HarpoonEntry>();
+  private dustClouds = new Map<string, DustEntry>();
+  private flurryCones = new Map<string, FlurryEntry>();
+  private warCryRings: WarCryRingEntry[] = [];
   private blockShields = new Map<string, BlockShieldEntry>();
   private reflectShimmers = new Map<string, ReflectEntry>();
   private stunStars = new Map<string, StunEntry>();
@@ -430,13 +492,17 @@ export class SpellRenderer {
     this.syncFireballs(state);
     this.syncArrows(state);
     this.syncSpears(state);
+    this.syncHarpoons(state);
     this.syncIceBolts(state);
     this.syncFireWalls(state);
+    this.syncDustClouds(state, delta);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
     this.syncFrozenOrbs(state);
     this.syncIceRays(state, delta);
     this.syncGladiatorStatus(state);
+    this.syncFlurryCones(state);
+    this.syncWarCryRings(state);
     this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
 
@@ -586,6 +652,65 @@ export class SpellRenderer {
     }
   }
 
+  /** Harpoon head reuses the spear shaft/tip shapes (recolored); the chain is
+   *  a thin box re-stretched every frame between the caster's LIVE position
+   *  (they can keep moving mid-drag) and the flying/embedded head, so it
+   *  never looks anchored to where the cast started. */
+  private syncHarpoons(state: GameState): void {
+    const activeIds = new Set(state.projectiles.filter(p => p.type === 'harpoon').map(p => p.id));
+
+    for (const [id, entry] of this.harpoons) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        this.scene.remove(entry.chain);
+        disposeObject3D(entry.mesh);
+        disposeObject3D(entry.chain);
+        this.harpoons.delete(id);
+      }
+    }
+
+    for (const proj of state.projectiles) {
+      if (proj.type !== 'harpoon') continue;
+
+      if (!this.harpoons.has(proj.id)) {
+        const group = new THREE.Group();
+        const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
+        group.add(shaft);
+        const tip = new THREE.Mesh(SPEAR_TIP_GEO, HARPOON_HEAD_MAT);
+        tip.position.x = 13;
+        group.add(tip);
+        this.scene.add(group);
+
+        const chain = new THREE.Mesh(HARPOON_CHAIN_GEO, HARPOON_CHAIN_MAT);
+        this.scene.add(chain);
+
+        this.harpoons.set(proj.id, { mesh: group, chain });
+      }
+
+      const entry = this.harpoons.get(proj.id)!;
+      const wx = proj.position.x;
+      const wy = 30;
+      const wz = proj.position.y;
+      entry.mesh.position.set(wx, wy, wz);
+
+      const vx = proj.velocity.x;
+      const vz = proj.velocity.y;
+      const angle = Math.atan2(vz, vx);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+
+      // Chain: caster's live position -> the head, using the same midpoint/
+      // scale/rotate convention as the Ice Ray beam (ICE_RAY_BEAM_GEO).
+      const owner = state.players[proj.ownerId]?.position ?? proj.position;
+      const dx = wx - owner.x;
+      const dz = wz - owner.y;
+      const length = Math.sqrt(dx * dx + dz * dz);
+      const chainAngle = Math.atan2(dz, dx);
+      entry.chain.position.set((owner.x + wx) / 2, wy, (owner.y + wz) / 2);
+      entry.chain.rotation.set(-Math.PI / 2, 0, -chainAngle);
+      entry.chain.scale.set(Math.max(length, 0.001), 1.5, 1.5);
+    }
+  }
+
   private syncIceBolts(state: GameState): void {
     const activeIceBoltIds = new Set(
       state.projectiles.filter(p => p.type === 'icebolt' || p.type === 'iceshard').map(p => p.id),
@@ -732,6 +857,65 @@ export class SpellRenderer {
         new THREE.Vector3(seg.x2, 1, seg.y2),
       ];
       group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), WALL_SEGMENT_MAT));
+    }
+  }
+
+  /** Kick Up Dust zones: one entry per fw.id, 10-14 sand sprites drifting on
+   *  independent polar orbits inside the zone's radius. Concealment lives
+   *  entirely in isConcealedFromViewer (what it hides), not here (the cloud
+   *  itself is always visible to everyone — only the players inside it are
+   *  hidden from outside viewers). */
+  private syncDustClouds(state: GameState, delta: number): void {
+    const activeIds = new Set(state.fireWalls.filter(fw => fw.kind === 'dust').map(fw => fw.id));
+
+    for (const [id, entry] of this.dustClouds) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.group);
+        disposeObject3D(entry.group);
+        this.dustClouds.delete(id);
+      }
+    }
+
+    for (const fw of state.fireWalls) {
+      if (fw.kind !== 'dust' || !fw.center || !fw.radius) continue;
+
+      if (!this.dustClouds.has(fw.id)) {
+        const count = 10 + Math.floor(Math.random() * 5); // 10-14
+        const material = new THREE.SpriteMaterial({
+          map: getDustSpriteTexture(), color: 0xc9b37e, transparent: true, depthWrite: false,
+        });
+        const group = new THREE.Group();
+        const angles: number[] = [];
+        const radii: number[] = [];
+        const angularSpeeds: number[] = [];
+        const heights: number[] = [];
+        for (let i = 0; i < count; i++) {
+          const sprite = new THREE.Sprite(material);
+          const scale = 20 + Math.random() * 16;
+          sprite.scale.set(scale, scale, 1);
+          group.add(sprite);
+          angles.push(Math.random() * Math.PI * 2);
+          radii.push(Math.random() * fw.radius);
+          angularSpeeds.push((Math.random() - 0.5) * 0.6);
+          heights.push(4 + Math.random() * 14);
+        }
+        this.scene.add(group);
+        this.dustClouds.set(fw.id, {
+          group, material, angles, radii, angularSpeeds, heights, phase: Math.random() * Math.PI * 2,
+        });
+      }
+
+      const entry = this.dustClouds.get(fw.id)!;
+      const sprites = entry.group.children as THREE.Sprite[];
+      for (let i = 0; i < sprites.length; i++) {
+        entry.angles[i] += entry.angularSpeeds[i] * delta;
+        sprites[i].position.set(
+          fw.center.x + Math.cos(entry.angles[i]) * entry.radii[i],
+          entry.heights[i],
+          fw.center.y + Math.sin(entry.angles[i]) * entry.radii[i],
+        );
+      }
+      entry.material.opacity = 0.35 + Math.sin(this.elapsedTime * 1.5 + entry.phase) * 0.15;
     }
   }
 
@@ -946,6 +1130,84 @@ export class SpellRenderer {
     }
   }
 
+  /** Spear Flurry burst: a 90° cone flash toward the player's facing while
+   *  `flurryUntil` holds, flashing bright right after each hit resolves and
+   *  fading out over the interval until the next one — same hidden/corpse
+   *  guards as syncGladiatorStatus above. */
+  private syncFlurryCones(state: GameState): void {
+    const viewer = state.players[this.myId];
+    const hidden = (p: PlayerState | undefined): boolean =>
+      !p || p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick);
+
+    for (const [id, entry] of this.flurryCones) {
+      const p = state.players[id];
+      if (hidden(p) || !((p!.flurryUntil ?? 0) > state.tick)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.flurryCones.delete(id);
+      }
+    }
+
+    for (const p of Object.values(state.players)) {
+      if (hidden(p) || !((p.flurryUntil ?? 0) > state.tick)) continue;
+
+      if (!this.flurryCones.has(p.id)) {
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xd9a45b, transparent: true, opacity: 0, side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(FLURRY_CONE_GEO, material);
+        this.scene.add(mesh);
+        this.flurryCones.set(p.id, { mesh });
+      }
+
+      const entry = this.flurryCones.get(p.id)!;
+      entry.mesh.position.set(p.position.x, 2, p.position.y);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -p.facing);
+
+      // Ticks remaining until the next scheduled hit, wrapped back into "how
+      // long since the last one" so the flash is brightest right on impact.
+      const remaining = Math.max(0, Math.min(FLURRY_HIT_INTERVAL_TICKS, (p.flurryNextHitAt ?? state.tick) - state.tick));
+      const fade = remaining / FLURRY_HIT_INTERVAL_TICKS;
+      (entry.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * fade;
+    }
+  }
+
+  /** War Cry: one expanding, fading ring per cast — edge-detected the same
+   *  way detectTeleports reads `player.teleported`, but on `castingSpell`
+   *  (also a single-tick pulse field) since War Cry has no discrete "landed
+   *  at" position to key off. */
+  private syncWarCryRings(state: GameState): void {
+    const viewer = state.players[this.myId];
+    for (const player of Object.values(state.players)) {
+      if (player.castingSpell !== 17) continue;
+      if (player.hp <= 0 || isConcealedFromViewer(player, viewer, state.fireWalls, state.tick)) continue;
+
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x8ca9ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(WAR_CRY_RING_GEO, material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(player.position.x, 2, player.position.y);
+      mesh.scale.setScalar(0.01);
+      this.scene.add(mesh);
+      this.warCryRings.push({ mesh, spawnTime: this.elapsedTime });
+    }
+
+    for (let i = this.warCryRings.length - 1; i >= 0; i--) {
+      const entry = this.warCryRings[i];
+      const t = (this.elapsedTime - entry.spawnTime) / WAR_CRY_RING_DURATION;
+      if (t >= 1) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.warCryRings.splice(i, 1);
+        continue;
+      }
+      entry.mesh.scale.setScalar(Math.max(0.01, t * WAR_CRY_RADIUS));
+      (entry.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 * (1 - t);
+    }
+  }
+
   private syncFrozenOrbs(state: GameState): void {
     // Deploy skew defense (rolling deploy): frozenOrbs is required in the
     // type, but a mismatched server build could still omit it — same reason
@@ -1153,6 +1415,15 @@ export class SpellRenderer {
     for (const mesh of this.fireballs.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     for (const entry of this.arrows.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.spears.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.harpoons.values()) {
+      this.scene.remove(entry.mesh);
+      this.scene.remove(entry.chain);
+      disposeObject3D(entry.mesh);
+      disposeObject3D(entry.chain);
+    }
+    for (const entry of this.dustClouds.values()) { this.scene.remove(entry.group); disposeObject3D(entry.group); }
+    for (const entry of this.flurryCones.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.warCryRings) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.blockShields.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.reflectShimmers.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.stunStars.values()) { for (const sprite of entry.sprites) this.scene.remove(sprite); }
@@ -1178,6 +1449,10 @@ export class SpellRenderer {
     this.fireballs.clear();
     this.arrows.clear();
     this.spears.clear();
+    this.harpoons.clear();
+    this.dustClouds.clear();
+    this.flurryCones.clear();
+    this.warCryRings.length = 0;
     this.blockShields.clear();
     this.reflectShimmers.clear();
     this.stunStars.clear();

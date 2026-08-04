@@ -67,6 +67,13 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   14: 'cast_bow',
   15: 'teleport',
   16: 'evade',
+  // Gladiator expansion (17-20): no dedicated samples exist yet — reusing the
+  // closest shape per spell exactly like 9-14 above. Follow-up: audition and
+  // record proper War Cry / Harpoon / Kick Up Dust / Spear Flurry stings.
+  17: 'duel_begin', // War Cry: shout-like sting, closest existing match
+  18: 'cast_bow',   // Harpoon: skillshot launch, same shape as the bow cast
+  19: 'evade',      // Kick Up Dust: quick burst at the caster's feet
+  20: 'cast_bow',   // Spear Flurry: jab-like whip, same shape as 13/14
 };
 
 export function playCast(spell: SpellId): void {
