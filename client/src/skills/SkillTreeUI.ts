@@ -97,6 +97,29 @@ function esc(s: string): string {
 }
 
 /**
+ * How many points a refund should pay back for taking `node` from
+ * `currentRank` down to `currentRank - 1`. Node prices can be rebalanced
+ * after a character already bought ranks at the old price, so this can't
+ * just quote today's `rankUpCost` — the `refund_skill_node` RPC bounds the
+ * payout by `spentOnNode` (the running total it tracks server-side) and
+ * raises if asked for more than that. Two rules keep every refund lossless
+ * within that bound, whether or not the node was ever rebalanced:
+ * - Above rank 1, refund today's price for that rank, capped at whatever is
+ *   still unclaimed.
+ * - At rank 1, the node is about to be deleted entirely (there is no partial
+ *   rank left to hold the remainder), so pay back everything still
+ *   unclaimed rather than just today's price. This is what makes a
+ *   single-rank rebalanced node (e.g. cost 2 -> 1) refund the full
+ *   historical 2 instead of losing a point, and it's what drains a
+ *   multi-rank node's `spentOnNode` to exactly 0 by the time its last rank
+ *   goes.
+ */
+export function clampedRefund(node: SkillNode, currentRank: number, spentOnNode: number): number {
+  if (currentRank <= 1) return spentOnNode;
+  return Math.min(rankUpCost(node, currentRank - 1), spentOnNode);
+}
+
+/**
  * `#ui-overlay` (this screen's mount point) applies `zoom: var(--ui-zoom)`
  * to scale the whole UI (see pixelTheme.ts). That scaling reaches
  * position:fixed descendants too — the same reason `.bm-ui`/`.cs-ui` divide
@@ -590,6 +613,15 @@ export class SkillTreeUI {
    *  They change what a talent DOES, never what it costs or what it unlocks,
    *  so they stay out of `ranks` and out of every gate/price calculation. */
   private gearRanks = new Map<NodeId, number>();
+  /** Per-node running total actually paid, mirroring `skill_unlocks.total_spent`
+   *  — the value `refund_skill_node` bounds its payout by. Needed alongside
+   *  `ranks` because today's `rankUpCost` can disagree with what a node's
+   *  ranks cost historically after a rebalance; see `clampedRefund`. */
+  private spentOnNode = new Map<NodeId, number>();
+  /** Per-node error text from the last failed refund RPC, keyed like
+   *  `ShopScreen`'s `noticeBySlot` — cleared at the start of each new
+   *  attempt on that node, shown in the selection bar until then. */
+  private refundNotice = new Map<NodeId, string>();
   private slotRows: SpellSlotRow[] = [];
   private characterId: string | null = null;
   private skillPoints = 0;
@@ -719,7 +751,7 @@ export class SkillTreeUI {
         .single(),
       supabase
         .from('skill_unlocks')
-        .select('node_id, rank')
+        .select('node_id, rank, total_spent')
         .eq('character_id', this.characterId),
       fetchItems(),
       supabase
@@ -733,6 +765,9 @@ export class SkillTreeUI {
     this.charClass = normalizeCharacterClass(charData?.class);
     this.ranks = new Map(
       (data ?? []).map((r: { node_id: string; rank: number }) => [r.node_id as NodeId, r.rank ?? 1])
+    );
+    this.spentOnNode = new Map(
+      (data ?? []).map((r: { node_id: string; total_spent: number }) => [r.node_id as NodeId, r.total_spent ?? 0])
     );
     // `fetchItems` is account-wide; only what this character has equipped
     // counts, and off-class talent affixes are dropped by computeLoadout.
@@ -1228,7 +1263,7 @@ export class SkillTreeUI {
     let refundLine = '';
     if (isOwned) {
       const reason = this.refundBlockReason(id);
-      const refund = rankUpCost(node, currentRank - 1);
+      const refund = clampedRefund(node, currentRank, this.spentOnNode.get(id) ?? 0);
       refundLine = reason === null
         ? `<div class="st-refund-hint">Right-click: refund 1 rank (+${refund} pt${refund > 1 ? 's' : ''}) — or click to select it for the refund button below the tree.</div>`
         : `<div class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</div>`;
@@ -1331,7 +1366,8 @@ export class SkillTreeUI {
     }
 
     const reason = this.refundBlockReason(id);
-    const refund = rankUpCost(node, currentRank - 1);
+    const refund = clampedRefund(node, currentRank, this.spentOnNode.get(id) ?? 0);
+    const notice = this.refundNotice.get(id);
     bar.style.display = 'flex';
     bar.innerHTML = reason === null
       ? `<span class="st-selection-name">${esc(node.name)}</span>
@@ -1339,6 +1375,11 @@ export class SkillTreeUI {
          <span class="st-refund-hint">…or right-click the skill</span>`
       : `<span class="st-selection-name">${esc(node.name)}</span>
          <span class="st-refund-hint st-refund-blocked">Refund blocked: ${esc(reason)}</span>`;
+    // Surfaces the last failed refund_skill_node RPC instead of leaving the
+    // player staring at a rank that silently snapped back — see `refundNode`.
+    if (notice) {
+      bar.innerHTML += `<span class="st-refund-hint st-refund-blocked">${esc(notice)}</span>`;
+    }
 
     // Acts on the node the bar is showing, which is the node its label
     // names — so a stale selection can't refund something else.
@@ -1430,6 +1471,7 @@ export class SkillTreeUI {
     if (!this.characterId) return;
     sfx.playSkillSpend();
     this.ranks.set(id, nextRank);
+    this.spentOnNode.set(id, (this.spentOnNode.get(id) ?? 0) + cost);
     this.skillPoints -= cost;
     this.flashId = id;
     this.selectedId = id; // keep the outline (and refund bar) on the node just bought
@@ -1517,7 +1559,13 @@ export class SkillTreeUI {
     const without = new Map(this.ranks);
     without.delete(id);
     for (const ownedId of without.keys()) {
-      if (!canUnlock(ownedId, without)) {
+      // Only blame a dependent that this refund would actually break. A gate
+      // rewire can leave a legacy build holding a node that's already
+      // unsatisfiable under the current gates (e.g. reached through a path
+      // that no longer exists); without the `canUnlock(ownedId, this.ranks)`
+      // guard, that orphan fails `canUnlock` unconditionally and blocks
+      // every refund on the character with a misleading "depends on it".
+      if (canUnlock(ownedId, this.ranks) && !canUnlock(ownedId, without)) {
         const name = SKILL_NODES.find(n => n.id === ownedId)?.name ?? ownedId;
         return `${name} depends on it`;
       }
@@ -1532,10 +1580,20 @@ export class SkillTreeUI {
     const currentRank = this.ranks.get(id) ?? 0;
     if (currentRank === 0 || this.refundBlockReason(id) !== null) return;
     sfx.playUnequip();
-    const refund = rankUpCost(node, currentRank - 1); // what the top rank cost
+    this.refundNotice.delete(id);
+    const spent = this.spentOnNode.get(id) ?? 0;
+    // Clamped by what was actually paid, not today's price — a rebalanced
+    // node's price can differ from its history, and the RPC bounds the
+    // payout by `total_spent` (see `clampedRefund`'s doc comment).
+    const refund = clampedRefund(node, currentRank, spent);
 
-    if (currentRank > 1) this.ranks.set(id, currentRank - 1);
-    else this.ranks.delete(id);
+    if (currentRank > 1) {
+      this.ranks.set(id, currentRank - 1);
+      this.spentOnNode.set(id, spent - refund);
+    } else {
+      this.ranks.delete(id);
+      this.spentOnNode.delete(id);
+    }
     this.skillPoints += refund;
     this.flashId = id;
     this.selectedId = this.ranks.has(id) ? id : null;
@@ -1546,7 +1604,10 @@ export class SkillTreeUI {
       p_node_id: id,
       p_refund: refund,
     }).then(({ error }) => {
-      if (error) console.error('Refund failed, reverting:', error.message);
+      if (error) {
+        console.error('Refund failed, reverting:', error.message);
+        this.refundNotice.set(id, `Refund failed: ${error.message}`);
+      }
       void this.reload();
     });
   }
