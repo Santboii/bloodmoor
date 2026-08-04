@@ -636,7 +636,7 @@ export const TALENT_AFFIX_WEIGHT = 0.25;
 /** Trees each class can draw talent ranks from — mirrors the fire/utility
  * (mage) and archer/archer_utility (ranger) split used across skills.ts. */
 const CLASS_TREES: Record<CharacterClass, SkillTree[]> = {
-  mage: ['fire', 'utility'],
+  mage: ['fire', 'frost', 'utility'],
   ranger: ['archer', 'archer_utility', 'hunter'],
   gladiator: ['arms', 'bulwark'],
 };

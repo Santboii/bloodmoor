@@ -294,6 +294,26 @@ describe('computeLoadout', () => {
     expect(classOwnsTree('mage', 'archer.barrage')).toBe(false);
     expect(classOwnsTree('ranger', 'archer_utility.evade')).toBe(true);
   });
+
+  // Guards against the frost-merge gap recurring: a tree shipped in
+  // skills.ts but absent from CLASS_TREES makes its item talent affixes
+  // silently inert for every class.
+  it('every skill node\'s tree is owned by at least one class', () => {
+    const classes = ['mage', 'ranger', 'gladiator'] as const;
+    for (const n of SKILL_NODES) {
+      expect(classes.some(c => classOwnsTree(c, n.id)), n.id).toBe(true);
+    }
+  });
+
+  it('a frost talent affix on an item applies to a mage', () => {
+    const item: ItemRowLike = {
+      id: 'i1', base_id: 'bone_ring', rarity: 'rare',
+      affixes: [{ id: 'talent', value: 2, node: 'frost.bitter_chill' }],
+      level_req: 1, equipped_by: 'c1', equipped_slot: 'ring1', slot: 'ring',
+    };
+    const { talentRanks } = computeLoadout([item], 'mage');
+    expect(talentRanks.get('frost.bitter_chill')).toBe(2);
+  });
 });
 
 describe('rollRarity + validateItemRow', () => {
