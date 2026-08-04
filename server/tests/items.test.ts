@@ -26,13 +26,13 @@ describe('manifests', () => {
       expect(u.affixes.filter(a => a.id === 'talent').length).toBeLessThanOrEqual(2);
     }
   });
-  it('ships fourteen uniques, three new per band', () => {
-    expect(UNIQUE_ITEMS).toHaveLength(14);
+  it('ships eighteen uniques', () => {
+    expect(UNIQUE_ITEMS).toHaveLength(18);
     const byBand = (lvl: number) => UNIQUE_ITEMS.filter(u => u.levelReq === lvl).length;
-    expect(byBand(1)).toBe(3);
-    expect(byBand(4)).toBe(3);
-    expect(byBand(7)).toBe(5);  // 3 new + emberheart + windrunner_band
-    expect(byBand(10)).toBe(3);
+    expect(byBand(1)).toBe(4);   // 2026-08-02 set's 3 + crowd_pleaser
+    expect(byBand(4)).toBe(4);   // + the_short_road
+    expect(byBand(7)).toBe(6);   // 3 + emberheart + windrunner_band + headsmans_reach
+    expect(byBand(10)).toBe(4);  // + the_patient_wall
   });
   it('unique ids are distinct', () => {
     const ids = UNIQUE_ITEMS.map(u => u.id);
@@ -77,6 +77,14 @@ describe('manifests', () => {
       if (!u.lpcTint) continue;
       const base = ITEM_BASES.find(b => b.id === u.baseId)!;
       expect(base.lpc, `${u.id} on ${u.baseId}`).toBeDefined();
+    }
+  });
+  it('every gladiator unique sits on a gladiator weapon base at its own band', () => {
+    for (const id of ['crowd_pleaser', 'the_short_road', 'headsmans_reach', 'the_patient_wall']) {
+      const u = UNIQUE_ITEMS.find(x => x.id === id)!;
+      const base = ITEM_BASES.find(b => b.id === u.baseId)!;
+      expect(base.classRestriction, id).toBe('gladiator');
+      expect(u.levelReq, id).toBe(base.itemLevel);
     }
   });
   it('a talent affix on a non-stackable node never rolls', () => {
@@ -500,6 +508,21 @@ describe('rollQuality', () => {
       { id: 'talent', value: wideRain.max, node: 'archer.wide_rain' }, // 1
       { id: 'max_health', value: maxHealth.min },                     // 0
       { id: 'move_speed_pct', value: moveSpeed.max },                 // 1 (max is the lucky end for a drawback)
+    ];
+    expect(rollQuality(u, rolled)).toBeCloseTo(0.5, 5);
+  });
+
+  it('averages the patient wall\'s two talent rolls and its drawback independently', () => {
+    const u = byId('the_patient_wall');
+    const bracing = u.affixes.find(a => a.node === 'bulwark.bracing')!;
+    const guard = u.affixes.find(a => a.node === 'bulwark.mobile_guard')!;
+    const health = u.affixes.find(a => a.id === 'max_health')!;
+    const dmg = u.affixes.find(a => a.id === 'damage_pct')!;
+    const rolled: RolledAffix[] = [
+      { id: 'talent', value: bracing.max, node: 'bulwark.bracing' },    // 1
+      { id: 'talent', value: guard.min, node: 'bulwark.mobile_guard' }, // 0
+      { id: 'max_health', value: health.max },                          // 1
+      { id: 'damage_pct', value: dmg.min },                             // 0 (min is the unlucky end of a drawback too)
     ];
     expect(rollQuality(u, rolled)).toBeCloseTo(0.5, 5);
   });

@@ -382,6 +382,21 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     levelReq: 1,
     aura: { style: 'orbit', color: [1.0, 0.72, 0.25], anchor: 'chest', intensity: 0.5, motes: 1 },
   },
+  {
+    // The stun-thrower starter: grants Spear Throw — a tier-2, 2-point
+    // spell — at level 1 (the Threefold Draw pattern). The mana cut makes
+    // each throw a commitment rather than a freebie.
+    id: 'crowd_pleaser', baseId: 'iron_spear', name: 'Crowd-Pleaser',
+    flavor: 'The crowd knows what it came for.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'arms.spear_throw' },
+      { id: 'cast_speed_pct', min: 2, max: 4 },
+      { id: 'max_mana', min: -30, max: -16 },
+    ],
+    levelReq: 1,
+    lpcTint: { color: '#d9b96a' },
+    aura: { style: 'orbit', color: [0.9, 0.78, 0.45], anchor: 'chest', intensity: 0.6, motes: 1 },
+  },
 
   // --- Level 4 ---
   {
@@ -423,6 +438,21 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     levelReq: 4,
     lpcTint: { color: '#7d5f96', mode: 'fabric' },
     aura: { style: 'drip', color: [0.55, 0.35, 0.7], anchor: 'chest', intensity: 0.7 },
+  },
+  {
+    // The leaper: grants Leap (tier-4, 2-point) a full progression stage
+    // early, with Crushing Landing synergy. The move-speed drawback is the
+    // thesis — you leap because you no longer run.
+    id: 'the_short_road', baseId: 'bronze_spear', name: 'The Short Road',
+    flavor: 'Between you and them: a straight line, and the sky.',
+    affixes: [
+      { id: 'talent', min: 1, max: 1, node: 'arms.leap' },
+      { id: 'talent', min: 1, max: 2, node: 'arms.crushing_landing' },
+      { id: 'move_speed_pct', min: -5, max: -3 },
+    ],
+    levelReq: 4,
+    lpcTint: { color: '#a9744a' },
+    aura: { style: 'wisp', color: [0.75, 0.6, 0.4], anchor: 'feet', intensity: 0.8 },
   },
 
   // --- Level 7 (keystone band opens) ---
@@ -497,6 +527,23 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     levelReq: 7,
     aura: { style: 'wisp', color: [0.75, 0.95, 0.8], anchor: 'feet', intensity: 0.8 },
   },
+  {
+    // The executioner: a max roll (+3) plus 3 invested Heavy Thrust ranks
+    // passes the soft cap of 5 and unlocks Executioner's Thrust (+50% Jab
+    // vs stunned/slowed) — rewarding a tree that already bought Spear
+    // Throw stuns or Leap slows. The mana cut pushes toward jab-range
+    // brutality.
+    id: 'headsmans_reach', baseId: 'war_spear', name: "Headsman's Reach",
+    flavor: 'It asks once.',
+    affixes: [
+      { id: 'talent', min: 1, max: 3, node: 'arms.heavy_thrust' },
+      { id: 'damage_pct', min: 6, max: 11 },
+      { id: 'max_mana', min: -120, max: -75 },
+    ],
+    levelReq: 7,
+    lpcTint: { color: '#8a2f2f' },
+    aura: { style: 'drip', color: [0.6, 0.15, 0.1], anchor: 'chest', intensity: 0.8 },
+  },
 
   // --- Level 10 ---
   {
@@ -542,6 +589,23 @@ export const UNIQUE_ITEMS: UniqueItem[] = [
     ],
     levelReq: 10,
     aura: { style: 'orbit', color: [0.85, 0.87, 0.95], anchor: 'chest', intensity: 0.5, motes: 2 },
+  },
+  {
+    // The riposte fortress: a max roll (+3) plus 3 invested Bracing ranks
+    // passes the cap of 5 and unlocks Riposte (blocked hits charge a free
+    // stunning Jab). Mobile Guard ranks let the wall advance while
+    // blocking. It hits softer — the keystone's free Jabs are the damage.
+    id: 'the_patient_wall', baseId: 'champion_spear', name: 'The Patient Wall',
+    flavor: 'It has never struck first.',
+    affixes: [
+      { id: 'talent', min: 1, max: 3, node: 'bulwark.bracing' },
+      { id: 'talent', min: 1, max: 2, node: 'bulwark.mobile_guard' },
+      { id: 'max_health', min: 90, max: 130 },
+      { id: 'damage_pct', min: -12, max: -6 },
+    ],
+    levelReq: 10,
+    lpcTint: { color: '#8d98a8' },
+    aura: { style: 'orbit', color: [0.7, 0.75, 0.85], anchor: 'chest', intensity: 0.7, motes: 2 },
   },
 ];
 
