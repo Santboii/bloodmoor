@@ -230,6 +230,41 @@ describe('Room.remapPlayer', () => {
 
     expect(room.state!.frozenOrbs[0].ownerId).toBe('s1-new');
   });
+
+  it('remaps trap ownership when a player reconnects', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.startMatch();
+
+    // Both trapTriggersOn and trapDamagesPlayer gate on
+    // `targetId === trap.ownerId`, so a stale owner id after a reconnect
+    // would leave the trap willing to fire on and damage its own owner.
+    room.state!.traps.push({
+      id: 'trap_test',
+      ownerId: 's1',
+      kind: 'spike',
+      position: { x: 500, y: 500 },
+      armedAt: 0,
+      expiresAt: 720,
+      triggerRadius: 70,
+      blastRadius: 90,
+      damageMin: 80,
+      damageMax: 110,
+      shardCount: 0,
+      shardsHome: false,
+      slowFactor: 1,
+      slowTicks: 0,
+      roots: false,
+      countermeasure: false,
+      chainRadius: 0,
+      chainDamageMultiplier: 1,
+    });
+
+    room.remapPlayer('s1', 's1-new');
+
+    expect(room.state!.traps[0].ownerId).toBe('s1-new');
+  });
 });
 
 describe('Room with game modes', () => {
