@@ -8,14 +8,18 @@ const SPELL_ICONS: Record<number, string> = {
   5: 'fa-bullseye', 6: 'fa-arrows-split-up-and-left', 7: 'fa-cloud-rain', 8: 'fa-person-running',
   9: 'fa-icicles', 10: 'fa-snowflake', 11: 'fa-circle-nodes', 12: 'fa-bolt',
   13: 'fa-hand-fist', 14: 'fa-location-arrow', 15: 'fa-shield-halved', 16: 'fa-shoe-prints',
+  17: 'fa-bomb', 18: 'fa-splotch', 19: 'fa-skull-crossbones',
 };
 
-// Spell-school tint for slot icons: fire / utility (mobility) / ranger / frost / melee.
+// Spell-school tint for slot icons: fire / utility (mobility) / ranger / frost /
+// melee / hunter. Hunter takes the same mossy green as its tree panel accent so
+// the bar and the tree screen agree on what the third ranger tree looks like.
 const SPELL_TINTS: Record<number, string> = {
   1: '#ff8c42', 2: '#ff8c42', 3: '#ff8c42', 4: '#b48cff',
   5: '#8cd97a', 6: '#8cd97a', 7: '#8cd97a', 8: '#b48cff',
   9: '#6fd3f2', 10: '#6fd3f2', 11: '#6fd3f2', 12: '#6fd3f2',
   13: '#d9a45b', 14: '#d9a45b', 15: '#8ca9ff', 16: '#b48cff',
+  17: '#7fae5c', 18: '#7fae5c', 19: '#7fae5c',
 };
 
 // Chunky 20-gon staircase — a circle drawn at pixel-art resolution.

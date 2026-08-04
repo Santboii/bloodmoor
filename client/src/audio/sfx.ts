@@ -67,11 +67,24 @@ const CAST_SAMPLE: Record<number, SampleId> = {
   14: 'cast_bow',
   15: 'teleport',
   16: 'evade',
+  // Hunter: no dedicated trap samples in the bank either. Same rule as the
+  // frost block above — reuse the closest existing cast by spell shape.
+  17: 'cast_firewall', // Spike Trap: places a persistent thing on the ground
+  18: 'cast_rain',     // Caltrops: scatters an area, same shape as Rain's cast
+  19: 'cast_meteor',   // Deadfall: heavy, deliberate, acts later
 };
 
 export function playCast(spell: SpellId): void {
   if (!ready() || throttle(`cast${spell}`, 120)) return;
   playSample(CAST_SAMPLE[spell] ?? 'cast_fire');
+}
+
+/** A trap fires. Reuses the fireball detonation — a sharp, close burst is the
+ *  right shape, and it is the one sound in the bank that reads as "that just
+ *  went off underneath someone". */
+export function playTrapTrigger(): void {
+  if (!ready() || throttle('trapTrigger', 60)) return;
+  playSample('fireball_explode');
 }
 
 /** Projectile leaves the caster: short airy sweep. */
