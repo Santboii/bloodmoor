@@ -203,7 +203,8 @@ describe('Mirror Guard (reflect.mirrorGuard)', () => {
     expect(plain).toBeLessThanOrEqual(90 + 1e-6);
     expect(mirrored).toBeGreaterThanOrEqual(60 * MIRROR_GUARD_MULT - 1e-6);
     expect(mirrored).toBeLessThanOrEqual(90 * MIRROR_GUARD_MULT + 1e-6);
-    expect(mirrored).toBeGreaterThan(plain);
+    // >= not >: mirrored's min (60*1.5=90) can tie plain's max roll (90).
+    expect(mirrored).toBeGreaterThanOrEqual(plain);
   });
 
   it('regression: perfect_guard at rank 3 (sub-cap) matches the Task-2 reflect-window formula and stays un-keystoned', () => {
