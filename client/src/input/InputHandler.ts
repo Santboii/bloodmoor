@@ -70,6 +70,10 @@ export class InputHandler {
     // leaving blockHeld stuck true. mousemove fires on the canvas continuously
     // during normal play, so this closes the gap without widening any listener's scope.
     if ((e.buttons & 2) === 0) this.blockHeld = false;
+    // Same gap for button 1: releasing left-click over a DOM overlay or
+    // off-window never fires the canvas mouseup, leaving leftHeld stuck
+    // true — a phantom Ice Ray channel that drains mana and pins move speed.
+    if ((e.buttons & 1) === 0) this.leftHeld = false;
   };
 
   private onMouseDown = (e: MouseEvent) => {

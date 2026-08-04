@@ -42,6 +42,32 @@ describe('Reflect (spell 14)', () => {
     expect(s.players.A.hp).toBe(s.players.A.maxHp);           // reflector untouched
   });
 
+  // Merge regression: the gladiator/frost merge's ownership flip at the
+  // reflect branch (StateAdvancer.ts ~951) must fire for Ice Bolt the same
+  // way it does for arrows/spears — reflect.test.ts had no frost coverage
+  // at all before this merge.
+  it('flips an incoming ice bolt back at the mage who cast it, who takes the damage', () => {
+    const MAGE = new Map<NodeId, number>([['frost.ice_bolt', 1]]);
+    let s = makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'gladiator', spawnPos: { x: 600, y: 600 } },
+      { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
+    ]);
+    const sk = { A: GLAD, B: MAGE };
+    // B (mage) casts Ice Bolt at A
+    s = advanceState(s, { A: frame(), B: frame({ castSpell: 9, aimTarget: { x: 600, y: 600 } }) }, sk);
+    // A reflects while the bolt is inbound
+    s = advanceState(s, { A: frame({ castSpell: 15, aimTarget: { x: 1000, y: 600 } }), B: frame() }, sk);
+    let reflected = false;
+    for (let i = 0; i < 180; i++) {
+      s = advanceState(s, { A: frame(), B: frame() }, sk);
+      if (s.projectiles.some(p => p.type === 'icebolt' && p.ownerId === 'A')) reflected = true;
+      if (s.players.B.hp < s.players.B.maxHp) break;
+    }
+    expect(reflected).toBe(true);
+    expect(s.players.B.hp).toBeLessThan(s.players.B.maxHp);   // caster got hit
+    expect(s.players.A.hp).toBe(s.players.A.maxHp);           // reflector untouched
+  });
+
   it('a reflected spear still carries its stun', () => {
     const GLAD_B = new Map<NodeId, number>([['arms.jab', 1], ['arms.spear_throw', 1]]);
     let s = makeInitialState([

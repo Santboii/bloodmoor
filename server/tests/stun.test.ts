@@ -39,3 +39,38 @@ describe('True stun', () => {
     expect(s.players.A.position.x).toBeGreaterThan(600);
   });
 });
+
+// Merge regression: the merge's own gate — `(p.stunUntil ?? 0) <= tick` on
+// the channel path (StateAdvancer.ts ~298) — must actually break a live Ice
+// Ray channel. stun.test.ts had no `channel` coverage at all before this.
+describe('Stun breaks an Ice Ray channel', () => {
+  const ray = (aim = { x: 1600, y: 600 }): InputFrame =>
+    ({ move: { x: 0, y: 0 }, castSpell: null, channel: 12, aimTarget: aim });
+  const channelSkills = { A: new Map<NodeId, number>([['frost.ice_bolt', 1], ['frost.ice_ray', 1]]) };
+
+  function channelState() {
+    return makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'mage',   spawnPos: { x: 200, y: 600 } },
+      { id: 'B', displayName: 'B', charClass: 'ranger', spawnPos: { x: 500, y: 600 } },
+    ]);
+  }
+
+  it('a mid-channel stun drops channelSpell next tick and halts the beam', () => {
+    let s = channelState();
+    s = advanceState(s, { A: ray(), B: idle() }, channelSkills);
+    expect(s.players.A.channelSpell).toBe(12);
+    expect(s.players.B.hp).toBeLessThan(s.players.B.maxHp); // beam is landing
+
+    s.players.A.stunUntil = s.tick + 30;
+    s = advanceState(s, { A: ray(), B: idle() }, channelSkills);
+    expect(s.players.A.channelSpell).toBeUndefined();
+    const hpAfterStunTick = s.players.B.hp;
+
+    // Still holding the channel button while stunned: no beam action fires.
+    for (let i = 0; i < 10; i++) {
+      s = advanceState(s, { A: ray(), B: idle() }, channelSkills);
+      expect(s.players.A.channelSpell).toBeUndefined();
+    }
+    expect(s.players.B.hp).toBe(hpAfterStunTick);
+  });
+});

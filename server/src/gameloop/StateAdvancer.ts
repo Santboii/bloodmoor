@@ -1268,10 +1268,11 @@ export function advanceState(
           if (dx * dx + dy * dy > (CATACLYSMIC_ORB_RADIUS + PLAYER_HALF_SIZE) ** 2) continue;
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
-            players[pid] = {
-              ...player,
-              hp: Math.max(0, player.hp - CATACLYSMIC_ORB_DAMAGE * getDamageMultiplier(advancedOrb.ownerId, pid, players, resolvedMode)),
-            };
+            const rawOrb = CATACLYSMIC_ORB_DAMAGE * getDamageMultiplier(advancedOrb.ownerId, pid, players, resolvedMode);
+            const mitOrb = mitigateDamage(player, advancedOrb.position, rawOrb, blockDR(pid));
+            let next = { ...player, hp: Math.max(0, player.hp - mitOrb.damage) };
+            if (mitOrb.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
+            players[pid] = next;
           }
         }
       }
@@ -1307,8 +1308,12 @@ export function advanceState(
         next.slowFactor = Math.min(existing, incoming);
         next.slowUntil = tick + ICEBOLT_CHILL_TICKS;
       }
-      next.hp = Math.max(0, next.hp - ramp.damagePerTick * getDamageMultiplier(id, pid, players, resolvedMode));
-      players[pid] = next;
+      // Directional beam: Block mitigates it like arrows/spears/icebolt; the
+      // chill above still applies (status pierces Block, per spec).
+      const rawBeam = ramp.damagePerTick * getDamageMultiplier(id, pid, players, resolvedMode);
+      const mitBeam = mitigateDamage(target, p.position, rawBeam, blockDR(pid));
+      next.hp = Math.max(0, next.hp - mitBeam.damage);
+      players[pid] = mitBeam.blocked ? bankRiposte(next, !!gladMods[pid]?.block.riposte, tick) : next;
     }
   }
 

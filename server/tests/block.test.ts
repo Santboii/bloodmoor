@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeInitialState, advanceState } from '../src/gameloop/StateAdvancer.ts';
-import { BLOCK_RERAISE_TICKS, PLAYER_SPEED, DELTA } from '@arena/shared';
+import { BLOCK_RERAISE_TICKS, PLAYER_SPEED, DELTA, BLOCK_DAMAGE_REDUCTION, ICEBOLT_DAMAGE_MAX } from '@arena/shared';
 import type { InputFrame, NodeId, Vec2 } from '@arena/shared';
 
 const GLAD = new Map<NodeId, number>([['arms.jab', 1]]);
@@ -141,5 +141,45 @@ describe('Riposte keystone', () => {
     expect(s.players.A.mana).toBeGreaterThanOrEqual(mana0); // free (regen may add)
     expect(s.players.A.riposteReadyUntil).toBeUndefined();
     expect((s.players.B.stunUntil ?? 0)).toBeGreaterThanOrEqual(s.tick + RIPOSTE_JAB_STUN_TICKS - 1);
+  });
+});
+
+// Merge regression: the gladiator/frost merge routes Ice Bolt through the
+// same mitigateDamage/bankRiposte path as arrows and spears (I1's sibling —
+// this is the discrete projectile, not the beam). block.test.ts had no
+// frost coverage at all before this merge.
+describe('Block vs Ice Bolt (merge regression)', () => {
+  const MAGE = new Map<NodeId, number>([['frost.ice_bolt', 1]]);
+
+  function mageDuel() {
+    return makeInitialState([
+      { id: 'A', displayName: 'A', charClass: 'gladiator', spawnPos: { x: 600, y: 600 } },
+      { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 1000, y: 600 } },
+    ]);
+  }
+
+  it('reduces frontal ice bolt damage to at most 40% of the max roll', () => {
+    const iceSkills = { A: GLAD, B: MAGE };
+    let s = mageDuel();
+    s = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }),
+                          B: frame({ castSpell: 9, aimTarget: { x: 600, y: 600 } }) }, iceSkills);
+    const hit = runUntilHit(s, () => frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }));
+    expect(hit.damage).toBeLessThanOrEqual(ICEBOLT_DAMAGE_MAX * (1 - BLOCK_DAMAGE_REDUCTION) + 1e-9);
+  });
+
+  it('banks a riposte stack per blocked ice bolt (bracing rank 6)', () => {
+    const RIPOSTE_GLAD = new Map<NodeId, number>([['arms.jab', 1], ['bulwark.bracing', 6]]);
+    const rSkills = { A: RIPOSTE_GLAD, B: MAGE };
+    let s = mageDuel();
+    s = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }),
+                          B: frame({ castSpell: 9, aimTarget: { x: 600, y: 600 } }) }, rSkills);
+    const hp0 = s.players.A.hp;
+    let landed = false;
+    for (let i = 0; i < 120; i++) {
+      s = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
+      if (s.players.A.hp < hp0) { landed = true; break; }
+    }
+    expect(landed).toBe(true);
+    expect(s.players.A.riposteStacks).toBe(1);
   });
 });
