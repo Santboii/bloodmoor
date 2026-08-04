@@ -37,6 +37,14 @@ async function currentUserId(): Promise<string | null> {
   return session?.user?.id ?? null;
 }
 
+/** Access token read fresh at call time — getSession() refreshes an expired
+ * JWT on its own, unlike the login-time copy main.ts caches for the tab's
+ * lifetime. Empty string when signed out. */
+export async function freshAccessToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? '';
+}
+
 export async function fetchProfile(): Promise<UserProfile | null> {
   const userId = await currentUserId();
   if (!userId) return null;
@@ -287,28 +295,14 @@ export async function sellItem(itemId: string): Promise<number | null> {
   return data as number;
 }
 
-/** Slot indices of the signed-in account's already-purchased vendor slots
- * for a given UTC day (matching vendorStockFor's slot ordering) — used to
- * render SOLD overlays on the Shop screen. */
-export async function fetchVendorPurchases(utcDay: string): Promise<number[]> {
-  const userId = await currentUserId();
-  if (!userId) return [];
-  const { data, error } = await supabase
-    .from('vendor_purchases')
-    .select('slot_index')
-    .eq('user_id', userId)
-    .eq('utc_day', utcDay);
-  if (error) { console.error('fetchVendorPurchases failed:', error.message); return []; }
-  return (data ?? []).map((r: { slot_index: number }) => r.slot_index);
-}
-
 // --- Game-server economy endpoints (Bearer-JWT, not Supabase reads) ---
 // Thin typed fetch helpers for the /economy/* routes added in server/src/
-// economy/routes.ts. No shop/lootbox UI consumes these yet (that's Task 5/6)
-// — they exist now so that work can wire straight into them.
+// economy/routes.ts. ShopScreen consumes these.
 
-export type VendorSlotView = VendorSlot & { slotIndex: number; purchased: boolean; crossClass: boolean };
-export type VendorView = { utcDay: string; slots: VendorSlotView[] };
+// slotIndex/instanceKey/expiresAt now live on shared's VendorSlot itself,
+// so the view type only adds the two account-specific annotations.
+export type VendorSlotView = VendorSlot & { purchased: boolean; crossClass: boolean };
+export type VendorView = { slots: VendorSlotView[]; purchasesRemaining: number | null };
 
 /** GET /economy/vendor — today's 6-slot vendor stock for the signed-in
  * account, annotated with purchased/crossClass flags. Returns null with no
@@ -346,14 +340,14 @@ export type EconomyPurchaseResult =
  * like fetchItems); on failure (no session, network error, or a non-2xx
  * response) returns the status/error so callers can distinguish e.g.
  * insufficient gold (402) from an already-purchased slot (400). */
-export async function buyVendorSlot(slotIndex: number): Promise<EconomyPurchaseResult> {
+export async function buyVendorSlot(slotIndex: number, instanceKey: string): Promise<EconomyPurchaseResult> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return { ok: false, status: 401, error: 'not signed in' };
   try {
     const res = await fetch(`${GAME_SERVER_URL}/economy/vendor/buy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ slotIndex }),
+      body: JSON.stringify({ slotIndex, instanceKey }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {

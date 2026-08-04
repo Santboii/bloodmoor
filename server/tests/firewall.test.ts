@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { spawnFireWall, fireWallDamagesPlayer, buildWallSegments } from '../src/spells/FireWall.ts';
+import { spawnFireWall, spawnFireCrater, fireWallDamagesPlayer, buildWallSegments } from '../src/spells/FireWall.ts';
 import { FIREWALL_DURATION_TICKS, FIREWALL_MAX_LENGTH } from '@arena/shared';
 import { wallDamagePerTick, wallLengthScale, advanceWall } from '../src/spells/FireWall.ts';
 import { FIREWALL_DAMAGE_PER_TICK, FIREWALL_DAMAGE_START, FIREWALL_DAMAGE_END, WALL_GROWTH_RATIO } from '@arena/shared';
@@ -108,5 +108,18 @@ describe('advanceWall', () => {
     const fw = spawnFireWall('a', { x: 900, y: 600 }, { x: 1100, y: 600 }, 0, { growth: true });
     const span = (segs: typeof fw.segments) => segs.reduce((n, g) => n + Math.hypot(g.x2 - g.x1, g.y2 - g.y1), 0);
     expect(span(advanceWall(fw, 200).segments)).toBeGreaterThan(span(fw.segments));
+  });
+});
+
+describe('zone kind', () => {
+  it('stamps spawnFireWall zones as firewall', () => {
+    const fw = spawnFireWall('p1', { x: 0, y: 0 }, { x: 100, y: 0 }, 0);
+    expect(fw.kind).toBe('firewall');
+  });
+
+  it('stamps craters as crater, not firewall', () => {
+    const crater = spawnFireCrater('p1', { x: 50, y: 50 }, 40, 0, 180);
+    expect(crater.kind).toBe('crater');
+    expect(crater.shape).toBe('circle');
   });
 });

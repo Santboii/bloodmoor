@@ -31,7 +31,7 @@ describe('Spear Throw cast (spell 13)', () => {
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 900, y: 600 } },
     ]);
     const skills = { A: GLAD, B: new Map([['fire.fireball', 1]] as [NodeId, number][]) };
-    s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 900, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 14, aimTarget: { x: 900, y: 600 } }), B: frame() }, skills);
     expect(s.projectiles.some(p => p.type === 'spear')).toBe(true);
     for (let i = 0; i < 60 && s.players.B.hp === s.players.B.maxHp; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
@@ -64,7 +64,7 @@ describe('Spear Throw cast (spell 13)', () => {
     const idle = frame();
     s = advanceState(
       s,
-      { A: frame({ castSpell: 13, aimTarget: { x: 900, y: 600 } }), B: idle, C: idle, D: idle },
+      { A: frame({ castSpell: 14, aimTarget: { x: 900, y: 600 } }), B: idle, C: idle, D: idle },
       skills,
       TEAM_DUEL_MODE,
     );

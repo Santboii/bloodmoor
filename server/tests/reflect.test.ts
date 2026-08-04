@@ -19,7 +19,7 @@ function duel() {
 describe('Reflect (spell 14)', () => {
   it('sets the reflect window on cast and it expires', () => {
     let s = duel();
-    s = advanceState(s, { A: frame({ castSpell: 14, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 15, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect((s.players.A.reflectUntil ?? 0)).toBeGreaterThan(s.tick);
     for (let i = 0; i < 61; i++) s = advanceState(s, { A: frame(), B: frame() }, skills);
     expect(s.players.A.reflectUntil).toBeUndefined();
@@ -30,7 +30,7 @@ describe('Reflect (spell 14)', () => {
     // B fires at A
     s = advanceState(s, { A: frame(), B: frame({ castSpell: 5, aimTarget: { x: 600, y: 600 } }) }, skills);
     // A reflects while the arrow is inbound
-    s = advanceState(s, { A: frame({ castSpell: 14, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ castSpell: 15, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     let reflected = false;
     for (let i = 0; i < 180; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, skills);
@@ -49,8 +49,8 @@ describe('Reflect (spell 14)', () => {
       { id: 'B', displayName: 'B', charClass: 'gladiator', spawnPos: { x: 1000, y: 600 } },
     ]);
     const sk = { A: GLAD, B: GLAD_B };
-    s = advanceState(s, { A: frame(), B: frame({ castSpell: 13, aimTarget: { x: 600, y: 600 } }) }, sk);
-    s = advanceState(s, { A: frame({ castSpell: 14, aimTarget: { x: 1000, y: 600 } }), B: frame() }, sk);
+    s = advanceState(s, { A: frame(), B: frame({ castSpell: 14, aimTarget: { x: 600, y: 600 } }) }, sk);
+    s = advanceState(s, { A: frame({ castSpell: 15, aimTarget: { x: 1000, y: 600 } }), B: frame() }, sk);
     for (let i = 0; i < 180 && s.players.B.hp === s.players.B.maxHp; i++) {
       s = advanceState(s, { A: frame(), B: frame() }, sk);
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Room } from '../src/rooms/Room.ts';
 import { DUEL_MODE, FFA_MODE, TEAM_DUEL_MODE, CLASS_DEFAULT_APPEARANCE } from '@arena/shared';
-import type { ItemRow } from '@arena/shared';
+import type { ItemRow, InputFrame } from '@arena/shared';
 
 describe('Room.creatorName', () => {
   it('stores the first player added as creator', () => {
@@ -141,7 +141,7 @@ describe('Room.remapPlayer', () => {
     room.userIds.set('s1', 'user-1');
     room.userIds.set('s2', 'user-2');
     room.startMatch();
-    const input = { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 } };
+    const input = { move: { x: 1, y: 0 }, castSpell: null, aimTarget: { x: 0, y: 0 }, channel: null };
     room.queueInput('s1', input);
 
     room.remapPlayer('s1', 's1-new');
@@ -206,6 +206,29 @@ describe('Room.remapPlayer', () => {
     // would miss (stale id) and silently fall back to a 1x multiplier —
     // this asserts the full 1.1x gear damageMult still lands post-reconnect.
     expect(state.players['s2'].hp).toBeCloseTo(before - 100 * 1.1, 5);
+  });
+
+  it('remaps frozen orb ownership when a player reconnects', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.startMatch();
+
+    room.state!.frozenOrbs.push({
+      id: 'fo_test',
+      ownerId: 's1',
+      position: { x: 500, y: 500 },
+      velocity: { x: 140, y: 0 },
+      expiresAt: 150,
+      nextVolleyAt: 0,
+      shardsPerVolley: 4,
+      damageMin: 25,
+      damageMax: 40,
+    });
+
+    room.remapPlayer('s1', 's1-new');
+
+    expect(room.state!.frozenOrbs[0].ownerId).toBe('s1-new');
   });
 });
 
@@ -330,5 +353,25 @@ describe('remapPlayer entity ownership', () => {
     });
     room.remapPlayer('old', 'new');
     expect(room.state!.projectiles[0].ownerId).toBe('other');
+  });
+});
+
+describe('Room.tick channel handling', () => {
+  it('does not clear channel between ticks, unlike castSpell', () => {
+    const room = new Room('r1');
+    room.addPlayer('s1', 'Alice');
+    room.addPlayer('s2', 'Bob');
+    room.startMatch();
+
+    room.queueInput('s1', {
+      move: { x: 0, y: 0 }, castSpell: 3, channel: 12, aimTarget: { x: 500, y: 500 },
+    });
+    room.tick();
+
+    const after = (room as unknown as { pendingInputs: Map<string, InputFrame> }).pendingInputs.get('s1')!;
+    // castSpell is cleared so one keypress is one cast...
+    expect(after.castSpell).toBeNull();
+    // ...but channel persists, which is what lets the ramp climb.
+    expect(after.channel).toBe(12);
   });
 });

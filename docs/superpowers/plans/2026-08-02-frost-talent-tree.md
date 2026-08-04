@@ -261,7 +261,7 @@ In `SKILL_NODES`, after the utility entries (`:99`):
     keystone: { name: 'Cataclysmic Orb', description: 'The orb detonates when it expires: 120 damage in a 100-unit radius.' } },
   { id: 'frost.glacial_drift',    name: 'Glacial Drift',    tree: 'frost', tier: 7, cost: 1, isSpell: false, description: 'Frozen Orb travels slower and lives longer per rank.', stackable: { softCap: 5, baseEffect: 0.12 } },
   { id: 'frost.cold_mastery',     name: 'Cold Mastery',     tree: 'frost', tier: 7, cost: 2, isSpell: false, description: '+6% damage to all frost spells per rank.', stackable: { softCap: 5, baseEffect: 0.06 },
-    keystone: { name: 'Absolute Cold', description: 'Frost area damage ignores edge falloff — full damage across the whole radius.' } },
+    keystone: { name: 'Absolute Cold', description: 'Your chill lasts 50% longer.' } },
 ```
 
 - [ ] **Step 6: Run the tests**
@@ -395,6 +395,31 @@ In `shared/src/skills.ts`, append to `SPELL_BINDINGS` after the mage entries. De
   { spell: 10, node: 'frost.blizzard',   charClass: 'mage' },
   { spell: 11, node: 'frost.frozen_orb', charClass: 'mage' },
 ```
+
+- [ ] **Step 5a: Scope Phase A's default-slot test to the pre-frost spells**
+
+Adding frost bindings without a `defaultSlot` breaks an existing test. `server/tests/spell-slots.test.ts` asserts every binding defines one; its comment already says it means "no spell that exists today," which was written before frost existed. Scope it explicitly:
+
+```ts
+  it('gives every pre-frost spell an explicit default slot', () => {
+    // Frost spells (9-11) deliberately have none — with only six slots the
+    // mage's seven spells cannot all hold a distinct default, so frost falls
+    // to the lowest empty slot. Spells 1-8 predate slots and must keep the
+    // exact key they had, or a live hotbar silently moves.
+    for (const b of SPELL_BINDINGS) {
+      if (b.spell >= 9) continue;
+      expect(b.defaultSlot).toBeDefined();
+    }
+  });
+
+  it('gives frost spells no default slot', () => {
+    for (const b of SPELL_BINDINGS.filter(x => x.spell >= 9)) {
+      expect(b.defaultSlot).toBeUndefined();
+    }
+  });
+```
+
+The second test is what stops someone "helpfully" assigning frost a default later and displacing a fire spell.
 
 - [ ] **Step 5: Raise the wire validation bound**
 
@@ -641,11 +666,24 @@ On a hit, before applying damage:
 ```ts
 // Chill reuses the ranger's slow fields; the strongest slow wins so a
 // Blizzard tick cannot be downgraded by a passing bolt.
-const incoming = m.chillFactor ?? ICEBOLT_CHILL_FACTOR;
-const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
-target.slowFactor = Math.min(existing, incoming);
-target.slowUntil = tick + (m.chillTicks ?? ICEBOLT_CHILL_TICKS);
+//
+// Teammates take the (already reduced) damage but never the chill — the
+// same rule the arrow branch applies to elemental status, for the same
+// reason: a full-strength slow would undercut deliberately-reduced
+// friendly fire. See StateAdvancer.ts:520-525 for the established form.
+const sameTeam = resolvedMode.teamsEnabled &&
+  players[moved.ownerId]?.teamId !== undefined &&
+  players[moved.ownerId].teamId === target.teamId;
+if (!sameTeam) {
+  const incoming = m.chillFactor ?? ICEBOLT_CHILL_FACTOR;
+  const existing = (target.slowUntil ?? 0) > tick ? (target.slowFactor ?? 1) : 1;
+  target.slowFactor = Math.min(existing, incoming);
+  target.slowUntil = tick + (m.chillTicks ?? ICEBOLT_CHILL_TICKS);
+}
 ```
+
+Every frost status in this plan follows that rule — the Blizzard chill in
+Task 5 and both roots in Task 8 gate on `!sameTeam` the same way.
 
 Then decrement pierce: push the victim's id onto `piercedIds`, and remove the projectile only when `pierce` is exhausted and `impaler` is not set.
 
@@ -853,9 +891,22 @@ describe('spawnFrozenOrb', () => {
 
 describe('orb volleys', () => {
   it('fires a volley on the interval, not every tick', () => {
-    const orb = spawnFrozenOrb('p1', from, target, 0);
+    // The predicate is >= and the stepping loop pushes nextVolleyAt forward
+    // after each volley. Testing the predicate without that push would make
+    // it look like it fires every tick, which is why the loop's update is
+    // modelled here rather than asserted against a frozen orb.
+    let orb = spawnFrozenOrb('p1', from, target, 0);
     expect(orbVolleyDue(orb, 0)).toBe(true);
+    orb = { ...orb, nextVolleyAt: FROZEN_ORB_VOLLEY_INTERVAL_TICKS };
     expect(orbVolleyDue(orb, 1)).toBe(false);
+    expect(orbVolleyDue(orb, FROZEN_ORB_VOLLEY_INTERVAL_TICKS)).toBe(true);
+  });
+
+  it('still fires if the exact tick was missed', () => {
+    // >= not ===. With equality, one skipped tick would stop the orb firing
+    // for the rest of its life, silently and unrecoverably.
+    const orb = spawnFrozenOrb('p1', from, target, 0);
+    expect(orbVolleyDue({ ...orb, nextVolleyAt: 5 }, 9)).toBe(true);
   });
 
   it('emits exactly ten volleys over its lifetime', () => {
@@ -1218,6 +1269,28 @@ Cold Mastery multiplies `damageMin`/`damageMax` on Ice Bolt and the orb, and `da
 
 Chill deepens by *subtracting* from the factor (lower = slower): `chillFactor = ICEBOLT_CHILL_FACTOR - effectAtRank(0.05, rank)`, clamped at a floor of `0.4` so no stack of ranks approaches a root.
 
+- [ ] **Step 3a: Consume Frostbite at hit time**
+
+Frostbite is the one frost modifier that cannot be a spawn-config value — it depends on the target's live slow state at the moment of impact, which the spawner cannot know. Without this step it is computed, reported by the tests, and never read: a tier-3 node costing 2 points per rank that does nothing.
+
+Apply it in the ice-bolt branch of the projectile stepping loop, in the damage calculation:
+
+```ts
+// Frostbite: the deeper the target's chill, the harder the bolt lands.
+//
+// Read the slow BEFORE this bolt applies its own chill. Otherwise every
+// bolt pays itself the bonus on first contact and the talent silently
+// becomes a flat damage increase, which is not what it says it does.
+const slowBefore = (player.slowUntil ?? 0) > tick ? (player.slowFactor ?? 1) : 1;
+const frostbiteMult = 1 + m.frostbite * (1 - slowBefore);
+```
+
+Then multiply it into the damage alongside the existing `getDamageMultiplier` call. An unchilled target has `slowBefore === 1`, so the multiplier is exactly 1 and Frostbite contributes nothing — correct, since the node's whole premise is rewarding a target you have already chilled.
+
+Scale sanity, for the record: at Frostbite rank 3, `effectAtRank(0.10, 3) ≈ 0.216`. Against a target at the chill floor (0.4) that is `1 + 0.216 × 0.6 ≈ 1.13`, so +13%. Against a target at base chill (0.85) it is about +3%. That is a modest payoff and a tuning candidate, but land it as specified — the plan's numbers are a baseline to tune from, not a target.
+
+The Rimeheart keystone (Task 8) extends this same bonus to all your frost damage against that target, so keep the calculation in a form Task 8 can lift out.
+
 - [ ] **Step 4: Pass the modifiers into the three spawn calls**
 
 Replace the placeholder spawn calls from Tasks 4-6 with the full config objects shown in Task 4 Step 6, Task 5 Step 4, and Task 6 Step 6.
@@ -1555,7 +1628,29 @@ Extend the rows constant (`:112`): `const FIRE_ROWS = 7, ARCHER_ROWS = 6, UTIL_R
 
 In `render()` (`:374-392`), the mage layout becomes fire | frost | utility+details; the ranger keeps two columns. Add a `.st-col-frost` block with `<svg id="st-frost-svg" class="st-tree-svg">`, rendered only when `!isRanger`.
 
-CSS: raise `.st-columns{max-width}` (`:133`) to `1060px` and lower `.st-col-main{min-width}` (`:134`) to `380px`, or the third column wraps. Add `.st-col-frost{flex:1 1 420px;min-width:380px}`. Below ~1100px the row must wrap or scroll — add `flex-wrap:wrap` to `.st-columns` so narrow viewports degrade instead of clipping. **This is the first time this screen has rendered three columns; check it at 1280px, 1100px, and 900px.**
+CSS: lower `.st-col-main{min-width}` (`:134`) to `380px`, add `.st-col-frost{flex:1 1 420px;min-width:380px}`, and add `flex-wrap:wrap` to `.st-columns` so narrow viewports degrade instead of clipping.
+
+**Two values control whether three columns share a row, and `min-width` is not one of them.**
+
+Flexbox decides line breaks on each item's **unshrunk flex-basis**, not its `min-width` — shrinking only happens *within* a line that has already been formed. So the single-row threshold is the sum of the bases plus the gaps, and lowering `min-width` does nothing for it.
+
+The sum to control: `.st-col-main` basis + `.st-col-frost` basis + `.st-col-side` (fixed 340) + two 24px gaps.
+
+- `.st-columns{max-width:1400px}` — the outer cap. At the original `1060px` the cap itself was below any workable basis sum, so the row wrapped at *every* viewport width.
+- `.st-col-frost{flex:1 1 380px;min-width:380px}`, and the narrowed main-column basis scoped to the three-column layout only:
+
+```css
+.st-col-main{flex:1 1 560px;min-width:380px;max-width:640px;}
+.st-columns.has-frost .st-col-main{flex-basis:400px;}
+```
+
+with `has-frost` added to the `.st-columns` element on the mage path only. Bases then sum to 400 + 380 + 340 + 48 = **1168px** for the mage, fitting a 1280px laptop, while both columns keep `flex-grow: 1` so wider screens still fill to the 1400px cap.
+
+**Scoping matters: `.st-col-main` is shared with the ranger's archer tree.** Narrowing it globally also moves the ranger's own wrap threshold (main + side + gap: 924px → 764px), changing its layout in roughly an 812–972px viewport band. That band is a real behavior change to a class this task was told to leave alone, so gate the narrower basis behind the modifier rather than applying it to every class.
+
+With those values: one row from about 1168px up, wrapping below it. Leaving the bases at 560/420 would sum to 1368 and push the threshold past 1416px, silently wrapping on the very common 1280px width.
+
+**This is the first time this screen has rendered three columns; check it at 1440px, 1280px, and 900px**, and state the flex math at each rather than asserting it looks fine.
 
 - [ ] **Step 4: Draw the connections**
 
@@ -1671,6 +1766,106 @@ describe('chill application', () => {
       state = advanceState(state, { p1: idle(), p2: idle() }, skills);
     }
     expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+
+  it('does not chill a teammate, though the bolt still damages them', () => {
+    // Friendly fire is deliberately reduced; a full-strength slow would
+    // undercut that. Build a 2v2 state so p1 and p2 share a team.
+    const skills = skillsOf(['frost.ice_bolt']);
+    let state = baseState();
+    state.players['p1'].teamId = 'a';
+    state.players['p2'].teamId = 'a';
+    const hpBefore = state.players['p2'].hp;
+    state.projectiles.push({
+      id: 'test_bolt', ownerId: 'p1', type: 'icebolt',
+      position: { x: 1570, y: 1000 }, velocity: { x: 480, y: 0 },
+      damageMin: 60, damageMax: 85, piercedIds: [],
+    });
+    for (let i = 0; i < 4; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hpBefore);
+    expect(state.players['p2'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+});
+
+describe('blizzard through the real stepping path', () => {
+  // Nothing in Task 5's module tests reaches StateAdvancer: deleting the
+  // isBlizzard rate branch or the whole chill block would leave them green.
+  it('damages and chills an enemy standing in the zone', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    const hpBefore = state.players['p2'].hp;
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 1600, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 240,
+    });
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hpBefore);
+    expect(state.players['p2'].slowUntil).toBeGreaterThan(state.tick);
+    expect(state.players['p2'].slowFactor).toBeLessThan(1);
+  });
+
+  it('never damages or chills its own caster', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    const hpBefore = state.players['p1'].hp;
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 200, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 240,
+    });
+    for (let i = 0; i < 30; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    expect(state.players['p1'].hp).toBe(hpBefore);
+    expect(state.players['p1'].slowUntil ?? 0).toBeLessThanOrEqual(state.tick);
+  });
+
+  it('refreshes chill rather than compounding it over many ticks', () => {
+    const skills = skillsOf(['frost.ice_bolt', 'frost.blizzard']);
+    let state = baseState();
+    state.fireWalls.push({
+      id: 'bz_test', ownerId: 'p1', kind: 'blizzard', shape: 'circle',
+      center: { x: 1600, y: 1000 }, radius: 90, segments: [],
+      expiresAt: state.tick + 600,
+    });
+    for (let i = 0; i < 5; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+    const early = state.players['p2'].slowFactor;
+    for (let i = 0; i < 100; i++) state = advanceState(state, { p1: idle(), p2: idle() }, skills);
+
+    // A per-frame zone re-applies chill every tick; the factor must pin, not ratchet.
+    expect(state.players['p2'].slowFactor).toBe(early);
+  });
+});
+
+describe('pierce through the real stepping path', () => {
+  // The module tests cover the predicates in isolation. Only this exercises
+  // the dispatch and per-tick stepping, where removal timing and piercedIds
+  // actually live — the failure modes a pure-function test cannot reach.
+  it('hits two enemies with pierce 1, then despawns, never hitting one twice', () => {
+    const skills = skillsOf(['frost.ice_bolt']);
+    let state = makeInitialState([
+      { id: 'p1', displayName: 'Caster', charClass: 'mage', spawnPos: { x: 200, y: 1000 } },
+      { id: 'p2', displayName: 'First',  charClass: 'mage', spawnPos: { x: 1500, y: 1000 } },
+      { id: 'p3', displayName: 'Second', charClass: 'mage', spawnPos: { x: 1600, y: 1000 } },
+    ]);
+    const hp2 = state.players['p2'].hp;
+    const hp3 = state.players['p3'].hp;
+    state.projectiles.push({
+      id: 'test_bolt', ownerId: 'p1', type: 'icebolt',
+      position: { x: 1400, y: 1000 }, velocity: { x: 480, y: 0 },
+      damageMin: 60, damageMax: 85, pierce: 1, piercedIds: [],
+    });
+
+    const inputs = { p1: idle(), p2: idle(), p3: idle() };
+    for (let i = 0; i < 40; i++) state = advanceState(state, inputs, skills);
+
+    expect(state.players['p2'].hp).toBeLessThan(hp2);
+    expect(state.players['p3'].hp).toBeLessThan(hp3);
+    // One hit each, not two: a second hit would roughly double the loss.
+    expect(hp2 - state.players['p2'].hp).toBeLessThanOrEqual(85);
+    expect(state.projectiles.some(p => p.id === 'test_bolt')).toBe(false);
   });
 });
 ```

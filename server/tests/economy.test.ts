@@ -6,6 +6,8 @@ import {
   vendorStockFor, rollLootboxItem, rollMatchDropItem,
   fnv1aHash, mulberry32, seededRng,
   UNIQUE_ITEMS,
+  VENDOR_SLOT_COUNT, VENDOR_SLOT_LIFETIME_HOURS,
+  utcHourIndex, slotGeneration, slotExpiryHour, vendorInstanceKey,
 } from '@arena/shared';
 import type { ItemRarity } from '@arena/shared';
 
@@ -75,27 +77,58 @@ describe('levelToBand', () => {
 });
 
 describe('vendorStockFor', () => {
-  it('is byte-identical for the same user+day+level', () => {
-    const a = vendorStockFor('user1', '2026-07-28', 5);
-    const b = vendorStockFor('user1', '2026-07-28', 5);
-    expect(a).toEqual(b);
-  });
+  // 1000 is an arbitrary but fixed UTC hour index; every case below picks
+  // hours relative to it so the stagger arithmetic is easy to follow.
+  const HOUR = 1000;
 
-  it('differs for a different day', () => {
-    const a = vendorStockFor('user1', '2026-07-28', 5);
-    const b = vendorStockFor('user1', '2026-07-29', 5);
-    expect(a).not.toEqual(b);
+  it('is byte-identical for the same user+hour+level', () => {
+    expect(vendorStockFor('user1', HOUR, 5)).toEqual(vendorStockFor('user1', HOUR, 5));
   });
 
   it('differs for a different user', () => {
-    const a = vendorStockFor('user1', '2026-07-28', 5);
-    const b = vendorStockFor('user2', '2026-07-28', 5);
-    expect(a).not.toEqual(b);
+    expect(vendorStockFor('user1', HOUR, 5)).not.toEqual(vendorStockFor('user2', HOUR, 5));
+  });
+
+  it('rotates exactly one slot per hour and leaves the other five untouched', () => {
+    const before = vendorStockFor('user1', HOUR, 5);
+    const after = vendorStockFor('user1', HOUR + 1, 5);
+    const changed = before.filter((s, i) => s.instanceKey !== after[i].instanceKey);
+    expect(changed.length).toBe(1);
+    expect.hasAssertions();
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      if (before[i].instanceKey === after[i].instanceKey) expect(before[i]).toEqual(after[i]);
+    }
+  });
+
+  it('replaces the whole shelf over six hours', () => {
+    const before = vendorStockFor('user1', HOUR, 5);
+    const after = vendorStockFor('user1', HOUR + VENDOR_SLOT_LIFETIME_HOURS, 5);
+    expect.hasAssertions();
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      expect(after[i].instanceKey).not.toBe(before[i].instanceKey);
+    }
+  });
+
+  it('stamps each slot with its index, instance key and expiry', () => {
+    expect.hasAssertions();
+    const stock = vendorStockFor('userK', HOUR, 5); // level 5 -> band 4
+    stock.forEach((slot, i) => {
+      const gen = slotGeneration(i, HOUR);
+      expect(slot.slotIndex).toBe(i);
+      expect(slot.instanceKey).toBe(vendorInstanceKey(i, gen, 4));
+      expect(slot.expiresAt).toBe(slotExpiryHour(i, gen) * 3_600_000);
+    });
+  });
+
+  it('reshuffles across a band crossing but not within a band', () => {
+    // levels 4 and 6 are both band 4; level 7 is band 7.
+    expect(vendorStockFor('user1', HOUR, 4)).toEqual(vendorStockFor('user1', HOUR, 6));
+    expect(vendorStockFor('user1', HOUR, 4)).not.toEqual(vendorStockFor('user1', HOUR, 7));
   });
 
   it('produces exactly 6 slots, each basic or magic, priced at 4x sell', () => {
-    const stock = vendorStockFor('userX', '2026-07-28', 8);
-    expect(stock.length).toBe(6);
+    const stock = vendorStockFor('userX', HOUR, 8);
+    expect(stock.length).toBe(VENDOR_SLOT_COUNT);
     for (const slot of stock) {
       expect(['basic', 'magic']).toContain(slot.rarity);
       expect(slot.price).toBe(vendorBuyPrice(slot.rarity, slot.base.itemLevel));
@@ -104,32 +137,35 @@ describe('vendorStockFor', () => {
   });
 
   it('picks bases within ±1 band-step of the level band (mid band)', () => {
+    expect.hasAssertions();
     // level 5 -> band 4 (index 1); allowed bands: 1, 4, 7
-    const stock = vendorStockFor('userY', '2026-07-28', 5);
-    for (const slot of stock) {
+    for (const slot of vendorStockFor('userY', HOUR, 5)) {
       expect([1, 4, 7]).toContain(slot.base.itemLevel);
     }
   });
 
   it('does not go below band 1 at the lowest band', () => {
-    const stock = vendorStockFor('userZ', '2026-07-28', 2); // band 1, allowed [1, 4]
-    for (const slot of stock) {
+    expect.hasAssertions();
+    for (const slot of vendorStockFor('userZ', HOUR, 2)) {
       expect([1, 4]).toContain(slot.base.itemLevel);
     }
   });
 
   it('does not go above band 10 at the highest band', () => {
-    const stock = vendorStockFor('userW', '2026-07-28', 12); // band 10, allowed [7, 10]
-    for (const slot of stock) {
+    expect.hasAssertions();
+    for (const slot of vendorStockFor('userW', HOUR, 12)) {
       expect([7, 10]).toContain(slot.base.itemLevel);
     }
   });
 
   it('rolls roughly 50/50 basic/magic over many seeds (weighted, not skewed)', () => {
+    expect.hasAssertions();
     let magicCount = 0;
     let total = 0;
-    for (let day = 0; day < 100; day++) {
-      const stock = vendorStockFor('userBalance', `2026-01-${String(day + 1).padStart(2, '0')}`, 8);
+    // Step by the slot lifetime so every sample is a fresh generation for
+    // every slot — stepping by 1 hour would resample five unchanged slots.
+    for (let step = 0; step < 100; step++) {
+      const stock = vendorStockFor('userBalance', 6000 + step * VENDOR_SLOT_LIFETIME_HOURS, 8);
       for (const slot of stock) {
         total++;
         if (slot.rarity === 'magic') magicCount++;
@@ -259,5 +295,66 @@ describe('sell_price SQL / SELL_PRICES shape-guard contract', () => {
       .toEqual(Object.keys(SELL_PRICES).sort());
 
     expect(sqlPrices).toEqual(SELL_PRICES);
+  });
+});
+
+describe('vendor rotation clock', () => {
+  it('converts epoch ms to whole UTC hours', () => {
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 0, 0, 0))).toBe(0);
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 0, 59, 59, 999))).toBe(0);
+    expect(utcHourIndex(Date.UTC(1970, 0, 1, 1, 0, 0))).toBe(1);
+  });
+
+  it('advances by exactly 24 across one calendar day', () => {
+    const a = utcHourIndex(Date.UTC(2026, 7, 2, 12, 30));
+    const b = utcHourIndex(Date.UTC(2026, 7, 3, 12, 30));
+    expect(b - a).toBe(24);
+  });
+
+  it('turns over exactly one slot each hour', () => {
+    for (let hour = 1000; hour < 1024; hour++) {
+      const changed = Array.from({ length: VENDOR_SLOT_COUNT }, (_, i) => i).filter(
+        i => slotGeneration(i, hour) !== slotGeneration(i, hour - 1),
+      );
+      expect(changed.length).toBe(1);
+    }
+  });
+
+  it('gives every slot a six-hour lifetime', () => {
+    expect.hasAssertions();
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      const gen = slotGeneration(i, 1000);
+      let hoursAtThisGen = 0;
+      for (let h = 900; h < 1100; h++) if (slotGeneration(i, h) === gen) hoursAtThisGen++;
+      expect(hoursAtThisGen).toBe(VENDOR_SLOT_LIFETIME_HOURS);
+    }
+  });
+
+  it('never runs a generation backwards as the hour advances', () => {
+    expect.hasAssertions();
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      for (let h = 1000; h < 1050; h++) {
+        expect(slotGeneration(i, h + 1)).toBeGreaterThanOrEqual(slotGeneration(i, h));
+      }
+    }
+  });
+
+  it('slotExpiryHour is the first hour of the next generation', () => {
+    expect.hasAssertions();
+    for (let i = 0; i < VENDOR_SLOT_COUNT; i++) {
+      const gen = slotGeneration(i, 1000);
+      const expiry = slotExpiryHour(i, gen);
+      expect(slotGeneration(i, expiry)).toBe(gen + 1);
+      expect(slotGeneration(i, expiry - 1)).toBe(gen);
+    }
+  });
+
+  it('staggers the six slots so no two expire in the same hour', () => {
+    const expiries = Array.from({ length: VENDOR_SLOT_COUNT }, (_, i) => i).map(i => slotExpiryHour(i, slotGeneration(i, 1000)));
+    expect(new Set(expiries).size).toBe(VENDOR_SLOT_COUNT);
+  });
+
+  it('vendorInstanceKey encodes slot, generation and band', () => {
+    expect(vendorInstanceKey(3, 42, 7)).toBe('3:42:7');
   });
 });

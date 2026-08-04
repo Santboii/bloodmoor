@@ -1,6 +1,7 @@
 import { GameState, InputFrame, SPAWN_POSITIONS, NodeId, DUEL_MODE, computeLoadout } from '@arena/shared';
 import type { GameModeConfig, CharacterClass, Appearance, ItemRow } from '@arena/shared';
 import { makeInitialState, advanceState, PlayerInit } from '../gameloop/StateAdvancer.ts';
+import type { CharacterState } from '../skills/loadSkills.ts';
 
 export type RoomPlayer = { socketId: string; displayName: string; ready: boolean; colorIndex: number };
 
@@ -76,6 +77,15 @@ export class Room {
     if (p) p.ready = true;
   }
 
+  /** Overwrite this seat's character-derived maps with freshly loaded state.
+   * userIds/characterIds are join-time facts and deliberately untouched. */
+  applyCharacterState(socketId: string, state: CharacterState): void {
+    this.skillSets.set(socketId, state.skills);
+    this.charClasses.set(socketId, state.charClass);
+    this.appearances.set(socketId, state.appearance);
+    this.loadouts.set(socketId, state.items);
+  }
+
   startMatch(): void {
     const entries = [...this.players.entries()];
     this.effectiveSkillSets = new Map();
@@ -129,7 +139,7 @@ export class Room {
     if (this.state.phase === 'ended') return this.state;
     const inputs: Record<string, InputFrame> = {};
     for (const [id] of this.players) {
-      let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 } };
+      let pending = this.pendingInputs.get(id) ?? { move: { x: 0, y: 0 }, castSpell: null, aimTarget: { x: 400, y: 400 }, channel: null };
       const staleness = this.ticksSinceInput.get(id) ?? 0;
       this.ticksSinceInput.set(id, staleness + 1);
       if (staleness > Room.INPUT_GRACE_TICKS && (pending.move.x !== 0 || pending.move.y !== 0 || pending.blocking)) {
@@ -307,6 +317,17 @@ export class Room {
       }
       for (const echo of this.state.echoVolleys ?? []) {
         if (echo.ownerId === oldSocketId) echo.ownerId = newSocketId;
+      }
+      for (const orb of this.state.frozenOrbs) {
+        if (orb.ownerId === oldSocketId) orb.ownerId = newSocketId;
+      }
+      // Absolute Zero's dwell map is keyed by target socket id — remap it too,
+      // or a reconnecting player's dwell progress is silently dropped.
+      for (const fw of this.state.fireWalls) {
+        if (fw.dwell && oldSocketId in fw.dwell) {
+          fw.dwell[newSocketId] = fw.dwell[oldSocketId];
+          delete fw.dwell[oldSocketId];
+        }
       }
     }
   }

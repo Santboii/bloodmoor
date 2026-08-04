@@ -12,20 +12,14 @@ describe('sanitizeInput castSpell', () => {
     }
   });
 
-  it('accepts gladiator spells 12-15', () => {
-    for (const spell of [12, 13, 14, 15]) {
+  it('accepts frost spells 9-12 and gladiator spells 13-16', () => {
+    for (const spell of [9, 10, 11, 12, 13, 14, 15, 16]) {
       expect(sanitizeInput({ aimTarget, castSpell: spell })?.castSpell).toBe(spell);
     }
   });
 
-  it('rejects the reserved/unbound gap ids 9, 10, 11 to null', () => {
-    for (const spell of [9, 10, 11]) {
-      expect(sanitizeInput({ aimTarget, castSpell: spell })?.castSpell).toBeNull();
-    }
-  });
-
   it('rejects out-of-range and malformed values to null', () => {
-    for (const spell of [0, 16, 'x', null]) {
+    for (const spell of [0, 17, 'x', null]) {
       const result = sanitizeInput({ aimTarget, castSpell: spell });
       // castSpell: null is itself a legal "no cast" value and round-trips as
       // null rather than being rejected outright — assert on the frame.

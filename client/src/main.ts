@@ -14,7 +14,7 @@ import { SkillTreeUI } from './skills/SkillTreeUI';
 import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
-import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold } from './supabase';
+import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold, freshAccessToken } from './supabase';
 import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
@@ -464,7 +464,7 @@ async function attemptAutoRejoin(
     lobby.showHome(username, skillPoints);
     void refreshGold();
   });
-  socket.rejoinRoom(roomId, accessToken);
+  socket.rejoinRoom(roomId, await freshAccessToken());
 }
 
 const lobby = new LobbyUI(uiOverlay, {
@@ -481,7 +481,7 @@ const lobby = new LobbyUI(uiOverlay, {
     });
     const { roomId } = await res.json();
     socket.connect();
-    socket.joinRoom(roomId, displayName, accessToken, undefined, activeCharacter?.id);
+    socket.joinRoom(roomId, displayName, await freshAccessToken(), undefined, activeCharacter?.id);
     socket.onRoomJoined(({ yourId, mode: serverMode, teams, readyPlayerIds }) => {
       myId = yourId;
       currentRoomId = roomId;
@@ -500,7 +500,7 @@ const lobby = new LobbyUI(uiOverlay, {
     await pendingLoadoutSync;
     myDisplayName = displayName;
     socket.connect();
-    socket.joinRoom(roomId, displayName, accessToken, teamId, activeCharacter?.id);
+    socket.joinRoom(roomId, displayName, await freshAccessToken(), teamId, activeCharacter?.id);
     socket.onRoomJoined(({ yourId, players, mode: serverMode, teams, readyPlayerIds }) => {
       myId = yourId;
       currentRoomId = roomId;
@@ -716,7 +716,13 @@ function setupSocketHandlers(_myDisplayName: string): void {
       lobby.showDisconnected();
       lobby.show();
     });
-    socket.rejoinRoom(pendingRejoin.roomId, accessToken);
+    const rejoinRoomId = pendingRejoin.roomId;
+    void freshAccessToken().then(token => socket.rejoinRoom(rejoinRoomId, token));
+  });
+
+  socket.onLoadoutLoadFailed(({ reason }) => {
+    console.error('loadout load failed:', reason);
+    lobby.appendSystemMessage('Your gear and skills failed to load — leave the room and re-enter to retry.');
   });
 
   socket.onRoomNotFound(() => {
@@ -752,6 +758,7 @@ function startGame(): void {
   hud.buildSpellSlots(slots);
   hud.setBlockSlotVisible(activeCharacter?.class === 'gladiator');
   inputHandler.setSlots(slots);
+  inputHandler.setChannelSpells(new Set([12]));
   hud.show();
   setScene('arena');
   setDueling(true);

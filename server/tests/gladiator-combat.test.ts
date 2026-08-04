@@ -24,21 +24,21 @@ export const cast = (spell: SpellId, aimTarget: Vec2): InputFrame => ({ move: { 
 describe('Gladiator cast gating', () => {
   it('lets a skilled gladiator cast Jab (mana is spent)', () => {
     let s = twoPlayers();
-    s = advanceState(s, { A: cast(12, { x: 700, y: 600 }), B: idle() }, { A: GLAD_SKILLS, B: new Map([['archer.power_shot', 1]] as [NodeId, number][]) });
+    s = advanceState(s, { A: cast(13, { x: 700, y: 600 }), B: idle() }, { A: GLAD_SKILLS, B: new Map([['archer.power_shot', 1]] as [NodeId, number][]) });
     expect(s.players.A.mana).toBeLessThan(s.players.A.maxMana);
-    expect(s.players.A.castingSpell).toBe(12);
+    expect(s.players.A.castingSpell).toBe(13);
   });
 
   it('blocks gladiator spells for guests (no skill set)', () => {
     let s = twoPlayers();
-    s = advanceState(s, { A: cast(12, { x: 700, y: 600 }), B: idle() }, {}); // no skillSets at all
+    s = advanceState(s, { A: cast(13, { x: 700, y: 600 }), B: idle() }, {}); // no skillSets at all
     expect(s.players.A.castingSpell).toBeNull();
     expect(s.players.A.mana).toBe(s.players.A.maxMana);
   });
 
   it('blocks gladiator spells for a mage skill set (class map is class-keyed, not inferred)', () => {
     let s = twoPlayers();
-    s = advanceState(s, { A: cast(12, { x: 700, y: 600 }), B: idle() },
+    s = advanceState(s, { A: cast(13, { x: 700, y: 600 }), B: idle() },
       { A: new Map([['fire.fireball', 1]] as [NodeId, number][]) });
     expect(s.players.A.castingSpell).toBeNull();
   });
@@ -51,7 +51,7 @@ describe('Leap (spell 15)', () => {
 
   it('dashes to the aim point with i-frames, clamped to range', () => {
     let s = twoPlayers({ x: 600, y: 600 }, { x: 1600, y: 1000 });
-    s = advanceState(s, { A: cast(15, { x: 1600, y: 600 }), B: idle() }, { A: LEAP_SKILLS, B: new Map() });
+    s = advanceState(s, { A: cast(16, { x: 1600, y: 600 }), B: idle() }, { A: LEAP_SKILLS, B: new Map() });
     expect((s.players.A.invulnUntil ?? 0)).toBeGreaterThan(s.tick);
     expect(s.players.A.evadeTarget!.x).toBeCloseTo(600 + LEAP_RANGE, 5); // clamped from 1000 asked
     for (let i = 0; i < LEAP_DURATION_TICKS + 1; i++) s = advanceState(s, { A: idle(), B: idle() }, { A: LEAP_SKILLS, B: new Map() });
@@ -63,7 +63,7 @@ describe('Leap (spell 15)', () => {
   it('slows enemies near the landing point when the dash ends — not at cast', () => {
     let s = twoPlayers({ x: 600, y: 600 }, { x: 960, y: 600 }); // B ~60u from the 400-range landing
     const sk = { A: LEAP_SKILLS, B: new Map<NodeId, number>() };
-    s = advanceState(s, { A: cast(15, { x: 1000, y: 600 }), B: idle() }, sk);
+    s = advanceState(s, { A: cast(16, { x: 1000, y: 600 }), B: idle() }, sk);
     expect(s.players.B.slowUntil).toBeUndefined();               // airborne: no slow yet
     for (let i = 0; i < LEAP_DURATION_TICKS + 1; i++) s = advanceState(s, { A: idle(), B: idle() }, sk);
     expect((s.players.B.slowUntil ?? 0)).toBeGreaterThan(s.tick);
@@ -77,7 +77,7 @@ describe('Leap (spell 15)', () => {
   it('does not slow enemies on landing if the leaper died mid-flight (DoT pierces i-frames)', () => {
     let s = twoPlayers({ x: 600, y: 600 }, { x: 960, y: 600 }); // B ~60u from the 400-range landing
     const sk = { A: LEAP_SKILLS, B: new Map<NodeId, number>() };
-    s = advanceState(s, { A: cast(15, { x: 1000, y: 600 }), B: idle() }, sk);
+    s = advanceState(s, { A: cast(16, { x: 1000, y: 600 }), B: idle() }, sk);
     expect(s.players.A.evadeTarget).toBeDefined(); // airborne, mid-dash
     // Simulate a DoT tick killing the leaper mid-flight — leap i-frames stop
     // projectiles but not DoTs, so this is reachable in normal play.
@@ -113,7 +113,7 @@ describe('Full-kit integration: gladiator vs ranger', () => {
 
     // --- Beat 1: Leap in -> landing slow applied to the ranger. ---
     let s = twoPlayers({ x: 600, y: 600 }, { x: 960, y: 600 }); // B ~60u from the 400-range landing
-    s = advanceState(s, { A: cast(15, { x: 1000, y: 600 }), B: idle() }, skills);
+    s = advanceState(s, { A: cast(16, { x: 1000, y: 600 }), B: idle() }, skills);
     expect(s.players.B.slowUntil).toBeUndefined(); // airborne: no slow yet
     for (let i = 0; i < LEAP_DURATION_TICKS + 1; i++) s = advanceState(s, { A: idle(), B: idle() }, skills);
     expect((s.players.B.slowUntil ?? 0)).toBeGreaterThan(s.tick);
@@ -124,7 +124,7 @@ describe('Full-kit integration: gladiator vs ranger', () => {
     // --- Beat 2: Jab the slowed ranger -> Executioner bonus verified. ---
     const unslowedMaxRoll = 100 * gm.jab.damageMultiplier; // statMult 1, no gear
     const hpBeforeJab = s.players.B.hp;
-    s = advanceState(s, { A: cast(12, { x: s.players.B.position.x, y: s.players.B.position.y }), B: idle() }, skills);
+    s = advanceState(s, { A: cast(13, { x: s.players.B.position.x, y: s.players.B.position.y }), B: idle() }, skills);
     const slowedDamage = hpBeforeJab - s.players.B.hp;
     expect(slowedDamage).toBeGreaterThan(0);
     // Even the WORST-case Executioner roll (min base damage) beats the BEST-case
@@ -136,7 +136,7 @@ describe('Full-kit integration: gladiator vs ranger', () => {
     // the Executioner bonus, not some other multiplier.
     let control = twoPlayers({ x: 600, y: 600 }, { x: 640, y: 600 });
     const hpBeforeControl = control.players.B.hp;
-    control = advanceState(control, { A: cast(12, { x: 640, y: 600 }), B: idle() }, skills);
+    control = advanceState(control, { A: cast(13, { x: 640, y: 600 }), B: idle() }, skills);
     const unslowedDamage = hpBeforeControl - control.players.B.hp;
     expect(unslowedDamage).toBeGreaterThanOrEqual(75 * gm.jab.damageMultiplier - 1e-9);
     expect(unslowedDamage).toBeLessThanOrEqual(unslowedMaxRoll + 1e-9);
@@ -145,7 +145,7 @@ describe('Full-kit integration: gladiator vs ranger', () => {
     // --- Beat 3: Spear throw -> ranger stunned; ranger's cast attempt is rejected. ---
     const hpBeforeSpear = s.players.B.hp;
     s = advanceState(s, {
-      A: cast(13, { x: s.players.B.position.x, y: s.players.B.position.y }),
+      A: cast(14, { x: s.players.B.position.x, y: s.players.B.position.y }),
       B: idle(),
     }, skills);
     let stunned = false;
@@ -211,8 +211,8 @@ describe('Full-kit integration: gladiator vs ranger', () => {
     const manaBeforeFreeJab = s.players.A.mana;
     const freeJabAim = { x: s.players.B.position.x, y: s.players.B.position.y };
     const jabLandedOnTick = s.tick; // advanceState stamps stunUntil off THIS tick, not the post-call one
-    s = advanceState(s, { A: cast(12, freeJabAim), B: idle() }, skills);
-    expect(s.players.A.castingSpell).toBe(12);
+    s = advanceState(s, { A: cast(13, freeJabAim), B: idle() }, skills);
+    expect(s.players.A.castingSpell).toBe(13);
     expect(s.players.A.mana).toBeGreaterThanOrEqual(manaBeforeFreeJab); // free — regen may add, never spent
     expect(s.players.A.riposteReadyUntil).toBeUndefined();
     // Deterministic: stunUntil = the tick the jab was processed on + RIPOSTE_JAB_STUN_TICKS.

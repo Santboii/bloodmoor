@@ -20,6 +20,12 @@ const DEFAULT_COLOR_R = 1.05;
 const DEFAULT_COLOR_G = 0.4;
 const DEFAULT_COLOR_B = 0.05;
 
+// Frost's base color (#6fd3f2), split into channels so emitIceRayTrail can
+// lerp each particle toward white without allocating a THREE.Color per spawn.
+const FROST_BASE_R = 0x6f / 0xff;
+const FROST_BASE_G = 0xd3 / 0xff;
+const FROST_BASE_B = 0xf2 / 0xff;
+
 export class ParticleSystem {
   private posX = new Float32Array(POOL_SIZE);
   private posY = new Float32Array(POOL_SIZE);
@@ -137,6 +143,38 @@ export class ParticleSystem {
         0.4 + Math.random() * 0.2,
         (16 + Math.random() * 7) * scale,
       );
+    }
+  }
+
+  /** Same kinematics as emitTrail (trailing burst opposite `dir`), but tinted
+   * blue-white instead of emitTrail's default fire-orange so frost effects
+   * read as ice rather than flame. `intensity` (0..1, typically the spell's
+   * charge fraction) biases the mix further toward white. */
+  emitIceRayTrail(x: number, y: number, z: number, dirX: number, dirZ: number, radius = 10, intensity = 0): void {
+    if (this.activeCount >= SOFT_CAP) return;
+    const scale = radius / 10;
+    const count = Math.min(12, Math.floor((3 + Math.floor(Math.random() * 3)) * scale));
+    const spread = 4 * scale;
+    const bias = Math.min(1, Math.max(0, intensity));
+    for (let i = 0; i < count; i++) {
+      if (this.activeCount >= POOL_SIZE) return;
+      const idx = this.activeCount;
+      this.spawn(
+        x + (Math.random() - 0.5) * spread,
+        y + (Math.random() - 0.5) * spread,
+        z + (Math.random() - 0.5) * spread,
+        -dirX * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
+        (10 + Math.random() * 20) * scale,
+        -dirZ * (40 + Math.random() * 30) * scale + (Math.random() - 0.5) * 30,
+        0.35 + Math.random() * 0.15,
+        (12 + Math.random() * 4) * scale,
+      );
+      // Random per-particle mix of frost blue → white, biased whiter as
+      // intensity (charge) climbs so the spray looks hotter/brighter late.
+      const w = bias * 0.5 + Math.random() * 0.5;
+      this.colorR[idx] = FROST_BASE_R + (1 - FROST_BASE_R) * w;
+      this.colorG[idx] = FROST_BASE_G + (1 - FROST_BASE_G) * w;
+      this.colorB[idx] = FROST_BASE_B + (1 - FROST_BASE_B) * w;
     }
   }
 

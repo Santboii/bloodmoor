@@ -3,10 +3,10 @@ import type { GearVisuals } from './gearVisuals.js';
 
 export type Vec2 = { x: number; y: number };
 
-export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12 | 13 | 14 | 15;
-// 9-11 are reserved for the in-flight frost class.
+// 1-8 mage/ranger, 9-12 frost (12 = channelled Ice Ray), 13-16 gladiator.
+export type SpellId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
 
-export type ProjectileType = 'fireball' | 'arrow' | 'spear';
+export type ProjectileType = 'fireball' | 'arrow' | 'icebolt' | 'iceshard' | 'spear';
 
 export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
@@ -60,6 +60,9 @@ export type PlayerState = {
   appearance?: Appearance;
   gear?: GearVisuals;
   evadeCharges?: number; // Second Wind keystone: remaining evade charges (max 2)
+  channelSpell?: SpellId;   // active channel, if any
+  channelTicks?: number;    // ticks held; drives the ramp
+  channelEnd?: Vec2;        // server-computed beam terminus, for rendering
   // Rest — universal recovery action (ticks are absolute server ticks)
   restCastEndTick?: number;   // set while the 2s wind-up runs
   resting?: boolean;          // regen active
@@ -88,8 +91,9 @@ export type Projectile = {
   homing?: number;
   homingRedirects?: number;
   homingInterval?: number;
-  // Ember children ignore pillar overlap and player hits until this tick so
-  // they fly clear of the obstacle/target they spawned on instead of
+  split?: number;         // Splintering Ice: shard count on shatter
+  // Ember / split children ignore pillar overlap and player hits until this
+  // tick so they fly clear of the obstacle/target they spawned on instead of
   // detonating immediately and stacking blasts.
   noHitUntil?: number;
   redirectCount?: number;   // guided redirects completed (momentum damage rider)
@@ -103,10 +107,22 @@ export type Projectile = {
   emberGen?: number;        // 0 = parent fireball, 1 = ember, 2 = chained ember
   spawnTick?: number;       // for the hard lifetime ceiling
   stunTicks?: number;       // spear: stun applied on hit (survives a Reflect)
+  pierce?: number;        // remaining enemies this bolt can pass through
+  piercedIds?: string[];  // already hit, so one bolt cannot hit a target twice
+  impaler?: boolean;      // Impaler keystone: unlimited pierce + damage rider
+  flechette?: boolean;    // Flechette keystone: splinter shards home on the nearest enemy
+  expiresAt?: number;     // server tick — bounds an ice shard's lifetime (arena-spanning otherwise)
 };
+
+/** Which spell produced a persistent ground zone. Zones share one state type
+ *  and one array; this is what distinguishes them. Previously inferred by
+ *  string-matching the id prefix, which silently mis-attributed any id that
+ *  happened to share a prefix. */
+export type ZoneKind = 'firewall' | 'crater' | 'rain' | 'blizzard';
 
 export type FireWallState = {
   id: string;
+  kind: ZoneKind;
   ownerId: string;
   segments: Segment[];
   expiresAt: number; // server tick
@@ -122,6 +138,20 @@ export type FireWallState = {
   angle?: number;
   angularVel?: number;
   halfLength?: number;
+  // Absolute Zero keystone: consecutive ticks each target has stood inside
+  // this zone. Lives on the zone (not the player) so two overlapping
+  // blizzards from different casters never share a timer; a target missing
+  // from this map has had their dwell reset by leaving the zone.
+  dwell?: Record<string, number>;
+  // Permafrost keystone: the lingering zone an expiring Blizzard leaves
+  // behind — same `kind: 'blizzard'` shape so it chills like one, but this
+  // flag zeroes its damage in the fire-wall damage loop.
+  noDamage?: boolean;
+  // Blinding Squall keystone: stamped at spawn from the caster's modifiers so
+  // the per-recipient snapshot filter (server/index.ts) can hide this
+  // caster's spell impact indicators from anyone standing inside, without
+  // needing the caster's skill set at broadcast time.
+  blindingSquall?: boolean;
 };
 
 export type MeteorState = {
@@ -155,6 +185,15 @@ export type EchoVolleyState = {
   damageMax: number;
 };
 
+export type FrozenOrbState = {
+  id: string; ownerId: string;
+  position: Vec2; velocity: Vec2;
+  expiresAt: number; nextVolleyAt: number;
+  shardsPerVolley: number;
+  damageMin: number; damageMax: number;
+  detonateOnExpiry?: boolean;
+};
+
 export type GameState = {
   tick: number;
   players: Record<string, PlayerState>;
@@ -163,6 +202,7 @@ export type GameState = {
   meteors: MeteorState[];
   rainOfArrows: RainOfArrowsState[];
   echoVolleys?: EchoVolleyState[];
+  frozenOrbs: FrozenOrbState[];
   phase: 'waiting' | 'countdown' | 'dueling' | 'ended';
   winner: string | null;
   gameMode: GameModeType;
@@ -176,6 +216,10 @@ export type InputFrame = {
   castSpell: SpellId | null;
   aimTarget: Vec2;
   aimTarget2?: Vec2; // drag end for Fire Wall
+  /** Sustained while a channelled spell's button is held. Unlike castSpell,
+   *  this is NOT cleared each tick by Room.tick — that is what makes a channel
+   *  a channel. */
+  channel: SpellId | null;
   rest?: boolean;
   blocking?: boolean; // held state — Room must NOT latch-clear it per tick
 };
@@ -313,6 +357,55 @@ export const RIPOSTE_WINDOW_TICKS = 3 * TICK_RATE;         // 180
 export const RIPOSTE_JAB_STUN_TICKS = Math.round(0.5 * TICK_RATE); // 30
 export const EXECUTIONER_BONUS = 0.5;      // +50% Jab damage vs stunned/slowed
 
+// ── Frost constants ────────────────────────────────────────────────────────
+export const ICEBOLT_SPEED = 480;
+export const ICEBOLT_RADIUS = 8;
+export const ICEBOLT_DAMAGE_MIN = 60;
+export const ICEBOLT_DAMAGE_MAX = 85;
+/** Chill reuses slowUntil/slowFactor — the ranger's freeze arrows already
+ *  established this plumbing, so frost introduces no new status field. */
+export const ICEBOLT_CHILL_TICKS = Math.round(1.5 * TICK_RATE);  // 90
+export const ICEBOLT_CHILL_FACTOR = 0.85;
+
+export const BLIZZARD_RADIUS = 90;
+export const BLIZZARD_DURATION_TICKS = 4 * TICK_RATE;            // 240
+export const BLIZZARD_DAMAGE_PER_TICK = 45 / TICK_RATE;
+
+export const FROZEN_ORB_SPEED = 140;
+export const FROZEN_ORB_LIFETIME_TICKS = Math.round(2.5 * TICK_RATE);  // 150
+export const FROZEN_ORB_VOLLEY_INTERVAL_TICKS = 15;              // 10 volleys
+export const FROZEN_ORB_SHARDS_PER_VOLLEY = 4;
+export const FROZEN_ORB_SHARD_SPEED = 320;
+export const FROZEN_ORB_SHARD_LIFETIME_TICKS = 30;
+export const FROZEN_ORB_SHARD_DAMAGE_MIN = 25;
+export const FROZEN_ORB_SHARD_DAMAGE_MAX = 40;
+
+// ── Frost keystone constants ───────────────────────────────────────────────
+export const PERMAFROST_LINGER_TICKS = 2 * TICK_RATE;            // 120
+export const ABSOLUTE_ZERO_DWELL_TICKS = Math.round(1.5 * TICK_RATE); // 90
+export const CATACLYSMIC_ORB_DAMAGE = 120;
+export const CATACLYSMIC_ORB_RADIUS = 100;
+export const IMPALER_PIERCE_DAMAGE_BONUS = 0.08;
+
+// ── Ice Ray (channelled) ───────────────────────────────────────────────────
+export const ICE_RAY_MAX_RANGE = 700;
+export const ICE_RAY_RAMP_TICKS = 2 * TICK_RATE;   // 120
+export const ICE_RAY_DAMAGE_MIN_PER_SEC = 45;
+export const ICE_RAY_DAMAGE_MAX_PER_SEC = 130;
+export const ICE_RAY_MANA_MIN_PER_SEC = 18;
+export const ICE_RAY_MANA_MAX_PER_SEC = 55;
+/** The band starts narrow and widens as the ray charges — a fresh beam is a
+ *  thin lance, a full-power one a broad torrent. Deliberately START < FULL. */
+export const ICE_RAY_HALF_WIDTH_START = 6;
+export const ICE_RAY_HALF_WIDTH_FULL = 20;
+/** Flat while channelling — deliberately not ramped, so the commitment reads
+ *  as one decision rather than two variables moving at once. */
+export const ICE_RAY_MOVE_MULT = 0.35;
+/** Pillar sampling step along the beam. pillarContainsPoint tests a
+ *  FIREBALL_RADIUS (10-unit) circle against the pillar AABB, so any step
+ *  under 10 units can never skip past a pillar without landing inside it. */
+export const ICE_RAY_MARCH_STEP = 8;
+
 export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: number }> = {
   1: { manaCost: 25,  cooldownTicks: 30  },
   2: { manaCost: 60,  cooldownTicks: 180 },
@@ -322,10 +415,17 @@ export const SPELL_CONFIG: Record<SpellId, { manaCost: number; cooldownTicks: nu
   6: { manaCost: 50,  cooldownTicks: 24  },
   7: { manaCost: 80,  cooldownTicks: 240 },
   8: { manaCost: 30,  cooldownTicks: 90  },
-  12: { manaCost: 10,  cooldownTicks: 30  },
-  13: { manaCost: 40,  cooldownTicks: 360 },
-  14: { manaCost: 40,  cooldownTicks: 480 },
-  15: { manaCost: 30,  cooldownTicks: 180 },
+  9:  { manaCost: 20,  cooldownTicks: 24  },
+  10: { manaCost: 65,  cooldownTicks: 180 },
+  11: { manaCost: 100, cooldownTicks: 300 },
+  // Channelled: mana is drained per tick by the ramp, not charged on cast, and
+  // the ramp reset is the limiter rather than a cooldown. This entry exists
+  // because SPELL_CONFIG is exhaustive over SpellId.
+  12: { manaCost: 0,   cooldownTicks: 0   },
+  13: { manaCost: 10,  cooldownTicks: 30  },
+  14: { manaCost: 40,  cooldownTicks: 360 },
+  15: { manaCost: 40,  cooldownTicks: 480 },
+  16: { manaCost: 30,  cooldownTicks: 180 },
 };
 
 export const TELEPORT_MAX_RANGE = 600;

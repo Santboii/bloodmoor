@@ -80,7 +80,7 @@ describe('Block', () => {
     let s = duel();
     s = advanceState(s, { A: frame({ blocking: true, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect(s.players.A.blocking).toBe(true);
-    s = advanceState(s, { A: frame({ blocking: true, castSpell: 12, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
+    s = advanceState(s, { A: frame({ blocking: true, castSpell: 13, aimTarget: { x: 1000, y: 600 } }), B: frame() }, skills);
     expect(s.players.A.blocking).toBe(false);
     expect((s.players.A.blockCooldownUntil ?? 0)).toBeGreaterThan(s.tick);
     // still held next tick, but the cooldown gates the re-raise
@@ -134,10 +134,10 @@ describe('Riposte keystone', () => {
     // walk B into jab range and arm riposte manually (unit-arming keeps the test focused)
     s.players.B.position = { x: 660, y: 600 };
     s.players.A.riposteReadyUntil = s.tick + 60;
-    s.players.A.cooldowns = { 12: 20 };   // even a cooling jab fires
+    s.players.A.cooldowns = { 13: 20 };   // even a cooling jab fires
     const mana0 = s.players.A.mana;
-    s = advanceState(s, { A: frame({ castSpell: 12, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
-    expect(s.players.A.castingSpell).toBe(12);
+    s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 1000, y: 600 } }), B: frame() }, rSkills);
+    expect(s.players.A.castingSpell).toBe(13);
     expect(s.players.A.mana).toBeGreaterThanOrEqual(mana0); // free (regen may add)
     expect(s.players.A.riposteReadyUntil).toBeUndefined();
     expect((s.players.B.stunUntil ?? 0)).toBeGreaterThanOrEqual(s.tick + RIPOSTE_JAB_STUN_TICKS - 1);

@@ -16,7 +16,12 @@ export type NodeId =
   | 'archer_utility.shadowstep' | 'archer_utility.acrobatics'
   | 'arms.jab' | 'arms.heavy_thrust' | 'arms.spear_throw'
   | 'arms.stunning_blow' | 'arms.leap' | 'arms.crushing_landing'
-  | 'bulwark.bracing' | 'bulwark.mobile_guard' | 'bulwark.reflect' | 'bulwark.perfect_guard';
+  | 'bulwark.bracing' | 'bulwark.mobile_guard' | 'bulwark.reflect' | 'bulwark.perfect_guard'
+  | 'frost.ice_bolt' | 'frost.bitter_chill' | 'frost.ice_lance' | 'frost.ice_ray'
+  | 'frost.frostbite' | 'frost.splintering_ice' | 'frost.blizzard'
+  | 'frost.lingering_winter' | 'frost.deepening_cold' | 'frost.whiteout'
+  | 'frost.frozen_orb' | 'frost.shard_storm' | 'frost.glacial_drift'
+  | 'frost.cold_mastery';
 
 export type SkillTree = 'fire' | 'lightning' | 'frost' | 'utility' | 'archer' | 'archer_utility' | 'arms' | 'bulwark';
 
@@ -81,6 +86,20 @@ export const GATES: Partial<Record<NodeId, Gate>> = {
   'bulwark.mobile_guard':  { requiresAll: ['bulwark.bracing'] },
   'bulwark.reflect':       { requiresAll: ['bulwark.bracing'] },
   'bulwark.perfect_guard': { requiresAll: ['bulwark.reflect'] },
+  // Frost tree — mirrors the fire tree's gate shape exactly.
+  'frost.bitter_chill':     { requiresAll: ['frost.ice_bolt'] },
+  'frost.ice_lance':        { requiresAll: ['frost.ice_bolt'] },
+  'frost.ice_ray':          { requiresAll: ['frost.ice_bolt'] },
+  'frost.frostbite':        { requiresAll: ['frost.ice_bolt'] },
+  'frost.splintering_ice':  { requiresAll: ['frost.ice_bolt'] },
+  'frost.blizzard':         { requiresAll: ['frost.ice_bolt'], requiresAny: ['frost.bitter_chill', 'frost.ice_lance', 'frost.ice_ray'] },
+  'frost.lingering_winter': { requiresAll: ['frost.blizzard'] },
+  'frost.deepening_cold':   { requiresAll: ['frost.blizzard'] },
+  'frost.whiteout':         { requiresAll: ['frost.blizzard'] },
+  'frost.frozen_orb':       { requiresAll: ['frost.blizzard'], requiresAny: ['frost.lingering_winter', 'frost.deepening_cold', 'frost.whiteout'] },
+  'frost.shard_storm':      { requiresAll: ['frost.frozen_orb'] },
+  'frost.glacial_drift':    { requiresAll: ['frost.frozen_orb'] },
+  'frost.cold_mastery':     { requiresAll: ['frost.frozen_orb'] },
 };
 
 export function canUnlock(id: NodeId, owned: { has(id: NodeId): boolean }): boolean {
@@ -166,6 +185,30 @@ export const SKILL_NODES: SkillNode[] = [
   { id: 'bulwark.mobile_guard',  name: 'Mobile Guard',  tree: 'bulwark', tier: 2, cost: 1, isSpell: false, description: 'Move faster while blocking per rank.', stackable: { softCap: 3, baseEffect: 0.08 } },
   { id: 'bulwark.reflect',       name: 'Reflect',       tree: 'bulwark', tier: 2, cost: 2, isSpell: true,  description: 'For 1s, incoming projectiles fly back at their owner.' },
   { id: 'bulwark.perfect_guard', name: 'Perfect Guard', tree: 'bulwark', tier: 3, cost: 2, isSpell: false, description: '+15% Reflect window per rank.', stackable: { softCap: 3, baseEffect: 0.15 } },
+  // ── Frost tree ────────────────────────────────────────────────────────────
+  { id: 'frost.ice_bolt',         name: 'Ice Bolt',         tree: 'frost', tier: 1, cost: 1, isSpell: true,  description: 'Fast projectile that chills on hit. 60–85 damage.' },
+  { id: 'frost.bitter_chill',     name: 'Bitter Chill',     tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt\'s chill is stronger and lasts longer per rank.', stackable: { softCap: 5, baseEffect: 0.05 },
+    keystone: { name: 'Flash Freeze', description: 'An Ice Bolt hitting an unchilled target roots them for 0.4s (once per 6s per target).' } },
+  { id: 'frost.ice_lance',        name: 'Ice Lance',        tree: 'frost', tier: 2, cost: 1, isSpell: false, description: 'Ice Bolt pierces one additional enemy per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Impaler', description: 'Pierce is unlimited, and each enemy pierced adds +8% damage to later hits.' } },
+  { id: 'frost.ice_ray',          name: 'Ice Ray',          tree: 'frost', tier: 2, cost: 2, isSpell: true,  description: 'Hold to channel a beam. Damage, mana cost and width all grow the longer you hold. You move at 35% speed while channelling.' },
+  { id: 'frost.frostbite',        name: 'Frostbite',        tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt deals more damage the more slowed the target is.', stackable: { softCap: 3, baseEffect: 0.10 },
+    keystone: { name: 'Rimeheart', description: 'The bonus applies to all your frost damage against that target, not just Ice Bolt.' } },
+  { id: 'frost.splintering_ice',  name: 'Splintering Ice',  tree: 'frost', tier: 3, cost: 2, isSpell: false, description: 'Ice Bolt shatters into shards on impact. One more shard per rank.', stackable: { softCap: 3, baseEffect: 1 },
+    keystone: { name: 'Flechette', description: 'Shards home toward the nearest enemy instead of scattering.' } },
+  { id: 'frost.blizzard',         name: 'Blizzard',         tree: 'frost', tier: 4, cost: 2, isSpell: true,  description: 'Persistent field. 45 dmg/s, chills anyone inside.' },
+  { id: 'frost.lingering_winter', name: 'Lingering Winter', tree: 'frost', tier: 5, cost: 1, isSpell: false, description: '+10% Blizzard duration per rank.', stackable: { softCap: 5, baseEffect: 0.10 },
+    keystone: { name: 'Permafrost', description: 'An expiring Blizzard leaves chilled ground for 2s — no damage, but the chill continues.' } },
+  { id: 'frost.deepening_cold',   name: 'Deepening Cold',   tree: 'frost', tier: 5, cost: 2, isSpell: false, description: '+8% Blizzard damage per rank.', stackable: { softCap: 5, baseEffect: 0.08 },
+    keystone: { name: 'Absolute Zero', description: 'Standing in your Blizzard for 1.5s roots for 0.4s (once per 6s per target).' } },
+  { id: 'frost.whiteout',         name: 'Whiteout',         tree: 'frost', tier: 5, cost: 1, isSpell: false, description: '+20% Blizzard radius per rank.', stackable: { softCap: 5, baseEffect: 0.20 },
+    keystone: { name: 'Blinding Squall', description: 'Enemies inside your Blizzard cannot see your spell impact indicators.' } },
+  { id: 'frost.frozen_orb',       name: 'Frozen Orb',       tree: 'frost', tier: 6, cost: 3, isSpell: true,  description: 'Drifts forward spraying ice shards, then expires. 25–40 per shard.' },
+  { id: 'frost.shard_storm',      name: 'Shard Storm',      tree: 'frost', tier: 7, cost: 2, isSpell: false, description: 'Frozen Orb fires more shards per volley per rank.', stackable: { softCap: 3, baseEffect: 2 },
+    keystone: { name: 'Cataclysmic Orb', description: 'The orb detonates when it expires: 120 damage in a 100-unit radius.' } },
+  { id: 'frost.glacial_drift',    name: 'Glacial Drift',    tree: 'frost', tier: 7, cost: 1, isSpell: false, description: 'Frozen Orb travels slower and lives longer per rank.', stackable: { softCap: 5, baseEffect: 0.12 } },
+  { id: 'frost.cold_mastery',     name: 'Cold Mastery',     tree: 'frost', tier: 7, cost: 2, isSpell: false, description: '+6% damage to all frost spells per rank.', stackable: { softCap: 5, baseEffect: 0.06 },
+    keystone: { name: 'Absolute Cold', description: 'Your chill lasts 50% longer.' } },
 ];
 
 const SKILL_NODES_BY_ID: Map<NodeId, SkillNode> = new Map(SKILL_NODES.map(n => [n.id, n]));
@@ -191,14 +234,18 @@ export const SPELL_BINDINGS: SpellBinding[] = [
   { spell: 2, node: 'fire.fire_wall',         defaultSlot: 2, charClass: 'mage' },
   { spell: 3, node: 'fire.meteor',            defaultSlot: 3, charClass: 'mage' },
   { spell: 4, node: 'utility.teleport',       defaultSlot: 4, charClass: 'mage' },
+  { spell: 9,  node: 'frost.ice_bolt',   charClass: 'mage' },
+  { spell: 10, node: 'frost.blizzard',   charClass: 'mage' },
+  { spell: 11, node: 'frost.frozen_orb', charClass: 'mage' },
+  { spell: 12, node: 'frost.ice_ray',  charClass: 'mage' },
   { spell: 5, node: 'archer.power_shot',      defaultSlot: 1, charClass: 'ranger' },
   { spell: 6, node: 'archer.multishot',       defaultSlot: 2, charClass: 'ranger' },
   { spell: 7, node: 'archer.rain_of_arrows',  defaultSlot: 3, charClass: 'ranger' },
   { spell: 8, node: 'archer_utility.evade',   defaultSlot: 4, charClass: 'ranger' },
-  { spell: 12, node: 'arms.jab',         defaultSlot: 1, charClass: 'gladiator' },
-  { spell: 13, node: 'arms.spear_throw', defaultSlot: 2, charClass: 'gladiator' },
-  { spell: 14, node: 'bulwark.reflect',  defaultSlot: 3, charClass: 'gladiator' },
-  { spell: 15, node: 'arms.leap',        defaultSlot: 4, charClass: 'gladiator' },
+  { spell: 13, node: 'arms.jab',         defaultSlot: 1, charClass: 'gladiator' },
+  { spell: 14, node: 'arms.spear_throw', defaultSlot: 2, charClass: 'gladiator' },
+  { spell: 15, node: 'bulwark.reflect',  defaultSlot: 3, charClass: 'gladiator' },
+  { spell: 16, node: 'arms.leap',        defaultSlot: 4, charClass: 'gladiator' },
 ];
 
 export type SpellSlotRow = { slot: number; spell: number };
@@ -207,7 +254,7 @@ export type SpellSlotRow = { slot: number; spell: number };
 export const MOBILITY_SPELLS: Record<CharacterClass, SpellId> = {
   mage: 4,    // Teleport
   ranger: 8,  // Evade
-  gladiator: 15,  // Leap
+  gladiator: 16,  // Leap
 };
 
 const ALL_SPELL_IDS: ReadonlySet<number> = new Set(SPELL_BINDINGS.map(b => b.spell));

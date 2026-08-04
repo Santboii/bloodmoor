@@ -5,7 +5,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { loadUserFromToken } from '../skills/loadSkills.ts';
 import { supabase } from '../supabase.ts';
-import { buyerClient, utcDayString, getVendorView, buyVendorSlot, openLootbox } from './service.ts';
+import { buyerClient, vendorClockNow, getVendorView, buyVendorSlot, openLootbox } from './service.ts';
 
 type AuthedRequest = Request & { userId: string; accessToken: string };
 
@@ -37,14 +37,15 @@ export function asyncHandler(fn: (req: Request, res: Response) => Promise<void>)
 
 export async function getVendorHandler(req: Request, res: Response): Promise<void> {
   const { userId } = req as AuthedRequest;
-  const utcDay = utcDayString();
-  const slots = await getVendorView(supabase, userId, utcDay);
-  res.json({ utcDay, slots });
+  res.json(await getVendorView(supabase, userId, vendorClockNow()));
 }
 
 export async function buyVendorHandler(req: Request, res: Response): Promise<void> {
   const { userId, accessToken } = req as AuthedRequest;
-  const result = await buyVendorSlot(supabase, buyerClient(accessToken), userId, req.body?.slotIndex);
+  const result = await buyVendorSlot(
+    supabase, buyerClient(accessToken), userId, vendorClockNow(),
+    req.body?.slotIndex, req.body?.instanceKey,
+  );
   if (!result.ok) { res.status(result.status).json({ error: result.error }); return; }
   res.json({ item: result.item });
 }

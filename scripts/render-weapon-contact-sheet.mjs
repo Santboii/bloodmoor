@@ -172,7 +172,7 @@ const weapons = ITEM_BASES.filter(b => b.slot === 'weapon' && b.lpc);
 const rows = [];
 for (const w of weapons) {
   const app = w.classRestriction === 'ranger' ? RANGER : MAGE;
-  rows.push({ label: w.name, app, layers: layersForLoadout(app, { weapon: w.id }) });
+  rows.push({ label: w.name, app, layers: layersForLoadout(app, { weapon: { base: w.id } }) });
 }
 
 const dirRow = DIRS.indexOf(process.env.DIR ?? 'down');

@@ -7,7 +7,7 @@
 > `menu-moor` checkout; `main` has since landed the six-slot spell bar and the
 > fire talent rework, and the in-flight frost class reserves spell ids 9–11.
 > The implementation plan (`docs/superpowers/plans/2026-08-03-gladiator-class.md`)
-> supersedes this spec on: spell ids (12–15), slot bindings (`defaultSlot` +
+> supersedes this spec on: spell ids (13–16 — frost, which landed first, took 9–12 including the channelled Ice Ray on 12), slot bindings (`defaultSlot` +
 > `MOBILITY_SPELLS`, not fixed keys), Block scope (directional hits only —
 > ground zones and meteors bypass it), and Leap's slow applying at landing
 > rather than at cast.

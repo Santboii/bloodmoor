@@ -24,28 +24,33 @@ describe('Gladiator character class', () => {
 });
 
 describe('Gladiator spells and skill tree', () => {
-  it('binds spells 12-15 to gladiator with default slots 1-4', () => {
+  it('binds spells 13-16 to gladiator with default slots 1-4', () => {
     const glad = SPELL_BINDINGS.filter(b => b.charClass === 'gladiator');
     expect(glad.map(b => [b.spell, b.node, b.defaultSlot])).toEqual([
-      [12, 'arms.jab', 1],
-      [13, 'arms.spear_throw', 2],
-      [14, 'bulwark.reflect', 3],
-      [15, 'arms.leap', 4],
+      [13, 'arms.jab', 1],
+      [14, 'arms.spear_throw', 2],
+      [15, 'bulwark.reflect', 3],
+      [16, 'arms.leap', 4],
     ]);
     expect(CLASS_DEFAULT_NODE.gladiator).toBe('arms.jab');
-    expect(MOBILITY_SPELLS.gladiator).toBe(15);
-    expect(classOfSpell(13)).toBe('gladiator');
+    expect(MOBILITY_SPELLS.gladiator).toBe(16);
+    expect(classOfSpell(14)).toBe('gladiator');
   });
 
-  it('reserves 9-11 for frost — gladiator never uses them', () => {
-    for (const b of SPELL_BINDINGS) expect([9, 10, 11]).not.toContain(b.spell);
+  it('leaves 9-12 to the frost tree — gladiator ids never collide', () => {
+    for (const b of SPELL_BINDINGS.filter(b => b.charClass === 'gladiator')) {
+      expect(b.spell).toBeGreaterThanOrEqual(13);
+    }
+    for (const b of SPELL_BINDINGS.filter(b => [9, 10, 11, 12].includes(b.spell))) {
+      expect(b.charClass).toBe('mage');
+    }
   });
 
-  it('has SPELL_CONFIG entries for 12-15', () => {
-    expect(SPELL_CONFIG[12]).toEqual({ manaCost: 10, cooldownTicks: 30 });
-    expect(SPELL_CONFIG[13]).toEqual({ manaCost: 40, cooldownTicks: 360 });
-    expect(SPELL_CONFIG[14]).toEqual({ manaCost: 40, cooldownTicks: 480 });
-    expect(SPELL_CONFIG[15]).toEqual({ manaCost: 30, cooldownTicks: 180 });
+  it('has SPELL_CONFIG entries for 13-16', () => {
+    expect(SPELL_CONFIG[13]).toEqual({ manaCost: 10, cooldownTicks: 30 });
+    expect(SPELL_CONFIG[14]).toEqual({ manaCost: 40, cooldownTicks: 360 });
+    expect(SPELL_CONFIG[15]).toEqual({ manaCost: 40, cooldownTicks: 480 });
+    expect(SPELL_CONFIG[16]).toEqual({ manaCost: 30, cooldownTicks: 180 });
   });
 
   it('has 6 arms nodes and 4 bulwark nodes', () => {

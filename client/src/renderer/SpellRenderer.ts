@@ -1,5 +1,9 @@
 import * as THREE from 'three';
-import { GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS, aurasForGear, type AuraAnchor, type Vec2 } from '@arena/shared';
+import {
+  GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
+  iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL,
+  aurasForGear, type AuraAnchor, type Vec2,
+} from '@arena/shared';
 import type { FireWallState, PlayerState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
 import { TeleportEffect } from './TeleportEffect';
@@ -12,6 +16,13 @@ type SpearEntry = { mesh: THREE.Group };
 type BlockShieldEntry = { mesh: THREE.Mesh };
 type ReflectEntry = { mesh: THREE.Mesh };
 type StunEntry = { sprites: THREE.Sprite[] };
+type IceBoltEntry = { mesh: THREE.Group };
+type FrozenOrbEntry = { mesh: THREE.Mesh };
+// spinAngle accumulates every frame so the beam's rotation about its own
+// length axis is continuous even though its base orientation (rotation.set)
+// is recomputed from scratch each frame to track the caster's current aim.
+// `glow` is a child of `mesh` (the hot core) — see syncIceRays for why.
+type IceRayEntry = { mesh: THREE.Mesh; glow: THREE.Mesh; spinAngle: number };
 type RainArrowVisual = {
   arrowGroup: THREE.Group;
   arrowMaterial: THREE.MeshBasicMaterial;
@@ -56,6 +67,15 @@ const SPEAR_SHAFT_GEO = new THREE.CylinderGeometry(1.2, 1.2, 26, 6).rotateZ(-Mat
 const SPEAR_TIP_GEO = new THREE.ConeGeometry(2.2, 5, 6).rotateZ(-Math.PI / 2);
 const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Math.PI);
 const REFLECT_RING_GEO = new THREE.RingGeometry(22, 25, 24);
+// Icicle shard, apex along +X so the same rotation math as the arrow shaft
+// (rotation.set(-PI/2, 0, -angle)) points it down the velocity vector.
+const ICE_BOLT_GEO = new THREE.ConeGeometry(5, 22, 6).rotateZ(-Math.PI / 2);
+const FALLING_SHARD_GEO = new THREE.ConeGeometry(1.5, 10, 4);
+// Ice Ray beam: unit box, scaled per-frame to (length, width, thickness) and
+// rotated with the same -PI/2,0,-angle convention as the arrow shaft/ice
+// bolt above, so its local X axis (length) ends up pointing from caster to
+// channelEnd and local Y (width) ends up spanning the horizontal plane.
+const ICE_RAY_BEAM_GEO = new THREE.BoxGeometry(1, 1, 1);
 
 // HDR-bright fire: channel values above 1.0 survive into the half-float
 // composer buffer (tone mapping runs last), so bloom reads the fireball as a
@@ -79,13 +99,76 @@ const REFLECT_RING_MAT = new THREE.MeshBasicMaterial({
   color: 0xd9f0ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
 });
 
+const ICE_BOLT_MAT = new THREE.MeshBasicMaterial({ color: 0xbfe9ff });
+const FROZEN_ORB_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xaee9ff });
+const FROZEN_ORB_GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.3 });
+
+// Frozen orbs carry no server-side radius (they deal no direct damage — only
+// their sprayed shards do), so the visual size is a client-only constant.
+const FROZEN_ORB_VISUAL_RADIUS = 16;
+
+// Fixed vertical slab thickness for the beam — only its horizontal width
+// (perpendicular to travel) ramps with iceRayRamp's halfWidth.
+const ICE_RAY_THICKNESS = 10;
+const ICE_RAY_COLOR = 0x6fd3f2;
+// As charge builds the outer glow bleaches partway toward white — a cheap
+// stand-in for heat-death intensity that reads as "more powerful" without a
+// soft glow/bloom pass. Capped well short of pure white (see
+// ICE_RAY_COLOR_LERP_MAX below) so full charge stays recognisably frost-blue
+// instead of washing out.
+const ICE_RAY_COLOR_BASE = new THREE.Color(ICE_RAY_COLOR);
+const ICE_RAY_COLOR_HOT = new THREE.Color(0xffffff);
+// Pale icy white for the hot inner core — brighter than the frost-blue glow
+// around it so the beam reads as a bright lance wrapped in cold haze rather
+// than one flat-colored slab.
+const ICE_RAY_CORE_COLOR = 0xeaffff;
+// The core is a thin bright band; the glow is a wider, softer haze around it
+// — both are fractions of the same ramped halfWidth/thickness so the two-
+// layer look holds at every charge level.
+const ICE_RAY_CORE_WIDTH_FRAC = 0.4;
+const ICE_RAY_CORE_THICKNESS_FRAC = 0.55;
+const ICE_RAY_GLOW_WIDTH_FRAC = 1.7;
+const ICE_RAY_GLOW_THICKNESS_FRAC = 1.6;
+// The glow mesh is parented to the core mesh, so its scale is relative to
+// the core's — these ratios (not the raw FRAC constants above) are what
+// actually size it. Constant across every charge level, so set once at
+// creation rather than recomputed per frame.
+const ICE_RAY_GLOW_REL_SCALE_Y = ICE_RAY_GLOW_WIDTH_FRAC / ICE_RAY_CORE_WIDTH_FRAC;
+const ICE_RAY_GLOW_REL_SCALE_Z = ICE_RAY_GLOW_THICKNESS_FRAC / ICE_RAY_CORE_THICKNESS_FRAC;
+// Spin speed (rad/s) about the beam's own length axis — a fresh, narrow beam
+// drifts lazily; a fully charged one whips around fast enough to blur.
+const ICE_RAY_SPIN_MIN = 1.5;
+const ICE_RAY_SPIN_MAX = 9;
+
+// Brightness ceilings for full charge. A first pass ramped opacity and the
+// white color-lerp all the way to their natural maximums (opacity ~0.95,
+// color 100% white) — at full charge the beam blew out into a white-out that
+// hid the arena behind it. These caps keep the top end reading as an intense
+// frost-blue lance instead of a flash of white; the *ramp* (min values, and
+// the ease curve below) is unchanged so charging up still visibly brightens
+// the beam, it just tops out sooner.
+const ICE_RAY_CORE_OPACITY_MIN = 0.45;
+const ICE_RAY_CORE_OPACITY_MAX = 0.7;
+const ICE_RAY_GLOW_OPACITY_MIN = 0.18;
+const ICE_RAY_GLOW_OPACITY_MAX = 0.38;
+// Cap on how far the glow's color lerps toward white at full charge — 1.0
+// (the old value) washes it out to near-pure white; this keeps full charge
+// recognizably frost-blue.
+const ICE_RAY_COLOR_LERP_MAX = 0.35;
+// Cap on the white-bias passed to ParticleSystem.emitIceRayTrail's
+// `intensity` param — 1.0 (the old value) biased the spray to solid white at
+// full charge; this keeps the sprayed particles frost-tinted.
+const ICE_RAY_PARTICLE_INTENSITY_MAX = 0.5;
+
 const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
   SPEAR_SHAFT_GEO, SPEAR_TIP_GEO, BLOCK_SHIELD_GEO, REFLECT_RING_GEO,
+  ICE_BOLT_GEO, FALLING_SHARD_GEO, ICE_RAY_BEAM_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
   SPEAR_SHAFT_MAT, SPEAR_TIP_MAT, BLOCK_SHIELD_MAT, REFLECT_RING_MAT,
+  ICE_BOLT_MAT, FROZEN_ORB_CORE_MAT, FROZEN_ORB_GLOW_MAT,
 ]);
 
 // Stun stars are the one effect with no existing texture-based visual in
@@ -206,6 +289,9 @@ export class SpellRenderer {
   private meteors = new Map<string, MeteorEntry>();
   private rainOfArrows = new Map<string, RainEntry>();
   private rainZoneArrows = new Map<string, RainArrowVisual>();
+  private iceBolts = new Map<string, IceBoltEntry>();
+  private frozenOrbs = new Map<string, FrozenOrbEntry>();
+  private iceRays = new Map<string, IceRayEntry>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
   private clock = new THREE.Clock();
@@ -256,6 +342,27 @@ export class SpellRenderer {
     return { arrowGroup, arrowMaterial, arrowPhases, spawnTime: this.elapsedTime };
   }
 
+  /** Same falling-particle shape as createFallingArrows, swapped to icy
+   * shard meshes for blizzard zones. */
+  private createFallingShards(cx: number, cz: number, radius: number, count = 16): RainArrowVisual {
+    const arrowGroup = new THREE.Group();
+    const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xaee9ff, transparent: true, opacity: 0.7 });
+    const arrowPhases: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * radius;
+      const shard = new THREE.Mesh(FALLING_SHARD_GEO, arrowMaterial);
+      shard.position.set(Math.cos(theta) * r, 0, Math.sin(theta) * r);
+      shard.rotation.x = (Math.random() - 0.5) * 0.3;
+      shard.rotation.z = (Math.random() - 0.5) * 0.3;
+      arrowGroup.add(shard);
+      arrowPhases.push(Math.random());
+    }
+    arrowGroup.position.set(cx, 0, cz);
+    this.scene.add(arrowGroup);
+    return { arrowGroup, arrowMaterial, arrowPhases, spawnTime: this.elapsedTime };
+  }
+
   private updateFallingArrows(visual: RainArrowVisual): void {
     const localTime = this.elapsedTime - visual.spawnTime;
     const maxHeight = 250;
@@ -294,9 +401,12 @@ export class SpellRenderer {
     this.syncFireballs(state);
     this.syncArrows(state);
     this.syncSpears(state);
+    this.syncIceBolts(state);
     this.syncFireWalls(state);
     this.syncMeteors(state);
     this.syncRainOfArrows(state);
+    this.syncFrozenOrbs(state);
+    this.syncIceRays(state, delta);
     this.syncGladiatorStatus(state);
     this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
@@ -447,6 +557,48 @@ export class SpellRenderer {
     }
   }
 
+  private syncIceBolts(state: GameState): void {
+    const activeIceBoltIds = new Set(
+      state.projectiles.filter(p => p.type === 'icebolt' || p.type === 'iceshard').map(p => p.id),
+    );
+
+    for (const [id, entry] of this.iceBolts) {
+      if (!activeIceBoltIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.iceBolts.delete(id);
+      }
+    }
+
+    for (const bolt of state.projectiles) {
+      if (bolt.type !== 'icebolt' && bolt.type !== 'iceshard') continue;
+
+      if (!this.iceBolts.has(bolt.id)) {
+        const group = new THREE.Group();
+        const shaft = new THREE.Mesh(ICE_BOLT_GEO, ICE_BOLT_MAT);
+        // Shards are the same icicle mesh, just smaller — spray fragments
+        // rather than the bolt itself.
+        if (bolt.type === 'iceshard') shaft.scale.setScalar(0.45);
+        group.add(shaft);
+
+        this.scene.add(group);
+        this.iceBolts.set(bolt.id, { mesh: group });
+      }
+
+      const entry = this.iceBolts.get(bolt.id)!;
+      const wx = bolt.position.x;
+      const wy = 30;
+      const wz = bolt.position.y;
+      entry.mesh.position.set(wx, wy, wz);
+
+      // Orient along velocity vector (X-Z plane in world space)
+      const vx = bolt.velocity.x;
+      const vz = bolt.velocity.y;
+      const angle = Math.atan2(vz, vx);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+    }
+  }
+
   private syncFireWalls(state: GameState): void {
     const activeIds = new Set(state.fireWalls.map(f => f.id));
 
@@ -467,18 +619,19 @@ export class SpellRenderer {
     }
 
     for (const fw of state.fireWalls) {
-      const isRainZone = fw.id.startsWith('rain_zone_');
+      const isRainZone = fw.kind === 'rain';
+      const isBlizzard = fw.kind === 'blizzard';
 
       if (!this.fireWalls.has(fw.id)) {
-        if (!isRainZone) sfx.startFireWallLoop(fw.id);
+        if (!isRainZone && !isBlizzard) sfx.startFireWallLoop(fw.id);
         const group = new THREE.Group();
         if (fw.shape === 'circle' && fw.center && fw.radius) {
           const disc = new THREE.Mesh(
             new THREE.CircleGeometry(fw.radius, 32),
             new THREE.MeshBasicMaterial({
-              color: isRainZone ? ELEMENT_COLORS[this.arrowElement] : 0xff2200,
+              color: isBlizzard ? ELEMENT_COLORS.freeze : isRainZone ? ELEMENT_COLORS[this.arrowElement] : 0xff2200,
               transparent: true,
-              opacity: isRainZone ? 0.15 : 0.2,
+              opacity: isBlizzard ? 0.18 : isRainZone ? 0.15 : 0.2,
               side: THREE.DoubleSide,
             }),
           );
@@ -487,6 +640,8 @@ export class SpellRenderer {
           group.add(disc);
           if (isRainZone) {
             this.rainZoneArrows.set(fw.id, this.createFallingArrows(fw.center.x, fw.center.y, fw.radius, 12));
+          } else if (isBlizzard) {
+            this.rainZoneArrows.set(fw.id, this.createFallingShards(fw.center.x, fw.center.y, fw.radius, 20));
           }
         } else {
           this.rebuildWallSegments(group, fw);
@@ -515,7 +670,7 @@ export class SpellRenderer {
         const group = this.fireWalls.get(fw.id);
         const disc = group?.children[0];
         if (disc) disc.position.set(fw.center.x, 1, fw.center.y);
-        if (isRainZone) {
+        if (isRainZone || isBlizzard) {
           const visual = this.rainZoneArrows.get(fw.id);
           if (visual) {
             visual.arrowGroup.position.set(fw.center.x, 0, fw.center.y);
@@ -663,7 +818,7 @@ export class SpellRenderer {
     }
   }
 
-  /** Block shield / reflect shimmer / stun stars — one diff-map per effect,
+    /** Block shield / reflect shimmer / stun stars — one diff-map per effect,
    * keyed by player id, each created on first sight and disposed the moment
    * its condition (blocking / reflectUntil / stunUntil) stops holding. Stun
    * stars are the legibility-critical one: they're the only on-screen signal
@@ -678,7 +833,7 @@ export class SpellRenderer {
    * the shield arc rendering forever, and a Shadowstepped player's exact
    * position would leak through the shield/shimmer/stars to every other
    * viewer. */
-  private syncGladiatorStatus(state: GameState): void {
+    private syncGladiatorStatus(state: GameState): void {
     const hidden = (p: PlayerState | undefined): boolean =>
       !p || p.hp <= 0 || isInvisibleToViewer(p, this.myId, state.tick);
 
@@ -761,15 +916,182 @@ export class SpellRenderer {
     }
   }
 
-  /** Ambient emission for the uniques each player is wearing. aurasForGear
-   * caps this at MAX_AURAS_PER_PLAYER and picks the highest-levelReq items,
-   * and emitAura bails at AURA_SOFT_CAP, so a crowded fight silently drops
-   * auras rather than starving spell VFX.
-   *
-   * Skips corpses (hp <= 0 lingers in state.players for the rest of the
-   * match) and Shadowstepped enemies (isInvisibleToViewer) — an aura would
-   * otherwise keep glowing on a dead body or broadcast an invisible
-   * player's exact position, defeating the invisibility it grants. */
+  private syncFrozenOrbs(state: GameState): void {
+    // Deploy skew defense (rolling deploy): frozenOrbs is required in the
+    // type, but a mismatched server build could still omit it — same reason
+    // echoVolleys is optional and read with `?? []`.
+    const frozenOrbs = state.frozenOrbs ?? [];
+    const activeIds = new Set(frozenOrbs.map(o => o.id));
+
+    for (const [id, entry] of this.frozenOrbs) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.frozenOrbs.delete(id);
+      }
+    }
+
+    for (const orb of frozenOrbs) {
+      if (!this.frozenOrbs.has(orb.id)) {
+        // Same core+glow shape as a fireball, recolored icy blue and sized
+        // for an orb rather than a bolt.
+        const mesh = new THREE.Mesh(FIREBALL_GEO, FROZEN_ORB_CORE_MAT);
+        mesh.scale.setScalar(FROZEN_ORB_VISUAL_RADIUS * 0.8);
+        const glow = new THREE.Mesh(FIREBALL_GEO, FROZEN_ORB_GLOW_MAT);
+        glow.scale.setScalar(1.4 / 0.8); // relative to the core's scale
+        mesh.add(glow);
+        this.scene.add(mesh);
+        this.frozenOrbs.set(orb.id, { mesh });
+      }
+
+      const entry = this.frozenOrbs.get(orb.id)!;
+      entry.mesh.position.set(orb.position.x, 30, orb.position.y);
+    }
+  }
+
+  private syncIceRays(state: GameState, delta: number): void {
+    const activeIds = new Set(
+      Object.entries(state.players)
+        .filter(([, p]) => p.channelSpell === 12 && p.channelEnd)
+        .map(([id]) => id),
+    );
+
+    for (const [id, entry] of this.iceRays) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(entry.mesh);
+        disposeObject3D(entry.mesh);
+        this.iceRays.delete(id);
+      }
+    }
+
+    for (const [id, player] of Object.entries(state.players)) {
+      if (player.channelSpell !== 12 || !player.channelEnd) continue;
+
+      if (!this.iceRays.has(id)) {
+        // Per-instance materials so opacity/color can animate independently
+        // per beam; disposeObject3D frees both automatically (it traverses
+        // into children) since neither is added to sharedMaterials.
+        const coreMaterial = new THREE.MeshBasicMaterial({
+          color: ICE_RAY_CORE_COLOR,
+          transparent: true,
+          opacity: ICE_RAY_CORE_OPACITY_MIN,
+        });
+        const mesh = new THREE.Mesh(ICE_RAY_BEAM_GEO, coreMaterial);
+
+        // Outer glow: same box geometry (shared, already registered), scaled
+        // wider/thicker than the core and parented to it so it inherits the
+        // core's position/rotation/spin for free.
+        const glowMaterial = new THREE.MeshBasicMaterial({
+          color: ICE_RAY_COLOR,
+          transparent: true,
+          opacity: ICE_RAY_GLOW_OPACITY_MIN,
+          depthWrite: false,
+        });
+        const glow = new THREE.Mesh(ICE_RAY_BEAM_GEO, glowMaterial);
+        glow.scale.set(1, ICE_RAY_GLOW_REL_SCALE_Y, ICE_RAY_GLOW_REL_SCALE_Z);
+        mesh.add(glow);
+
+        this.scene.add(mesh);
+        this.iceRays.set(id, { mesh, glow, spinAngle: 0 });
+      }
+
+      const entry = this.iceRays.get(id)!;
+      const mesh = entry.mesh;
+      const glow = entry.glow;
+      const ramp = iceRayRamp(player.channelTicks ?? 0);
+
+      const dx = player.channelEnd.x - player.position.x;
+      const dz = player.channelEnd.y - player.position.y;
+      const length = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dz, dx);
+      const fullWidth = ramp.halfWidth * 2;
+
+      mesh.position.set(
+        (player.position.x + player.channelEnd.x) / 2,
+        30,
+        (player.position.y + player.channelEnd.y) / 2,
+      );
+
+      // Charge fraction derived from the already-ramped halfWidth (not a
+      // re-derivation of the ramp curve itself). Width GROWS from START to
+      // FULL as charge builds, so t still runs 0 → 1 as the beam widens.
+      const t = (ramp.halfWidth - ICE_RAY_HALF_WIDTH_START) / (ICE_RAY_HALF_WIDTH_FULL - ICE_RAY_HALF_WIDTH_START);
+
+      // Same base orientation convention as the arrow shaft/ice bolt: local X
+      // (the length axis after scaling) ends up pointing from caster to
+      // channelEnd. Reset to that base every frame (aim can move), then spin
+      // about the same local X axis so the beam visibly twists along its
+      // length — faster as it charges up. The glow (child of mesh) inherits
+      // this rotation for free.
+      mesh.rotation.set(-Math.PI / 2, 0, -angle);
+      const spinSpeed = ICE_RAY_SPIN_MIN + t * (ICE_RAY_SPIN_MAX - ICE_RAY_SPIN_MIN);
+      entry.spinAngle += delta * spinSpeed;
+      mesh.rotateX(entry.spinAngle);
+      mesh.scale.set(
+        Math.max(length, 0.001),
+        fullWidth * ICE_RAY_CORE_WIDTH_FRAC,
+        ICE_RAY_THICKNESS * ICE_RAY_CORE_THICKNESS_FRAC,
+      );
+
+      // Ease the brightness ramp (opacity/color/particle bias below) so most
+      // of the intensification happens early and it flattens near full
+      // charge, rather than climbing linearly all the way to the (now
+      // capped) ceiling. Spin speed and particle sample count above still
+      // track the raw, linear `t` — only brightness is eased/capped here.
+      const brightnessT = 1 - (1 - t) * (1 - t);
+
+      // Hot core brightens toward its capped opacity as charge builds; the
+      // outer glow stays translucent throughout but bleaches from frost blue
+      // partway toward white the same way, so the whole beam reads as a
+      // bright lance wrapped in a cold haze rather than one flat-colored
+      // slab — without either layer blowing out to solid white at t=1.
+      const coreMaterial = mesh.material as THREE.MeshBasicMaterial;
+      coreMaterial.opacity = ICE_RAY_CORE_OPACITY_MIN
+        + brightnessT * (ICE_RAY_CORE_OPACITY_MAX - ICE_RAY_CORE_OPACITY_MIN);
+      const glowMaterial = glow.material as THREE.MeshBasicMaterial;
+      glowMaterial.opacity = ICE_RAY_GLOW_OPACITY_MIN
+        + brightnessT * (ICE_RAY_GLOW_OPACITY_MAX - ICE_RAY_GLOW_OPACITY_MIN);
+      glowMaterial.color.copy(ICE_RAY_COLOR_BASE).lerp(ICE_RAY_COLOR_HOT, brightnessT * ICE_RAY_COLOR_LERP_MAX);
+
+      if (this.shouldEmitContinuous && length > 0) {
+        const ux = dx / length;
+        const uz = dz / length;
+        // Perpendicular unit vector in the XZ plane, for jittering particles
+        // off the centerline.
+        const px = -uz;
+        const pz = ux;
+        // Stratified sampling: one random point per length-slice, so frost
+        // sheds off the whole beam instead of bunching at a single spot,
+        // while still covering it evenly tip-to-tip. Sample count rises
+        // linearly with charge; the white-bias passed in (below) uses the
+        // same eased, capped brightnessT as the beam material so the spray
+        // doesn't read whiter than the beam it's shedding from.
+        const sampleCount = 3 + Math.round(t * 7);
+        const particleIntensity = brightnessT * ICE_RAY_PARTICLE_INTENSITY_MAX;
+        for (let i = 0; i < sampleCount; i++) {
+          const frac = (i + Math.random()) / sampleCount;
+          const jitter = (Math.random() - 0.5) * ramp.halfWidth * 1.6;
+          this.particles.emitIceRayTrail(
+            player.position.x + dx * frac + px * jitter,
+            28 + Math.random() * 6,
+            player.position.y + dz * frac + pz * jitter,
+            ux, uz,
+            ramp.halfWidth * 0.6,
+            particleIntensity,
+          );
+        }
+        // Impact spray kicked back off the target where the beam terminates,
+        // denser and brighter at full charge.
+        this.particles.emitIceRayTrail(
+          player.channelEnd.x, 28, player.channelEnd.y,
+          -ux, -uz,
+          ramp.halfWidth * (1.2 + t * 0.8),
+          particleIntensity,
+        );
+      }
+    }
+  }
+
   private syncUniqueAuras(state: GameState, selfPosition?: Vec2): void {
     if (!this.shouldEmitAura) return;
     const height = spriteWorldHeight();
@@ -803,6 +1125,7 @@ export class SpellRenderer {
     for (const entry of this.blockShields.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.reflectShimmers.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.stunStars.values()) { for (const sprite of entry.sprites) this.scene.remove(sprite); }
+    for (const entry of this.iceBolts.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const group of this.fireWalls.values()) { this.scene.remove(group); disposeObject3D(group); }
     for (const visual of this.rainZoneArrows.values()) { this.scene.remove(visual.arrowGroup); disposeObject3D(visual.arrowGroup); }
     this.rainZoneArrows.clear();
@@ -818,6 +1141,8 @@ export class SpellRenderer {
       disposeObject3D(entry.circle);
       disposeObject3D(entry.arrowGroup);
     }
+    for (const entry of this.frozenOrbs.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.iceRays.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const effect of this.teleportEffects) effect.dispose();
     this.fireballs.clear();
     this.arrows.clear();
@@ -825,9 +1150,12 @@ export class SpellRenderer {
     this.blockShields.clear();
     this.reflectShimmers.clear();
     this.stunStars.clear();
+    this.iceBolts.clear();
     this.fireWalls.clear();
     this.meteors.clear();
     this.rainOfArrows.clear();
+    this.frozenOrbs.clear();
+    this.iceRays.clear();
     this.teleportEffects.length = 0;
     this.particles.dispose();
   }

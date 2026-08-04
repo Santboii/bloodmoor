@@ -4,10 +4,11 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './rooms/RoomManager.ts';
 import { Room } from './rooms/Room.ts';
+import { refreshRoomLoadouts } from './rooms/refreshLoadouts.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
 import { GameState } from '@arena/shared';
-import type { GameModeType, ItemRow } from '@arena/shared';
-import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS } from '@arena/shared';
+import type { GameModeType, ItemRow, FireWallState, Vec2 } from '@arena/shared';
+import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS, PLAYER_HALF_SIZE } from '@arena/shared';
 import { loadSkillsForCharacter, creditMatchResult, loadUserFromToken } from './skills/loadSkills.ts';
 import { economyRouter } from './economy/routes.ts';
 import { supabase } from './supabase.ts';
@@ -40,6 +41,18 @@ function roundForWire(value: unknown): unknown {
   return value;
 }
 
+/** Blinding Squall keystone: true if `pos` is standing inside an active
+ *  (non-lingering) Blizzard owned by `ownerId` that has the keystone
+ *  stamped on it. Excludes Permafrost's lingering (`noDamage`) zone — that
+ *  is leftover chilled ground, not an active Blizzard, mirroring the
+ *  Absolute Zero dwell exclusion in StateAdvancer.ts. */
+function insideBlindingBlizzard(ownerId: string, pos: Vec2, fireWalls: FireWallState[]): boolean {
+  return fireWalls.some(fw =>
+    fw.kind === 'blizzard' && fw.ownerId === ownerId && fw.blindingSquall && !fw.noDamage &&
+    fw.center && fw.radius &&
+    (pos.x - fw.center.x) ** 2 + (pos.y - fw.center.y) ** 2 <= (fw.radius + PLAYER_HALF_SIZE) ** 2);
+}
+
 function broadcastState(roomId: string, room: Room, state: GameState): void {
   const wire = roundForWire(state) as GameState;
   // volatile: a stalled client skips snapshots instead of buffering them
@@ -47,8 +60,27 @@ function broadcastState(roomId: string, room: Room, state: GameState): void {
   // 'ended' snapshot has NO successor and carries the last death (FFA
   // placement, death visuals) — it must be delivered reliably.
   const reliable = state.phase === 'ended';
-  const emitter = reliable ? io.to(roomId) : io.to(roomId).volatile;
-  emitter.emit('game-state', wire);
+  // Blinding Squall hides a caster's meteor impact indicators from anyone
+  // standing inside their Blizzard — filtered per recipient.
+  const anyHidden = state.fireWalls.some(fw => fw.kind === 'blizzard' && fw.blindingSquall && !fw.noDamage);
+  if (anyHidden) {
+    for (const id of room.players.keys()) {
+      const sock = io.sockets.sockets.get(id);
+      if (!sock) continue;
+      const emitter = reliable ? sock : sock.volatile;
+      const recipientPos = state.players[id]?.position;
+      emitter.emit('game-state', {
+        ...wire,
+        meteors: wire.meteors.filter(m => {
+          if (m.ownerId === id) return true;
+          return !(recipientPos && insideBlindingBlizzard(m.ownerId, recipientPos, state.fireWalls));
+        }),
+      });
+    }
+  } else {
+    const emitter = reliable ? io.to(roomId) : io.to(roomId).volatile;
+    emitter.emit('game-state', wire);
+  }
 }
 
 async function settleMatchEnd(roomId: string, room: Room, state: GameState, endedLoop?: GameLoop): Promise<void> {
@@ -173,6 +205,7 @@ io.on('connection', socket => {
     if (result === 'full') { socket.emit('room-full'); return; }
     if (result === 'team-full') { socket.emit('team-full'); return; }
 
+    let loadoutError: string | null = null;
     if (accessToken && characterId) {
       const skillResult = await loadSkillsForCharacter(accessToken, characterId);
       if (skillResult.ok) {
@@ -182,6 +215,11 @@ io.on('connection', socket => {
         room.userIds.set(socket.id, skillResult.userId);
         room.characterIds.set(socket.id, characterId);
         room.loadouts.set(socket.id, skillResult.items);
+      } else {
+        // Without this the player silently fights as a gearless default
+        // mage — the exact failure mode a missing item column caused once.
+        console.error(`join-room: loadout load failed for character ${characterId}: ${skillResult.error}`);
+        loadoutError = skillResult.error;
       }
     }
 
@@ -196,6 +234,10 @@ io.on('connection', socket => {
       teams: Object.fromEntries(room.teamAssignments),
       readyPlayerIds: [...room.players.entries()].filter(([, p]) => p.ready).map(([id]) => id),
     });
+    // After room-joined: the lobby chat pane only exists once the client
+    // has rendered the room, and appendSystemMessage drops messages sent
+    // before that.
+    if (loadoutError !== null) socket.emit('loadout-load-failed', { reason: loadoutError });
     socket.to(roomId).emit('player-joined', {
       id: socket.id,
       displayName,
@@ -244,7 +286,7 @@ io.on('connection', socket => {
     if (input) room.queueInput(socket.id, input);
   });
 
-  socket.on('rematch', () => {
+  socket.on('rematch', async () => {
     if (!currentRoomId) return;
     const room = roomManager.getRoom(currentRoomId);
     if (!room) return;
@@ -262,6 +304,18 @@ io.on('connection', socket => {
       // All players agreed — start new match
       const timer = rematchTimers.get(roomId);
       if (timer) clearTimeout(timer);
+      rematchTimers.delete(roomId);
+      rematchVotes.delete(roomId);
+
+      await refreshRoomLoadouts(room);
+      // The room can be torn down, or drop below the match minimum, while
+      // the refresh awaits (a disconnect deletes the room or a player).
+      if (roomManager.getRoom(roomId) !== room || room.players.size < room.mode.minPlayers) return;
+      // A duplicate 'rematch' during the await (phase is still 'ended')
+      // re-arms the vote machinery — purge it, or its countdown timer
+      // kicks the other players ten seconds into the new match.
+      const staleTimer = rematchTimers.get(roomId);
+      if (staleTimer) clearTimeout(staleTimer);
       rematchTimers.delete(roomId);
       rematchVotes.delete(roomId);
 

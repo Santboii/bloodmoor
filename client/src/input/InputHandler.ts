@@ -14,6 +14,8 @@ export class InputHandler {
   private mouseScreen = { x: 0, y: 0 };
   private mouseWorld = { x: 1000, y: 1000 }; // center of new arena
   private pendingCast: { spell: SpellId; aimTarget: { x: number; y: number } } | null = null;
+  private leftHeld = false;
+  private channelSpells = new Set<SpellId>();
   private pendingRest = false;
   private blockHeld = false;
 
@@ -29,6 +31,10 @@ export class InputHandler {
 
   private spellForSlot(slot: number): SpellId | null {
     return this.slots[slot - 1] ?? null;
+  }
+
+  private get activeIsChannel(): boolean {
+    return this.activeSpell !== null && this.channelSpells.has(this.activeSpell);
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -52,7 +58,7 @@ export class InputHandler {
 
   private onKeyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
 
-  private onBlur = () => { this.keys.clear(); this.blockHeld = false; };
+  private onBlur = () => { this.keys.clear(); this.leftHeld = false; this.blockHeld = false; };
 
   private onContextMenu = (e: Event) => { e.preventDefault(); };
 
@@ -67,13 +73,19 @@ export class InputHandler {
   };
 
   private onMouseDown = (e: MouseEvent) => {
-    if (e.button === 2) { e.preventDefault(); this.blockHeld = true; }
+    if (e.button === 2) { e.preventDefault(); this.blockHeld = true; return; }
+    if (e.button !== 0) return;
+    this.leftHeld = true;
   };
 
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 2) { this.blockHeld = false; return; }
     if (e.button !== 0) return;
+    this.leftHeld = false;
     if (this.activeSpell === null) return;
+    // A channel ends on release; queuing a cast here would fire a phantom
+    // discrete cast on top of it — an extra damage tick and a second charge.
+    if (this.activeIsChannel) return;
     this.pendingCast = { spell: this.activeSpell, aimTarget: this.mouseWorld };
   };
 
@@ -90,7 +102,12 @@ export class InputHandler {
     move.x = rx;
     move.y = ry;
 
-    const frame: InputFrame = { move, castSpell: null, aimTarget: this.mouseWorld };
+    const frame: InputFrame = {
+      move,
+      castSpell: null,
+      channel: this.leftHeld && this.activeIsChannel ? this.activeSpell : null,
+      aimTarget: this.mouseWorld,
+    };
 
     if (this.pendingCast) {
       frame.castSpell = this.pendingCast.spell;
@@ -126,6 +143,8 @@ export class InputHandler {
   setCharacterClass(cls: string): void {
     this.charClass = cls === 'ranger' || cls === 'gladiator' ? cls : 'mage';
   }
+
+  setChannelSpells(spells: Set<SpellId>): void { this.channelSpells = spells; }
 
   getActiveSpell(): SpellId | null { return this.activeSpell; }
   getCurrentMouseWorld(): { x: number; y: number } { return this.mouseWorld; }

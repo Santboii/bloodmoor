@@ -56,7 +56,7 @@ describe('Jab cast (spell 12)', () => {
       { id: 'A', displayName: 'A', charClass: 'gladiator', spawnPos: { x: 600, y: 600 } },
       { id: 'B', displayName: 'B', charClass: 'mage',      spawnPos: { x: 660, y: 600 } },
     ]);
-    s = advanceState(s, { A: frame({ castSpell: 12, aimTarget: { x: 1000, y: 600 } }), B: frame() },
+    s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 1000, y: 600 } }), B: frame() },
       { A: GLAD, B: new Map([['fire.fireball', 1]] as [NodeId, number][]) });
     expect(s.players.B.hp).toBeLessThan(s.players.B.maxHp);
     expect(s.players.B.maxHp - s.players.B.hp).toBeGreaterThanOrEqual(75);

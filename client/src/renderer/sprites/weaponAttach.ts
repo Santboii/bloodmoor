@@ -97,6 +97,16 @@ export function drawAttachedWeapon(
     for (let f = 0; f < meta.frames; f++) {
       const anchor = anchors[row]?.[f];
       if (!anchor) continue;
+      // The sheet packs one 64px cell per (facing, frame), so anything drawn
+      // past a cell edge lands in a neighbouring pose. Every bow reaches the
+      // bottom of its own frame, and a walk carries the hand lower than the
+      // draw pose the grip was cut from, so the lower limb ran off the bottom
+      // and reappeared floating over the head of the next row's facing.
+      // Clip to the cell: the tip is cropped at the ground line instead.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(f * FRAME, row * FRAME, FRAME, FRAME);
+      ctx.clip();
       for (const [piece, src] of halves) {
       const [rx, ry, rw, rh] = piece.rect;
       // Where the hand sits when the weapon is at rest, recovered from the
@@ -127,6 +137,7 @@ export function drawAttachedWeapon(
       }
       drew = true;
       }
+      ctx.restore();
     }
   }
   return drew;
