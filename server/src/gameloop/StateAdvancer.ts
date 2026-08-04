@@ -719,7 +719,7 @@ export function advanceState(
           players[oid] = { ...other, speedBoostUntil: tick + WAR_CRY_ALLY_SPEED_TICKS, speedBoostFactor: WAR_CRY_ALLY_SPEED_FACTOR,
             rallyUntil: gm.warCry.rally ? tick + RALLY_TICKS : other.rallyUntil };
         } else if ((other.invulnUntil ?? 0) <= tick) {
-          const next = { ...other, hp: Math.max(0, other.hp - WAR_CRY_DAMAGE * getDamageMultiplier(id, oid, players, resolvedMode)) };
+          const next = { ...other, hp: Math.max(0, other.hp - WAR_CRY_DAMAGE * getDamageMultiplier(id, oid, players, resolvedMode, tick)) };
           // strongest slow wins (frost convention)
           const existing = (next.slowUntil ?? 0) > tick ? (next.slowFactor ?? 1) : 1;
           if (next.hp > 0) {

@@ -116,4 +116,36 @@ describe('War Cry (spell 17)', () => {
       randomSpy.mockRestore();
     }
   });
+
+  it('does not double-apply the rally multiplier when War Cry is recast while already rallied', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      // Caster already has an active rally window BEFORE recasting War Cry —
+      // this exercises the rallyUntil-active path of the war cry branch's own
+      // getDamageMultiplier call, not just the freshly-armed path.
+      let s = duel({ x: 640, y: 600 });
+      const raSkills = { A: RALLY_GLAD, B: RANGER };
+      s.players.A.rallyUntil = s.tick + 50;
+      s = advanceState(s, { A: frame({ castSpell: 17, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
+      expect((s.players.A.rallyUntil ?? 0)).toBeGreaterThan(s.tick);
+      const hp0 = s.players.B.hp;
+      s = advanceState(s, { A: frame({ castSpell: 13, aimTarget: { x: 640, y: 600 } }), B: frame() }, raSkills);
+      const rallyDamage = hp0 - s.players.B.hp;
+
+      // Control run: identical jab, no rally ever active, same mocked roll.
+      let control = duel({ x: 640, y: 600 });
+      const controlSkills = { A: WARCRY_GLAD, B: RANGER };
+      const hp0c = control.players.B.hp;
+      control = advanceState(control, { A: frame({ castSpell: 13, aimTarget: { x: 640, y: 600 } }), B: frame() }, controlSkills);
+      const controlDamage = hp0c - control.players.B.hp;
+
+      // Exactly one application of the multiplier — recasting while already
+      // rallied must not stack (rallyUntil is a single timestamp, not a
+      // counter), so this must equal controlDamage * MULT, never MULT^2.
+      expect(rallyDamage).toBeCloseTo(controlDamage * RALLY_DAMAGE_MULT, 5);
+      expect(rallyDamage).not.toBeCloseTo(controlDamage * RALLY_DAMAGE_MULT * RALLY_DAMAGE_MULT, 5);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
 });
