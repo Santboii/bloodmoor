@@ -6,7 +6,7 @@
 
 ## Summary
 
-Four new castable spells (ids **17–20**), Arms deepened 6→13 nodes, Bulwark 4→10, and keystones on every stackable (2→12 total) — bringing the gladiator to frost/ranger build depth. The gladiator ends with 8 spells competing for 6 hotbar slots, matching the mage; the snapshot-authoritative slot system handles benching unchanged.
+Four new castable spells (ids **17–20**), Arms deepened 6→11 nodes, Bulwark 4→9, and keystones on every stackable (2→12 total) — bringing the gladiator to frost/ranger build depth. The gladiator ends with 8 spells competing for 6 hotbar slots, matching the mage; the snapshot-authoritative slot system handles benching unchanged.
 
 **CC stance:** the kit already has a stun (Spear Throw), a slow (Leap), and now a pull (Harpoon). No new talent adds hard CC beyond the one earned exception (Bloodsong). The pull is displacement, not a stun.
 
@@ -42,7 +42,7 @@ Four new castable spells (ids **17–20**), Arms deepened 6→13 nodes, Bulwark 
 - Each hit is directional → `mitigateDamage` per hit; a blocking target banks Riposte stacks per blocked hit (intended counterplay — flurrying a shield arms the counter).
 - 55 mana, 8s cooldown (480 ticks).
 
-## Arms tree (13 nodes)
+## Arms tree (11 nodes)
 
 Existing: Jab (t1, starter) → Heavy Thrust / Spear Throw (t2) → Stunning Blow (t3) → Leap (t4) → Crushing Landing (t5). New/changed:
 
@@ -58,7 +58,7 @@ Existing: Jab (t1, starter) → Heavy Thrust / Spear Throw (t2) → Stunning Blo
 
 Gates: `serrated_edge` requires `spear_throw`; `spear_flurry` requires `leap`; `extended_flurry` requires `spear_flurry`; `harpoon` requires any of [`spear_flurry`, `serrated_edge`]; `quick_reel` requires `harpoon`.
 
-## Bulwark tree (10 nodes)
+## Bulwark tree (9 nodes)
 
 Existing: Bracing (t1) → Mobile Guard / Reflect (t2) → Perfect Guard (t3). New/changed:
 

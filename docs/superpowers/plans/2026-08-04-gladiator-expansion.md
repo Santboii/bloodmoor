@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Four new gladiator spells (War Cry 17, Harpoon 18, Kick Up Dust 19, Spear Flurry 20) plus Arms 6→13 / Bulwark 4→10 nodes with keystones on every stackable, per `docs/superpowers/specs/2026-08-04-gladiator-expansion-design.md`.
+**Goal:** Four new gladiator spells (War Cry 17, Harpoon 18, Kick Up Dust 19, Spear Flurry 20) plus Arms 6→11 / Bulwark 4→9 nodes with keystones on every stackable, per `docs/superpowers/specs/2026-08-04-gladiator-expansion-design.md`.
 
 **Architecture:** Pure manifest-driven expansion on the shipped gladiator (main@`40eca35`). New server mechanics — AoE pulse, victim drag, concealment zone, committed burst, bleed DoT — all follow existing patterns (zone lifecycle, dash interpolator, `invisibleUntil` exclusions, status-field DoTs). No DB migration; `sanitizeInput` needs zero changes (set-based).
 
@@ -144,9 +144,9 @@ describe('Gladiator expansion manifests', () => {
     expect(SPELL_CONFIG[20]).toEqual({ manaCost: 55, cooldownTicks: 480 });
   });
 
-  it('grows arms to 13 and bulwark to 10 nodes', () => {
-    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(13);
-    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(10);
+  it('grows arms to 11 and bulwark to 9 nodes', () => {
+    expect(SKILL_NODES.filter(n => n.tree === 'arms')).toHaveLength(11);
+    expect(SKILL_NODES.filter(n => n.tree === 'bulwark')).toHaveLength(9);
   });
 
   it('every gladiator stackable now carries a keystone', () => {
@@ -556,7 +556,7 @@ export function isConcealedFromViewer(
 **Files:** Test `server/tests/sanitize-input.test.ts` (extend), `server/tests/gladiator-expansion-combat.test.ts` (extend).
 
 - [ ] **Step 1:** sanitize test: extend the accepted-ids loop to `[9..20]`; rejection loop keeps `[0, 21, 'x', null]` (21 replaces 17 as the out-of-range probe).
-- [ ] **Step 2: Full-kit v2 scenario** — gladiator with all 22 nodes (keystone ranks where relevant) vs a mage: war cry slow lands → flurry burst (blocked partially by nothing — mage can't block — assert cumulative damage bounds) → harpoon drags the mage in → skewer-armed jab doubles → dust cloud → mage's homing... (mage has no homing; use ember-aim or assert concealment via concealedByDust directly) → vanish invisibility on exit. Assert each beat with deterministic bounds. Bounded loops only.
+- [ ] **Step 2: Full-kit v2 scenario** — gladiator with all 20 nodes (keystone ranks where relevant) vs a mage: war cry slow lands → flurry burst (blocked partially by nothing — mage can't block — assert cumulative damage bounds) → harpoon drags the mage in → skewer-armed jab doubles → dust cloud → mage's homing... (mage has no homing; use ember-aim or assert concealment via concealedByDust directly) → vanish invisibility on exit. Assert each beat with deterministic bounds. Bounded loops only.
 - [ ] **Step 3:** Full `npm test`, client vitest, both tsc — green.
 - [ ] **Step 4 (controller-run): live smoke** — dev servers per the project recipe; boost/grant a test gladiator the new nodes via the skill tree (Scipio has 8 points banked); exercise all four spells visually; screenshot dust cloud, harpoon chain, flurry cone, war-cry ring. The concealment check needs two clients (two-tab recipe) — verify an outside viewer loses the inside player's sprite/nameplate/minimap dot.
 - [ ] **Step 5:** Commit `test(server): gladiator expansion integration scenario`.
