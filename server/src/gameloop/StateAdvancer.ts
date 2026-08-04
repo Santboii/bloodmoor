@@ -30,6 +30,7 @@ import {
   LEAP_DURATION_TICKS, LEAP_SLOW_RADIUS,
   RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
   WAR_CRY_DAMAGE, WAR_CRY_ALLY_SPEED_FACTOR, WAR_CRY_ALLY_SPEED_TICKS, RALLY_TICKS, RALLY_DAMAGE_MULT,
+  FLURRY_HIT_INTERVAL_TICKS, FLURRY_MOVE_MULT, BLOODSONG_STUN_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -53,6 +54,7 @@ import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
 import { firstJabTarget, jabDamage } from '../spells/Jab.ts';
 import { spawnSpear, advanceSpear, isSpearExpired, spearHitsPlayer, spearDamage } from '../spells/Spear.ts';
+import { flurryTargets, flurryHitDamage } from '../spells/Flurry.ts';
 
 export type PlayerInit = {
   id: string; displayName: string; charClass: CharacterClass; spawnPos: Vec2;
@@ -278,6 +280,10 @@ export function advanceState(
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
     if ((p.reflectUntil ?? 0) <= tick) p.reflectUntil = undefined;
     if ((p.riposteReadyUntil ?? 0) <= tick) p.riposteReadyUntil = undefined;
+    // Belt-and-braces: the §2.4 burst block clears these on completion or
+    // stun/death, but expire them here too in case a burst's window elapsed
+    // without that block running (e.g. the player disconnected mid-burst).
+    if ((p.flurryUntil ?? 0) <= tick) { p.flurryUntil = undefined; p.flurryNextHitAt = undefined; p.flurryHits = undefined; }
   }
 
   // 1. Move players and apply mana regen
@@ -322,13 +328,13 @@ export function advanceState(
     const stunned = (p.stunUntil ?? 0) > tick;
     const wantsBlock = !!input.blocking && p.charClass === 'gladiator';
     const blockReady = (p.blockCooldownUntil ?? 0) <= tick;
-    const blocking = wantsBlock && !stunned && blockReady;
+    const blocking = wantsBlock && !stunned && blockReady && (p.flurryUntil ?? 0) <= tick;
     // Any release — voluntary, stun, or (later this tick) a cast — starts the re-raise gate.
     const blockCooldownUntil = p.blocking && !blocking ? tick + BLOCK_RERAISE_TICKS : p.blockCooldownUntil;
     const blockMove = blocking ? (gladMods[id]?.block.moveMult ?? BLOCK_MOVE_MULT) : 1;
     const speedMult = rooted || stunned ? 0
       : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * ((p.speedBoostUntil ?? 0) > tick ? (p.speedBoostFactor ?? 1) : 1)
-        * blockMove * p.statMults.moveSpeed * channelSlow;
+        * blockMove * p.statMults.moveSpeed * channelSlow * ((p.flurryUntil ?? 0) > tick ? FLURRY_MOVE_MULT : 1);
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
       : p.facing;
@@ -383,6 +389,7 @@ export function advanceState(
     if (!p || p.hp <= 0 || !input.castSpell) continue;
     if (dashing.has(id)) continue;
     if ((p.stunUntil ?? 0) > tick) continue;   // true stun: no casting
+    if ((p.flurryUntil ?? 0) > tick) continue; // committed Flurry burst: no casting
     const spell = input.castSpell;
     const mods = modifiers[id];
     // Ranger spells need ranger modifiers — bail before burning mana/cooldown.
@@ -731,6 +738,70 @@ export function advanceState(
       }
       // The caster always rallies themself when the keystone is live.
       if (gm.warCry.rally) players[id] = { ...players[id], rallyUntil: tick + RALLY_TICKS };
+    } else if (spell === 20) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      players[id] = {
+        ...players[id],
+        flurryUntil: tick + gm.flurry.hits * FLURRY_HIT_INTERVAL_TICKS,
+        flurryNextHitAt: tick,
+        flurryHits: {},
+      };
+    }
+  }
+
+  // 2.4 Spear Flurry burst — after casts (so the cast tick's first hit lands
+  // same-tick) and before rest starts (§2.5), so a fresh burst blocks that
+  // same-tick rest attempt via the cast branch's restCastEndTick/resting
+  // clear above.
+  for (const id of Object.keys(players)) {
+    const p = players[id]; // re-fetched per id: an earlier caster in this same
+                            // pass may have already damaged/stunned this player.
+    if ((p.flurryUntil ?? 0) <= tick) continue;
+    const gm = gladMods[id];
+    if (p.hp <= 0 || (p.stunUntil ?? 0) > tick || !gm) {
+      players[id] = { ...p, flurryUntil: undefined, flurryNextHitAt: undefined, flurryHits: undefined };
+      continue;
+    }
+    let flurryHits = p.flurryHits ?? {};
+    if (tick >= (p.flurryNextHitAt ?? 0)) {
+      const aim = inputs[id]?.aimTarget ?? p.position;
+      const targets = flurryTargets(id, p.position, aim, players);
+      flurryHits = { ...flurryHits };
+      for (const targetId of targets) {
+        const target = players[targetId];
+        if ((target.invulnUntil ?? 0) > tick) continue;
+        const hampered = (target.stunUntil ?? 0) > tick || (target.slowUntil ?? 0) > tick;
+        const execMult = gm.jab.executioner && hampered ? 1 + EXECUTIONER_BONUS : 1;
+        const raw = flurryHitDamage(gm.flurry.damageMin, gm.flurry.damageMax)
+          * gm.jab.damageMultiplier * execMult
+          * getDamageMultiplier(id, targetId, players, resolvedMode, tick);
+        const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
+        let nextT = { ...target, hp: Math.max(0, target.hp - mit.damage) };
+        if (mit.blocked) nextT = bankRiposte(nextT, !!gladMods[targetId]?.block.riposte, tick);
+        players[targetId] = nextT;
+        flurryHits[targetId] = (flurryHits[targetId] ?? 0) + 1;
+      }
+    }
+    const nextHitAt = (tick >= (p.flurryNextHitAt ?? 0))
+      ? (p.flurryNextHitAt ?? tick) + FLURRY_HIT_INTERVAL_TICKS
+      : p.flurryNextHitAt;
+    if (tick + 1 >= p.flurryUntil!) {
+      // Bloodsong keystone: a target that took every hit this burst gets
+      // stunned — but only if they're still alive and not a teammate.
+      if (gm.flurry.bloodsong) {
+        for (const [targetId, count] of Object.entries(flurryHits)) {
+          if (count !== gm.flurry.hits) continue;
+          const target = players[targetId];
+          if (!target || target.hp <= 0) continue;
+          const sameTeam = resolvedMode.teamsEnabled && target.teamId !== undefined && target.teamId === p.teamId;
+          if (sameTeam) continue;
+          players[targetId] = { ...target, stunUntil: tick + BLOODSONG_STUN_TICKS, stunnedBy: id };
+        }
+      }
+      players[id] = { ...players[id], flurryUntil: undefined, flurryNextHitAt: undefined, flurryHits: undefined };
+    } else {
+      players[id] = { ...players[id], flurryNextHitAt: nextHitAt, flurryHits };
     }
   }
 
@@ -740,6 +811,7 @@ export function advanceState(
     if (!p || p.hp <= 0 || !input.rest) continue;
     if (dashing.has(id)) continue;
     if ((p.stunUntil ?? 0) > tick) continue;
+    if ((p.flurryUntil ?? 0) > tick) continue;               // committed Flurry burst: no resting
     if (p.castingSpell !== null) continue;                  // cast something this tick instead
     if (input.move.x !== 0 || input.move.y !== 0) continue; // must be stationary
     if ((p.restCooldownUntil ?? 0) > tick) continue;
