@@ -1,19 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { sanitizeInput } from '../src/sanitizeInput.ts';
+import { SPELL_BINDINGS } from '@arena/shared';
 
 // A valid aim point is required for sanitizeInput to return anything but
 // null — it is not what this file is testing, so keep it fixed and legal.
 const aimTarget = { x: 10, y: 20 };
 
 describe('sanitizeInput castSpell', () => {
-  it('accepts mage/ranger spells 1-8', () => {
-    for (let spell = 1; spell <= 8; spell++) {
-      expect(sanitizeInput({ aimTarget, castSpell: spell })?.castSpell).toBe(spell);
-    }
-  });
-
-  it('accepts frost spells 9-12 and gladiator spells 13-20', () => {
-    for (const spell of [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]) {
+  it('accepts every spell id currently bound in SPELL_BINDINGS (1-20)', () => {
+    // Driven by SPELL_BINDINGS itself (the same source sanitizeInput's
+    // VALID_SPELL_IDS is built from) rather than a hardcoded list, so a
+    // future spell added to the manifest without widening sanitizeInput's
+    // accepted range fails here instead of silently drifting out of test
+    // coverage. The equality check pins the currently-expected bound set.
+    const ids = SPELL_BINDINGS.map(b => b.spell).sort((a, b) => a - b);
+    expect(ids).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    for (const spell of ids) {
       expect(sanitizeInput({ aimTarget, castSpell: spell })?.castSpell).toBe(spell);
     }
   });
