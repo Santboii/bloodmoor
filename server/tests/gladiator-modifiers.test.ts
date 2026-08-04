@@ -13,7 +13,7 @@ describe('buildGladiatorModifiers', () => {
     expect(m.reflect.windowTicks).toBe(REFLECT_WINDOW_TICKS);
     expect(m.leap.range).toBe(LEAP_RANGE);
     expect(m.leap.slowFactor).toBeCloseTo(0.7);
-    expect(m.block).toEqual({ damageReduction: BLOCK_DAMAGE_REDUCTION, moveMult: BLOCK_MOVE_MULT, riposte: false });
+    expect(m.block).toEqual({ damageReduction: BLOCK_DAMAGE_REDUCTION, moveMult: BLOCK_MOVE_MULT, riposte: false, unstoppableGuard: false, juggernaut: false });
   });
 
   it('scales jab damage with Heavy Thrust and flags the keystone past softCap', () => {
@@ -39,5 +39,32 @@ describe('buildGladiatorModifiers', () => {
     expect(m.reflect.windowTicks).toBe(Math.round(REFLECT_WINDOW_TICKS * (1 + effectAtRank(0.15, 3))));
     expect(m.leap.slowFactor).toBeLessThan(0.7);
     expect(m.leap.slowFactor).toBeGreaterThanOrEqual(0.4);
+  });
+
+  describe('expansion modifiers', () => {
+    it('unskilled expansion blocks are inert', () => {
+      const m = buildGladiatorModifiers(skills([['arms.jab', 1]]));
+      expect(m.spear.bleedDps).toBe(0);
+      expect(m.flurry.hits).toBe(5);
+      expect(m.ironSkinHp).toBe(0);
+      expect(m.warCry.rally).toBe(false);
+      expect(m.stun.concussion).toBe(false);
+    });
+    it('scales and flags keystones past softCap', () => {
+      const m = buildGladiatorModifiers(skills([
+        ['arms.jab', 1], ['arms.serrated_edge', 4], ['arms.extended_flurry', 4],
+        ['arms.quick_reel', 4], ['bulwark.sandstorm', 4], ['bulwark.iron_skin', 3],
+        ['arms.stunning_blow', 4], ['bulwark.perfect_guard', 4],
+      ]));
+      expect(m.spear.bleedDps).toBeCloseTo(8 + effectAtRank(4, 4));
+      expect(m.spear.hemorrhage).toBe(true);
+      expect(m.flurry.hits).toBe(8);            // 5 + table[3ranks... rank 4 clamps to 3]
+      expect(m.flurry.bloodsong).toBe(true);
+      expect(m.harpoon.skewer).toBe(true);
+      expect(m.dust.vanish).toBe(true);
+      expect(m.ironSkinHp).toBe(75);
+      expect(m.stun.concussion).toBe(true);
+      expect(m.reflect.mirrorGuard).toBe(true);
+    });
   });
 });
