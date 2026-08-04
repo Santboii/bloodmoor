@@ -31,6 +31,7 @@ import {
   RIPOSTE_STACKS_REQUIRED, RIPOSTE_WINDOW_TICKS, RIPOSTE_JAB_STUN_TICKS,
   WAR_CRY_DAMAGE, WAR_CRY_ALLY_SPEED_FACTOR, WAR_CRY_ALLY_SPEED_TICKS, RALLY_TICKS, RALLY_DAMAGE_MULT,
   FLURRY_HIT_INTERVAL_TICKS, FLURRY_MOVE_MULT, BLOODSONG_STUN_TICKS,
+  HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, SKEWER_WINDOW_TICKS,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -54,6 +55,7 @@ import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
 import { firstJabTarget, jabDamage } from '../spells/Jab.ts';
 import { spawnSpear, advanceSpear, isSpearExpired, spearHitsPlayer, spearDamage } from '../spells/Spear.ts';
+import { spawnHarpoon, advanceHarpoon, isHarpoonExpired, harpoonHitsPlayer, harpoonDamage } from '../spells/Harpoon.ts';
 import { flurryTargets, flurryHitDamage } from '../spells/Flurry.ts';
 
 export type PlayerInit = {
@@ -237,6 +239,41 @@ export function advanceState(
     }
   }
 
+  // 0b. Harpoon drags — victim is reeled toward the dragger's LIVE position,
+  // stopping just outside melee range. Forced movement, not a stun: the
+  // victim may still cast. Cleared early if either party dies.
+  for (const [id, p] of Object.entries(players)) {
+    if (!p.draggedBy || p.dragEndTick == null) continue;
+    const dragger = players[p.draggedBy];
+    const done = tick + 1 >= p.dragEndTick;
+    if (!dragger || dragger.hp <= 0 || p.hp <= 0) {
+      players[id] = { ...p, draggedBy: undefined, dragEndTick: undefined };
+      continue;
+    }
+    const dx = dragger.position.x - p.position.x;
+    const dy = dragger.position.y - p.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const remaining = Math.max(0, dist - HARPOON_DRAG_STOP_DISTANCE);
+    const ticksLeft = Math.max(1, p.dragEndTick - tick);
+    const nx = p.position.x + (dx / dist) * (ticksLeft === 1 ? remaining : remaining / ticksLeft);
+    const ny = p.position.y + (dy / dist) * (ticksLeft === 1 ? remaining : remaining / ticksLeft);
+    players[id] = {
+      ...p,
+      position: resolvePlayerPillarCollisions(clampToArena({ x: nx, y: ny })),
+      draggedBy: done ? undefined : p.draggedBy,
+      dragEndTick: done ? undefined : p.dragEndTick,
+    };
+    dashing.add(id);
+    // Skewer: the dragger's next Jab is armed if the victim landed in range.
+    if (done && gladMods[p.draggedBy!]?.harpoon.skewer) {
+      const landed = players[id].position;
+      const d2 = (landed.x - dragger.position.x) ** 2 + (landed.y - dragger.position.y) ** 2;
+      if (d2 <= (JAB_RANGE + PLAYER_HALF_SIZE) ** 2) {
+        players[p.draggedBy!] = { ...players[p.draggedBy!], skewerJabUntil: tick + SKEWER_WINDOW_TICKS };
+      }
+    }
+  }
+
   // 0.25 Rest: resolve finished wind-ups and tick regen. Runs before the
   // status-effect DoT pass so Task 2's damage snapshot (taken here) precedes
   // every damage source this tick. players[] entries are tick-local copies,
@@ -280,6 +317,7 @@ export function advanceState(
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
     if ((p.reflectUntil ?? 0) <= tick) p.reflectUntil = undefined;
     if ((p.riposteReadyUntil ?? 0) <= tick) p.riposteReadyUntil = undefined;
+    if ((p.skewerJabUntil ?? 0) <= tick) p.skewerJabUntil = undefined;
     // Belt-and-braces: the §2.4 burst block clears these on completion or
     // stun/death, but expire them here too in case a burst's window elapsed
     // without that block running (e.g. the player disconnected mid-burst).
@@ -387,7 +425,7 @@ export function advanceState(
   for (const [id, input] of Object.entries(inputs)) {
     const p = players[id];
     if (!p || p.hp <= 0 || !input.castSpell) continue;
-    if (dashing.has(id)) continue;
+    if (dashing.has(id) && !p.draggedBy) continue; // a harpoon drag is forced movement, not a stun
     if ((p.stunUntil ?? 0) > tick) continue;   // true stun: no casting
     if ((p.flurryUntil ?? 0) > tick) continue; // committed Flurry burst: no casting
     const spell = input.castSpell;
@@ -418,6 +456,7 @@ export function advanceState(
     if (spell === 8 && rangerMods[id]) {
       cooldownMultiplier = rangerMods[id]!.evade.cooldownMultiplier;
     }
+    if (spell === 18 && gladMods[id]) cooldownMultiplier = gladMods[id]!.harpoon.cooldownMultiplier;
     const cooldownTicks = Math.round(cfg.cooldownTicks * cooldownMultiplier * p.statMults.cooldown);
 
     players[id] = {
@@ -434,6 +473,8 @@ export function advanceState(
       resting: undefined,
       blocking: false,
       blockCooldownUntil: p.blocking ? tick + BLOCK_RERAISE_TICKS : p.blockCooldownUntil,
+      // Skewer: consumed on any Jab cast — hit or miss — riposte convention.
+      skewerJabUntil: spell === 13 ? undefined : p.skewerJabUntil,
     };
 
     if (spell === 1) {
@@ -662,8 +703,10 @@ export function advanceState(
           // Executioner's Thrust: +50% vs stunned or slowed targets.
           const hampered = (target.stunUntil ?? 0) > tick || (target.slowUntil ?? 0) > tick;
           const execMult = gm.jab.executioner && hampered ? 1 + EXECUTIONER_BONUS : 1;
+          const skewer = (p.skewerJabUntil ?? 0) > tick;
+          const skewerMult = skewer ? 2 : 1;
           const raw = jabDamage(gm.jab.damageMin, gm.jab.damageMax)
-            * gm.jab.damageMultiplier * execMult
+            * gm.jab.damageMultiplier * execMult * skewerMult
             * getDamageMultiplier(id, targetId, players, resolvedMode, tick);
           const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
           const sameTeamJab = resolvedMode.teamsEnabled &&
@@ -683,6 +726,13 @@ export function advanceState(
         damageMin: gm.spear.damageMin,
         damageMax: gm.spear.damageMax,
         stunTicks: gm.spear.stunTicks,
+      })];
+    } else if (spell === 18) {
+      const gm = gladMods[id];
+      if (!gm) continue;
+      projectiles = [...projectiles, spawnHarpoon(id, p.position, input.aimTarget, {
+        damageMin: gm.harpoon.damageMin,
+        damageMax: gm.harpoon.damageMax,
       })];
     } else if (spell === 15) {
       const gm = gladMods[id];
@@ -1029,6 +1079,47 @@ export function advanceState(
               players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam && next.hp > 0) {
               next.stunUntil = tick + (moved.stunTicks ?? SPEAR_STUN_TICKS);
+            }
+            players[pid] = next;
+          }
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) survivingProjectiles.push(moved);
+    } else if (proj.type === 'harpoon') {
+      const moved = advanceHarpoon(proj);
+      if (isHarpoonExpired(moved)) continue;
+      if ((moved.noHitUntil ?? 0) > tick) { survivingProjectiles.push(moved); continue; }
+      let hit = false;
+      for (const [pid, player] of Object.entries(players)) {
+        if (player.hp <= 0) continue;
+        if (harpoonHitsPlayer(moved, player.position, pid)) {
+          if ((player.reflectUntil ?? 0) > tick) {
+            const attacker = players[moved.ownerId];
+            const aimAt = attacker && attacker.hp > 0
+              ? attacker.position
+              : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            hit = true;
+            break;
+          }
+          const invuln = (player.invulnUntil ?? 0) > tick;
+          if (!invuln) {
+            const raw = harpoonDamage(moved.damageMin, moved.damageMax)
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+            const mit = mitigateDamage(player, moved.position, raw, blockDR(pid));
+            let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
+            if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
+            // The drag pierces Block (spear-stun convention) but never applies
+            // to teammates — full CC through reduced friendly fire would
+            // undercut the FF rule.
+            const sameTeam = resolvedMode.teamsEnabled &&
+              players[moved.ownerId]?.teamId !== undefined &&
+              players[moved.ownerId].teamId === player.teamId;
+            if (!sameTeam && next.hp > 0) {
+              next.draggedBy = moved.ownerId;
+              next.dragEndTick = tick + HARPOON_DRAG_TICKS;
             }
             players[pid] = next;
           }
