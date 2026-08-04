@@ -1950,7 +1950,7 @@ export function advanceState(
         for (const [pid] of Object.entries(players)) {
           if (!trapDamagesPlayer(trap, players[pid].position, pid)) continue;
           if ((players[pid].invulnUntil ?? 0) > tick) continue;
-          const dmg = raw * dmgMult * getDamageMultiplier(trap.ownerId, pid, players, resolvedMode);
+          const dmg = raw * dmgMult * getDamageMultiplier(trap.ownerId, pid, players, resolvedMode, tick, gladMods);
           players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg) };
           if (players[pid].hp <= 0) continue;
 

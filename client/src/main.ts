@@ -15,7 +15,7 @@ import { GearScreen } from './items/GearScreen';
 import { ShopScreen } from './items/ShopScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { supabase, fetchProfile, fetchCharacters, fetchItems, fetchGold, freshAccessToken } from './supabase';
-import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank, FLURRY_MOVE_MULT } from '@arena/shared';
+import { GameState, NodeId, SpellId, SPELL_CONFIG, SPELL_BINDINGS, CLASS_DEFAULT_NODE, teleportMaxRange, TICK_RATE, computeLoadout, deriveElement, appearanceFromRow, gearVisualsFor, resolveSlots, MAX_SPELL_SLOTS, BLOCK_MOVE_MULT, effectAtRank, FLURRY_MOVE_MULT, hasKeystone } from '@arena/shared';
 import { CharacterSelectUI } from './character/CharacterSelectUI';
 import type { CharacterRecord, CharacterClass, GearVisuals, SpellSlotRow } from '@arena/shared';
 import { AssetLoader } from './renderer/AssetLoader';
@@ -119,6 +119,7 @@ function spellsFromNodes(nodes: Set<NodeId>): Set<SpellId> {
 
 let phaseShiftRank = 0;
 let blockMoveMult = BLOCK_MOVE_MULT;
+let mobileGuardRank = 0;
 
 /** Re-derive owned spells, arrow element, and modifier ranks from the DB —
  * merging talent-tree ranks with equipped-item talent affixes so the client
@@ -157,7 +158,7 @@ async function refreshLoadout(characterId: string, charClass: string): Promise<v
   ownedSpells = spellsFromNodes(nodeSet);
   playerElement = deriveElement(effRanks);
   phaseShiftRank = effRanks.get('utility.phase_shift' as NodeId) ?? 0;
-  const mobileGuardRank = effRanks.get('bulwark.mobile_guard' as NodeId) ?? 0;
+  mobileGuardRank = effRanks.get('bulwark.mobile_guard' as NodeId) ?? 0;
   blockMoveMult = charClass === 'gladiator'
     ? Math.min(0.85, BLOCK_MOVE_MULT * (1 + effectAtRank(0.08, mobileGuardRank)))
     : BLOCK_MOVE_MULT;
@@ -832,15 +833,24 @@ scene.startRenderLoop(() => {
         // affixes mispredict every tick and rubber-band continuously on
         // reconcile.
         const stunned = (me.stunUntil ?? 0) > latest.tick;
-        const slowMult = stunned || (me.rootUntil ?? 0) > latest.tick ? 0
-          : ((me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1);
         // Block prediction mirrors the server's §1 resolution: held + gladiator
-        // + re-raise gate elapsed + not stunned. Uses the local button state so
+        // + re-raise gate elapsed + not stunned + not mid-flurry
+        // (StateAdvancer.ts §1: `blocking = wantsBlock && !stunned && blockReady
+        // && (p.flurryUntil ?? 0) <= tick`) — held block during a Spear Flurry
+        // commit doesn't count as blocking yet. Uses the local button state so
         // the slow starts the same frame the shield goes up.
         const predictedBlocking = inputHandler.isBlockHeld()
           && me.charClass === 'gladiator'
           && !stunned
-          && (me.blockCooldownUntil ?? 0) <= latest.tick;
+          && (me.blockCooldownUntil ?? 0) <= latest.tick
+          && (me.flurryUntil ?? 0) <= latest.tick;
+        // Unstoppable Guard keystone: a blocking gladiator past mobile_guard's
+        // soft cap ignores slows entirely (StateAdvancer.ts §1: `unstoppableGuard
+        // = blocking && !!gladMods[id]?.block.unstoppableGuard`).
+        const unstoppableGuard = predictedBlocking && hasKeystone('bulwark.mobile_guard' as NodeId, mobileGuardRank);
+        const slowMult = stunned || (me.rootUntil ?? 0) > latest.tick ? 0
+          : unstoppableGuard ? 1
+          : ((me.slowUntil ?? 0) > latest.tick ? (me.slowFactor ?? 1) : 1);
         // War Cry ally surge and Spear Flurry's committed-burst slow — both
         // fold into the same product the server's §1 speed multiplier does.
         const speedBoostMult = (me.speedBoostUntil ?? 0) > latest.tick ? (me.speedBoostFactor ?? 1) : 1;

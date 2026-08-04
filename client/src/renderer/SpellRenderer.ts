@@ -881,6 +881,7 @@ export class SpellRenderer {
     }
 
     for (const fw of state.fireWalls) {
+      if (fw.kind === 'dust') continue;
       const isRainZone = fw.kind === 'rain';
       const isBlizzard = fw.kind === 'blizzard';
       const isCaltrops = fw.kind === 'caltrops';
@@ -1375,7 +1376,7 @@ export class SpellRenderer {
   private syncWarCryRings(state: GameState): void {
     const viewer = state.players[this.myId];
     for (const player of Object.values(state.players)) {
-      if (player.castingSpell !== 17) continue;
+      if (player.castingSpell !== 21) continue;
       // Edge-detect on the underlying tick, not just the field's truthiness:
       // re-reads of the same interpolated snapshot (see warCryLastTick's
       // declaration comment) repeat the same (tick, castingSpell) pair on
