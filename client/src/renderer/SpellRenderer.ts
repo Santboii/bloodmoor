@@ -93,9 +93,11 @@ const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Mat
 // cone range, centered on local +X — same convention BLOCK_SHIELD_GEO uses so
 // rotation.set(-PI/2, 0, -facing) opens it toward the caster's facing.
 const FLURRY_CONE_GEO = new THREE.RingGeometry(0, FLURRY_CONE_RANGE, 20, 1, -FLURRY_CONE_HALF_ANGLE, FLURRY_CONE_HALF_ANGLE * 2);
-// Thin seed ring scaled up to WAR_CRY_RADIUS over its lifetime (TeleportEffect's
-// ringGeometry/scale-up pattern).
-const WAR_CRY_RING_GEO = new THREE.RingGeometry(1, 6, 32);
+// Unit-scale seed ring scaled up to WAR_CRY_RADIUS over its lifetime —
+// TeleportEffect's ringGeometry(radius 1)/scale.setScalar(RING_MAX_RADIUS*t)
+// pattern exactly: the geometry's own radius must stay ~1 so `scale.setScalar`
+// directly yields the final on-screen radius, not radius × geometry-size.
+const WAR_CRY_RING_GEO = new THREE.RingGeometry(0.85, 1, 32);
 const WAR_CRY_RING_DURATION = 0.4; // seconds
 const REFLECT_RING_GEO = new THREE.RingGeometry(22, 25, 24);
 // Icicle shard, apex along +X so the same rotation math as the arrow shaft
@@ -370,9 +372,19 @@ export class SpellRenderer {
   private arrows = new Map<string, ArrowEntry>();
   private spears = new Map<string, SpearEntry>();
   private harpoons = new Map<string, HarpoonEntry>();
+  private dragHarpoons = new Map<string, HarpoonEntry>();
   private dustClouds = new Map<string, DustEntry>();
   private flurryCones = new Map<string, FlurryEntry>();
   private warCryRings: WarCryRingEntry[] = [];
+  // Edge-detection state for War Cry: the last GameState.tick a ring was
+  // spawned for, per caster id. `castingSpell === 17` is a single-tick pulse
+  // on the SERVER, but the render loop calls update() once per animation
+  // frame against StateBuffer.getInterpolated()'s result, whose `tick` is
+  // pinned to the interpolation window's upper-bound snapshot — it only
+  // advances when a new snapshot supersedes that window. Multiple frames can
+  // therefore observe the identical (tick, castingSpell) pair while a cast is
+  // in flight; without this map each of those frames spawned its own ring.
+  private warCryLastTick = new Map<string, number>();
   private blockShields = new Map<string, BlockShieldEntry>();
   private reflectShimmers = new Map<string, ReflectEntry>();
   private stunStars = new Map<string, StunEntry>();
@@ -493,6 +505,7 @@ export class SpellRenderer {
     this.syncArrows(state);
     this.syncSpears(state);
     this.syncHarpoons(state);
+    this.syncHarpoonDrags(state);
     this.syncIceBolts(state);
     this.syncFireWalls(state);
     this.syncDustClouds(state, delta);
@@ -707,6 +720,68 @@ export class SpellRenderer {
       const chainAngle = Math.atan2(dz, dx);
       entry.chain.position.set((owner.x + wx) / 2, wy, (owner.y + wz) / 2);
       entry.chain.rotation.set(-Math.PI / 2, 0, -chainAngle);
+      entry.chain.scale.set(Math.max(length, 0.001), 1.5, 1.5);
+    }
+  }
+
+  /** The harpoon projectile above only exists in flight — the server deletes
+   *  it the instant it lands and the drag itself is pure field-driven
+   *  movement (`draggedBy`/`dragEndTick`, StateAdvancer.ts §0). Without this,
+   *  the chain/head vanish for the whole ~0.35s drag right after the moment
+   *  they'd read as most dramatic. Keyed per VICTIM id (one drag per victim
+   *  at a time; a dragger could in principle be reeling in more than one
+   *  target only if two harpoons landed the same tick, which the server
+   *  itself doesn't special-case either). Same hidden/corpse guard as every
+   *  other per-player visual, applied to BOTH endpoints — a chain must not
+   *  leak either player's position if either is concealed from this viewer. */
+  private syncHarpoonDrags(state: GameState): void {
+    const viewer = state.players[this.myId];
+    const hidden = (p: PlayerState | undefined): boolean =>
+      !p || p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick);
+
+    for (const [id, entry] of this.dragHarpoons) {
+      const victim = state.players[id];
+      const dragger = victim?.draggedBy ? state.players[victim.draggedBy] : undefined;
+      if (!victim?.draggedBy || hidden(victim) || hidden(dragger)) {
+        this.scene.remove(entry.mesh);
+        this.scene.remove(entry.chain);
+        disposeObject3D(entry.mesh);
+        disposeObject3D(entry.chain);
+        this.dragHarpoons.delete(id);
+      }
+    }
+
+    for (const victim of Object.values(state.players)) {
+      if (!victim.draggedBy || hidden(victim)) continue;
+      const dragger = state.players[victim.draggedBy];
+      if (hidden(dragger)) continue;
+
+      if (!this.dragHarpoons.has(victim.id)) {
+        const group = new THREE.Group();
+        const tip = new THREE.Mesh(SPEAR_TIP_GEO, HARPOON_HEAD_MAT);
+        group.add(tip);
+        this.scene.add(group);
+
+        const chain = new THREE.Mesh(HARPOON_CHAIN_GEO, HARPOON_CHAIN_MAT);
+        this.scene.add(chain);
+
+        this.dragHarpoons.set(victim.id, { mesh: group, chain });
+      }
+
+      const entry = this.dragHarpoons.get(victim.id)!;
+      const wx = victim.position.x;
+      const wy = 30;
+      const wz = victim.position.y;
+      const dx = wx - dragger!.position.x;
+      const dz = wz - dragger!.position.y;
+      const angle = Math.atan2(dz, dx);
+      // Head stays embedded at the victim, pointing back along the chain.
+      entry.mesh.position.set(wx, wy, wz);
+      entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+
+      const length = Math.sqrt(dx * dx + dz * dz);
+      entry.chain.position.set((dragger!.position.x + wx) / 2, wy, (dragger!.position.y + wz) / 2);
+      entry.chain.rotation.set(-Math.PI / 2, 0, -angle);
       entry.chain.scale.set(Math.max(length, 0.001), 1.5, 1.5);
     }
   }
@@ -1181,6 +1256,14 @@ export class SpellRenderer {
     const viewer = state.players[this.myId];
     for (const player of Object.values(state.players)) {
       if (player.castingSpell !== 17) continue;
+      // Edge-detect on the underlying tick, not just the field's truthiness:
+      // re-reads of the same interpolated snapshot (see warCryLastTick's
+      // declaration comment) repeat the same (tick, castingSpell) pair on
+      // every render frame until the buffer's window advances. One ring per
+      // (player, tick) — recorded before the visibility guard below so a
+      // concealed cast is marked "handled" too, instead of retrying it.
+      if (this.warCryLastTick.get(player.id) === state.tick) continue;
+      this.warCryLastTick.set(player.id, state.tick);
       if (player.hp <= 0 || isConcealedFromViewer(player, viewer, state.fireWalls, state.tick)) continue;
 
       const material = new THREE.MeshBasicMaterial({
@@ -1192,6 +1275,11 @@ export class SpellRenderer {
       mesh.scale.setScalar(0.01);
       this.scene.add(mesh);
       this.warCryRings.push({ mesh, spawnTime: this.elapsedTime });
+    }
+    // Drop bookkeeping for players who've left (rejoin/disconnect) so the map
+    // doesn't grow unbounded across a long-lived renderer instance.
+    for (const id of this.warCryLastTick.keys()) {
+      if (!(id in state.players)) this.warCryLastTick.delete(id);
     }
 
     for (let i = this.warCryRings.length - 1; i >= 0; i--) {
@@ -1421,6 +1509,12 @@ export class SpellRenderer {
       disposeObject3D(entry.mesh);
       disposeObject3D(entry.chain);
     }
+    for (const entry of this.dragHarpoons.values()) {
+      this.scene.remove(entry.mesh);
+      this.scene.remove(entry.chain);
+      disposeObject3D(entry.mesh);
+      disposeObject3D(entry.chain);
+    }
     for (const entry of this.dustClouds.values()) { this.scene.remove(entry.group); disposeObject3D(entry.group); }
     for (const entry of this.flurryCones.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.warCryRings) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
@@ -1450,9 +1544,11 @@ export class SpellRenderer {
     this.arrows.clear();
     this.spears.clear();
     this.harpoons.clear();
+    this.dragHarpoons.clear();
     this.dustClouds.clear();
     this.flurryCones.clear();
     this.warCryRings.length = 0;
+    this.warCryLastTick.clear();
     this.blockShields.clear();
     this.reflectShimmers.clear();
     this.stunStars.clear();
