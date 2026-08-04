@@ -34,6 +34,7 @@ import {
   BLEED_TICKS, HEMORRHAGE_SPEED_THRESHOLD, HEMORRHAGE_MULT,
   HARPOON_DRAG_TICKS, HARPOON_DRAG_STOP_DISTANCE, HARPOON_DRAG_MAX_STEP, SKEWER_WINDOW_TICKS,
   VANISH_TICKS,
+  CONCUSSION_MULT, SEISMIC_SLAM_DAMAGE, MIRROR_GUARD_MULT, JUGGERNAUT_DR_BONUS, JUGGERNAUT_HP_THRESHOLD,
   computeLoadout,
   gearVisualsFor,
 } from '@arena/shared';
@@ -55,6 +56,7 @@ import { spawnRainOfArrows, rainDetonates } from '../spells/RainOfArrows.ts';
 import { buildRangerModifiers } from '../skills/RangerModifiers.ts';
 import type { RangerSpellModifiers } from '../skills/RangerModifiers.ts';
 import { buildGladiatorModifiers } from '../skills/GladiatorModifiers.ts';
+import type { GladiatorSpellModifiers } from '../skills/GladiatorModifiers.ts';
 import { firstJabTarget, jabDamage } from '../spells/Jab.ts';
 import { spawnSpear, advanceSpear, isSpearExpired, spearHitsPlayer, spearDamage } from '../spells/Spear.ts';
 import { spawnHarpoon, advanceHarpoon, isHarpoonExpired, harpoonHitsPlayer, harpoonDamage } from '../spells/Harpoon.ts';
@@ -125,7 +127,7 @@ function getSpellNodeMap(charClass: CharacterClass): Partial<Record<SpellId, Nod
 /** Flip a projectile to the reflector: new owner, re-aimed at the original
  *  attacker's current position at the same speed, with a hit grace so it
  *  cannot instantly re-hit the reflector it is flying out of. */
-function redirectProjectile(proj: Projectile, newOwnerId: string, aimAt: Vec2, tick: number): Projectile {
+function redirectProjectile(proj: Projectile, newOwnerId: string, aimAt: Vec2, tick: number, mirrorMult = 1): Projectile {
   const speed = Math.sqrt(proj.velocity.x ** 2 + proj.velocity.y ** 2) || 1;
   const dx = aimAt.x - proj.position.x;
   const dy = aimAt.y - proj.position.y;
@@ -139,6 +141,9 @@ function redirectProjectile(proj: Projectile, newOwnerId: string, aimAt: Vec2, t
     homing: -1,
     homingRedirects: 0,
     relentless: undefined,
+    // Mirror Guard keystone: the reflected bolt hits harder.
+    damageMin: proj.damageMin !== undefined ? proj.damageMin * mirrorMult : proj.damageMin,
+    damageMax: proj.damageMax !== undefined ? proj.damageMax * mirrorMult : proj.damageMax,
   };
 }
 
@@ -212,7 +217,14 @@ export function advanceState(
       return [id, isGladiator ? buildGladiatorModifiers(skills) : null];
     })
   );
-  const blockDR = (pid: string) => gladMods[pid]?.block.damageReduction ?? BLOCK_DAMAGE_REDUCTION;
+  const blockDR = (pid: string) => {
+    const base = gladMods[pid]?.block.damageReduction ?? BLOCK_DAMAGE_REDUCTION;
+    // Juggernaut keystone: extra DR once the blocker drops below 30% HP.
+    const player = players[pid];
+    const below30 = !!player && player.hp < player.maxHp * JUGGERNAUT_HP_THRESHOLD;
+    const juggernautBonus = below30 && gladMods[pid]?.block.juggernaut ? JUGGERNAUT_DR_BONUS : 0;
+    return Math.min(0.85, base + juggernautBonus);
+  };
 
   const tick = state.tick;
 
@@ -250,6 +262,22 @@ export function advanceState(
             slowUntil: tick + p.leapLanding.slowTicks,
             slowFactor: p.leapLanding.slowFactor,
           };
+        }
+        // Seismic Slam keystone: the landing also deals a burst of damage to
+        // enemies in the shockwave radius, blocked by line of sight (pillars).
+        if (gladMods[id]?.leap.seismicSlam) {
+          for (const [oid, other] of Object.entries(players)) {
+            if (oid === id || other.hp <= 0) continue;
+            if (resolvedMode.teamsEnabled && other.teamId !== undefined && other.teamId === p.teamId) continue;
+            if ((other.invulnUntil ?? 0) > tick) continue;
+            const d2 = (other.position.x - landPos.x) ** 2 + (other.position.y - landPos.y) ** 2;
+            if (d2 > (LEAP_SLOW_RADIUS + PLAYER_HALF_SIZE) ** 2) continue;
+            if (!hasLineOfSight(landPos, other.position)) continue;
+            players[oid] = {
+              ...players[oid],
+              hp: Math.max(0, players[oid].hp - SEISMIC_SLAM_DAMAGE * getDamageMultiplier(id, oid, players, resolvedMode, tick, gladMods)),
+            };
+          }
         }
       }
     }
@@ -333,7 +361,7 @@ export function advanceState(
     if ((p.speedBoostUntil ?? 0) <= tick) { p.speedBoostUntil = undefined; p.speedBoostFactor = undefined; }
     if ((p.rallyUntil ?? 0) <= tick) p.rallyUntil = undefined;
     if ((p.rootUntil ?? 0) <= tick) p.rootUntil = undefined;
-    if ((p.stunUntil ?? 0) <= tick) p.stunUntil = undefined;
+    if ((p.stunUntil ?? 0) <= tick) { p.stunUntil = undefined; p.stunnedBy = undefined; }
     if ((p.blockCooldownUntil ?? 0) <= tick && p.blockCooldownUntil !== undefined) p.blockCooldownUntil = undefined;
     if ((p.poisonUntil ?? 0) <= tick) { p.poisonUntil = undefined; p.poisonDps = undefined; p.poisonManaReduction = undefined; p.poisonManaDrain = undefined; }
     if ((p.invisibleUntil ?? 0) <= tick) p.invisibleUntil = undefined;
@@ -392,8 +420,12 @@ export function advanceState(
     // Any release — voluntary, stun, or (later this tick) a cast — starts the re-raise gate.
     const blockCooldownUntil = p.blocking && !blocking ? tick + BLOCK_RERAISE_TICKS : p.blockCooldownUntil;
     const blockMove = blocking ? (gladMods[id]?.block.moveMult ?? BLOCK_MOVE_MULT) : 1;
+    // Unstoppable Guard: a blocking gladiator ignores slows (chill, landing
+    // shockwaves, etc.) entirely — root/stun still zero movement outright.
+    const unstoppableGuard = blocking && !!gladMods[id]?.block.unstoppableGuard;
+    const slowMult = unstoppableGuard ? 1 : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1);
     const speedMult = rooted || stunned ? 0
-      : ((p.slowUntil ?? 0) > tick ? (p.slowFactor ?? 1) : 1) * ((p.speedBoostUntil ?? 0) > tick ? (p.speedBoostFactor ?? 1) : 1)
+      : slowMult * ((p.speedBoostUntil ?? 0) > tick ? (p.speedBoostFactor ?? 1) : 1)
         * blockMove * p.statMults.moveSpeed * channelSlow * ((p.flurryUntil ?? 0) > tick ? FLURRY_MOVE_MULT : 1);
     const newFacing = input.aimTarget
       ? Math.atan2(input.aimTarget.y - p.position.y, input.aimTarget.x - p.position.x)
@@ -766,7 +798,7 @@ export function advanceState(
           const skewerMult = skewer ? 2 : 1;
           const raw = jabDamage(gm.jab.damageMin, gm.jab.damageMax)
             * gm.jab.damageMultiplier * execMult * skewerMult
-            * getDamageMultiplier(id, targetId, players, resolvedMode, tick);
+            * getDamageMultiplier(id, targetId, players, resolvedMode, tick, gladMods);
           const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
           const sameTeamJab = resolvedMode.teamsEnabled &&
             players[id]?.teamId !== undefined &&
@@ -774,7 +806,7 @@ export function advanceState(
           const stunFromRiposte = riposteJab && !sameTeamJab;
           let nextT = { ...target, hp: Math.max(0, target.hp - mit.damage) };
           if (mit.blocked) nextT = bankRiposte(nextT, !!gladMods[targetId]?.block.riposte, tick);
-          if (stunFromRiposte && nextT.hp > 0) nextT.stunUntil = tick + RIPOSTE_JAB_STUN_TICKS;
+          if (stunFromRiposte && nextT.hp > 0) { nextT.stunUntil = tick + RIPOSTE_JAB_STUN_TICKS; nextT.stunnedBy = id; }
           players[targetId] = nextT;
         }
       }
@@ -835,7 +867,7 @@ export function advanceState(
           players[oid] = { ...other, speedBoostUntil: tick + WAR_CRY_ALLY_SPEED_TICKS, speedBoostFactor: WAR_CRY_ALLY_SPEED_FACTOR,
             rallyUntil: gm.warCry.rally ? tick + RALLY_TICKS : other.rallyUntil };
         } else if ((other.invulnUntil ?? 0) <= tick) {
-          const next = { ...other, hp: Math.max(0, other.hp - WAR_CRY_DAMAGE * getDamageMultiplier(id, oid, players, resolvedMode, tick)) };
+          const next = { ...other, hp: Math.max(0, other.hp - WAR_CRY_DAMAGE * getDamageMultiplier(id, oid, players, resolvedMode, tick, gladMods)) };
           // strongest slow wins (frost convention)
           const existing = (next.slowUntil ?? 0) > tick ? (next.slowFactor ?? 1) : 1;
           if (next.hp > 0) {
@@ -899,7 +931,7 @@ export function advanceState(
         const execMult = gm.jab.executioner && hampered ? 1 + EXECUTIONER_BONUS : 1;
         const raw = flurryHitDamage(gm.flurry.damageMin, gm.flurry.damageMax)
           * gm.jab.damageMultiplier * execMult
-          * getDamageMultiplier(id, targetId, players, resolvedMode, tick);
+          * getDamageMultiplier(id, targetId, players, resolvedMode, tick, gladMods);
         const mit = mitigateDamage(target, p.position, raw, blockDR(targetId));
         let nextT = { ...target, hp: Math.max(0, target.hp - mit.damage) };
         if (mit.blocked) nextT = bankRiposte(nextT, !!gladMods[targetId]?.block.riposte, tick);
@@ -1081,7 +1113,7 @@ export function advanceState(
             const aimAt = attacker && attacker.hp > 0
               ? attacker.position
               : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
-            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick, gladMods[pid]?.reflect.mirrorGuard ? MIRROR_GUARD_MULT : 1));
             hit = true;
             break;
           }
@@ -1089,7 +1121,7 @@ export function advanceState(
           if (!invuln) {
             const momentum = 1 + GUIDED_MOMENTUM_PER_REDIRECT * (moved.redirectCount ?? 0);
             const rawArrow = arrowDamage(moved.damageMin, moved.damageMax) * momentum
-              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick)
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods)
               * exposedMultiplier(moved.ownerId, rangerMods[moved.ownerId], player.position, fireWalls);
             const mit = mitigateDamage(player, moved.position, rawArrow, blockDR(pid));
             let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
@@ -1108,7 +1140,7 @@ export function advanceState(
             const igniteKey = `${moved.ownerId}:${pid}`;
             if (ownerAM && ownerAM.element === 'burn' && ownerAM.elemental.burn.ignite &&
                 (next.burnUntil ?? 0) > tick && next.hp > 0 && !sameTeam && !igniteTicked.has(igniteKey)) {
-              next.hp = Math.max(0, next.hp - IGNITE_BURST_DAMAGE * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick));
+              next.hp = Math.max(0, next.hp - IGNITE_BURST_DAMAGE * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods));
               next.burnUntil = undefined;
               next.burnDps = undefined;
               igniteTicked.add(igniteKey);
@@ -1137,14 +1169,14 @@ export function advanceState(
             const aimAt = attacker && attacker.hp > 0
               ? attacker.position
               : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
-            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick, gladMods[pid]?.reflect.mirrorGuard ? MIRROR_GUARD_MULT : 1));
             hit = true;
             break;
           }
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const raw = spearDamage(moved.damageMin, moved.damageMax)
-              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods);
             const mit = mitigateDamage(player, moved.position, raw, blockDR(pid));
             let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
             if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
@@ -1155,6 +1187,7 @@ export function advanceState(
               players[moved.ownerId].teamId === player.teamId;
             if (!sameTeam && next.hp > 0) {
               next.stunUntil = tick + (moved.stunTicks ?? SPEAR_STUN_TICKS);
+              next.stunnedBy = moved.ownerId;
             }
             // Serrated Edge: bleed DoT. Attacker's damage mult is baked in at
             // apply time (burn convention) since the target has no way to
@@ -1184,14 +1217,14 @@ export function advanceState(
             const aimAt = attacker && attacker.hp > 0
               ? attacker.position
               : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
-            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick, gladMods[pid]?.reflect.mirrorGuard ? MIRROR_GUARD_MULT : 1));
             hit = true;
             break;
           }
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
             const raw = harpoonDamage(moved.damageMin, moved.damageMax)
-              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+              * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods);
             const mit = mitigateDamage(player, moved.position, raw, blockDR(pid));
             let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
             if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
@@ -1230,7 +1263,7 @@ export function advanceState(
             const aimAt = attacker && attacker.hp > 0
               ? attacker.position
               : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
-            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick));
+            survivingProjectiles.push(redirectProjectile(moved, pid, aimAt, tick, gladMods[pid]?.reflect.mirrorGuard ? MIRROR_GUARD_MULT : 1));
             hit = true;
             break;
           }
@@ -1280,7 +1313,7 @@ export function advanceState(
                 next.freezeRootReadyAt = tick + DEEP_FREEZE_COOLDOWN_TICKS;
               }
             }
-            const rawIce = iceBoltDamage(moved) * frostbiteMult * impalerMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+            const rawIce = iceBoltDamage(moved) * frostbiteMult * impalerMult * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods);
             // Directional projectile: Block mitigates it like arrows/spears;
             // the chill above still applies (status pierces Block, per spec).
             const mitIce = mitigateDamage(player, moved.position, rawIce, blockDR(pid));
@@ -1412,7 +1445,7 @@ export function advanceState(
         const aimAt = attacker && attacker.hp > 0
           ? attacker.position
           : { x: moved.position.x - moved.velocity.x, y: moved.position.y - moved.velocity.y };
-        survivingProjectiles.push(redirectProjectile(moved, reflectedBy, aimAt, tick));
+        survivingProjectiles.push(redirectProjectile(moved, reflectedBy, aimAt, tick, gladMods[reflectedBy]?.reflect.mirrorGuard ? MIRROR_GUARD_MULT : 1));
         continue;
       }
 
@@ -1425,7 +1458,7 @@ export function advanceState(
           if (!fireballHitsPlayer(moved, player.position, pid)) continue;
           if ((player.invulnUntil ?? 0) > tick) continue;
           const bonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
-          const rawDoom = fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+          const rawDoom = fireballDamage(moved) * bonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods);
           const mit = mitigateDamage(player, moved.position, rawDoom, blockDR(pid));
           let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
           if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
@@ -1450,7 +1483,7 @@ export function advanceState(
           if (!invuln) {
             const falloff = 1 - Math.min(dist / blastRadius, 1);
             const bounceBonus = 1 + BOUNCE_DAMAGE_BONUS * (moved.bounceCount ?? 0);
-            const rawBlast = fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick);
+            const rawBlast = fireballDamage(moved) * falloff * bounceBonus * getDamageMultiplier(moved.ownerId, pid, players, resolvedMode, tick, gladMods);
             const mit = mitigateDamage(player, moved.position, rawBlast, blockDR(pid));
             let next = { ...player, hp: Math.max(0, player.hp - mit.damage) };
             if (mit.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
@@ -1550,7 +1583,7 @@ export function advanceState(
           if (dx * dx + dy * dy > (CATACLYSMIC_ORB_RADIUS + PLAYER_HALF_SIZE) ** 2) continue;
           const invuln = (player.invulnUntil ?? 0) > tick;
           if (!invuln) {
-            const rawOrb = CATACLYSMIC_ORB_DAMAGE * getDamageMultiplier(advancedOrb.ownerId, pid, players, resolvedMode, tick);
+            const rawOrb = CATACLYSMIC_ORB_DAMAGE * getDamageMultiplier(advancedOrb.ownerId, pid, players, resolvedMode, tick, gladMods);
             const mitOrb = mitigateDamage(player, advancedOrb.position, rawOrb, blockDR(pid));
             let next = { ...player, hp: Math.max(0, player.hp - mitOrb.damage) };
             if (mitOrb.blocked) next = bankRiposte(next, !!gladMods[pid]?.block.riposte, tick);
@@ -1592,7 +1625,7 @@ export function advanceState(
       }
       // Directional beam: Block mitigates it like arrows/spears/icebolt; the
       // chill above still applies (status pierces Block, per spec).
-      const rawBeam = ramp.damagePerTick * getDamageMultiplier(id, pid, players, resolvedMode, tick);
+      const rawBeam = ramp.damagePerTick * getDamageMultiplier(id, pid, players, resolvedMode, tick, gladMods);
       const mitBeam = mitigateDamage(target, p.position, rawBeam, blockDR(pid));
       next.hp = Math.max(0, next.hp - mitBeam.damage);
       players[pid] = mitBeam.blocked ? bankRiposte(next, !!gladMods[pid]?.block.riposte, tick) : next;
@@ -1637,7 +1670,7 @@ export function advanceState(
             : isBlizzard
             ? (fw.noDamage ? 0 : BLIZZARD_DAMAGE_PER_TICK * (modifiers[fw.ownerId]?.blizzard.damageMultiplier ?? 1) * rimeheartMult)
             : wallDamagePerTick(fw, tick) * (modifiers[fw.ownerId]?.firewall.damageMultiplier ?? 1);
-          players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode, tick)) };
+          players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - dmg * getDamageMultiplier(fw.ownerId, pid, players, resolvedMode, tick, gladMods)) };
           if (isRainZone) {
             const ownerAM = rangerMods[fw.ownerId];
             const sameTeam = resolvedMode.teamsEnabled &&
@@ -1734,7 +1767,7 @@ export function advanceState(
         if (meteorHitsPlayer(m, players[pid].position, pid)) {
           const invuln = (players[pid].invulnUntil ?? 0) > tick;
           if (!invuln) {
-            players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - meteorDamage(m) * getDamageMultiplier(m.ownerId, pid, players, resolvedMode, tick)) };
+            players[pid] = { ...players[pid], hp: Math.max(0, players[pid].hp - meteorDamage(m) * getDamageMultiplier(m.ownerId, pid, players, resolvedMode, tick, gladMods)) };
           }
         }
       }
@@ -1847,17 +1880,24 @@ function getDamageMultiplier(
   players: Record<string, PlayerState>,
   mode: GameModeConfig,
   tick = 0,
+  gladMods?: Record<string, GladiatorSpellModifiers | null>,
 ): number {
   const atkMult = players[ownerId]?.statMults.damage ?? 1;
   // Rallying Roar keystone: +10% damage dealt while the caster's War Cry rally is live.
   const rallyMult = (players[ownerId]?.rallyUntil ?? 0) > tick ? RALLY_DAMAGE_MULT : 1;
-  if (!mode.teamsEnabled) return atkMult * rallyMult;
+  // Concussion keystone: +15% damage to a target the OWNER stunned — reads
+  // stunnedBy so a different attacker's stun can't be piggybacked on.
+  const concussionMult = gladMods?.[ownerId]?.stun.concussion &&
+    (players[targetId]?.stunUntil ?? 0) > tick &&
+    players[targetId]?.stunnedBy === ownerId
+    ? CONCUSSION_MULT : 1;
+  if (!mode.teamsEnabled) return atkMult * rallyMult * concussionMult;
   const ownerTeam = players[ownerId]?.teamId;
   const targetTeam = players[targetId]?.teamId;
   if (ownerTeam && targetTeam && ownerTeam === targetTeam) {
-    return atkMult * rallyMult * mode.friendlyFireMultiplier;
+    return atkMult * rallyMult * concussionMult * mode.friendlyFireMultiplier;
   }
-  return atkMult * rallyMult;
+  return atkMult * rallyMult * concussionMult;
 }
 
 /**
