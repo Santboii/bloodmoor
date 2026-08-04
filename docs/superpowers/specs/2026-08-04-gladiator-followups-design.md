@@ -47,5 +47,5 @@ Consequences:
 
 ## Tests
 
-- Constants assertions for dust; modifier tests for Soaring Reach/Momentum/Skirmisher formulas; gate tests for the new tree + flurry's rewired gate; a Skirmisher integration test (leap-land clears the re-raise gate mid-cooldown); regression: pre-cap Crushing Landing behavior identical; tree-count assertions update (arms 9, bulwark 9, gladiator_utility 4... note: Footwork has 4 nodes incl. the two moved ones — assert arms 9 / bulwark 9 / gladiator_utility 2 new + 2 moved = the `tree` field filter yields 4).
+- Constants assertions for dust; modifier tests for Soaring Reach/Momentum/Skirmisher formulas; gate tests for the new tree + flurry's rewired gate; a Skirmisher integration test (leap-land clears the re-raise gate mid-cooldown); regression: pre-cap Crushing Landing behavior identical; tree-count assertions update: filtering `SKILL_NODES` by `tree` yields arms 9, bulwark 9, gladiator_utility 4 (the two moved nodes count under their new tree despite their `arms.` id prefix).
 - Client: tsc + suite; visuals verified by eye (no renderer harness).
