@@ -5,13 +5,14 @@ import { Server } from 'socket.io';
 import { RoomManager } from './rooms/RoomManager.ts';
 import { Room } from './rooms/Room.ts';
 import { GameLoop } from './gameloop/GameLoop.ts';
-import { InputFrame, GameState } from '@arena/shared';
+import { GameState } from '@arena/shared';
 import type { GameModeType, ItemRow } from '@arena/shared';
 import { DISCONNECT_TIMEOUT_MS, REMATCH_COUNTDOWN_MS, GOLD_PER_MATCH, GOLD_WIN_BONUS } from '@arena/shared';
 import { loadSkillsForCharacter, creditMatchResult, loadUserFromToken } from './skills/loadSkills.ts';
 import { economyRouter } from './economy/routes.ts';
 import { supabase } from './supabase.ts';
 import { maybeRollMatchDrop } from './economy/service.ts';
+import { sanitizeInput } from './sanitizeInput.ts';
 
 const app = express();
 const httpServer = createServer(app);
@@ -25,40 +26,6 @@ const loops: Map<string, GameLoop> = new Map();
 const pauseTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const rematchVotes: Map<string, Set<string>> = new Map();
 const rematchTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-
-// Never trust client payloads: a malformed input frame (castSpell: 99,
-// missing aimTarget, NaN move) would otherwise throw inside the tick loop.
-const AIM_LIMIT = 100_000;
-function sanitizeInput(raw: unknown): InputFrame | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as { move?: unknown; castSpell?: unknown; aimTarget?: unknown; seq?: unknown; rest?: unknown };
-
-  const rawMove = r.move as { x?: unknown; y?: unknown } | undefined;
-  const clampAxis = (v: unknown): number =>
-    typeof v === 'number' && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
-  const move = { x: clampAxis(rawMove?.x), y: clampAxis(rawMove?.y) };
-
-  const rawAim = r.aimTarget as { x?: unknown; y?: unknown } | undefined;
-  const finiteCoord = (v: unknown): v is number =>
-    typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= AIM_LIMIT;
-  const aimValid = finiteCoord(rawAim?.x) && finiteCoord(rawAim?.y);
-
-  const castValid =
-    r.castSpell === null ||
-    (typeof r.castSpell === 'number' && Number.isInteger(r.castSpell) && r.castSpell >= 1 && r.castSpell <= 8);
-
-  if (!aimValid) return null;
-
-  const input: InputFrame = {
-    move,
-    // A cast without a valid aim point cannot be resolved — drop the cast.
-    castSpell: castValid ? (r.castSpell as InputFrame['castSpell']) : null,
-    aimTarget: { x: rawAim!.x as number, y: rawAim!.y as number },
-  };
-  if (typeof r.seq === 'number' && Number.isFinite(r.seq) && r.seq >= 0) input.seq = r.seq;
-  if (r.rest === true) input.rest = true;
-  return input;
-}
 
 // Round floats for the wire — full-precision doubles ("1023.3333333333334")
 // dominate snapshot size and 2 decimals is far below gameplay resolution.
