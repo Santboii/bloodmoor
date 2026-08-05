@@ -75,8 +75,11 @@ describe('the sand pit', () => {
   const px = bakeArenaFloor(size);
   const centre = 1000;
 
+  // Sample points stay clear of every pillar's 110-unit wear halo, which
+  // tints texels off their exact ramp colour. (1000,1000) in particular is
+  // both a pillar footprint and hidden under that pillar in game.
   it('fills the middle of the arena with sand', () => {
-    expect(isSand(texelAtWorld(px, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(px, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(px, size, centre + 400, centre))).toBe(true);
   });
 
@@ -109,11 +112,37 @@ describe('the sand pit', () => {
 
   it('honours a custom pit radius', () => {
     const small = bakeArenaFloor(size, { pitRadius: 300 });
-    expect(isSand(texelAtWorld(small, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(small, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(small, size, centre + 500, centre))).toBe(false);
   });
 
   it('is still not grainy with the pit carved', () => {
+    expect(grainFraction(px, size)).toBeLessThan(0.03);
+  });
+});
+
+describe('pillar wear', () => {
+  const size = FLOOR_TEXELS;
+  const px = bakeArenaFloor(size);
+
+  it('darkens the ground under a pillar that stands on stone', () => {
+    // (350, 300) is 955 units from the arena centre — clear of the pit, the
+    // kerb, and the sand spill (which ends at 783), so both sample rings land
+    // on plain flagstone. The near ring at 45 is inside WEAR_REACH (110); the
+    // far ring at 130 is outside it and still clear of the spill and of the
+    // next pillar, (400, 750), which is 450 away.
+    const px0 = 350, py0 = 300;
+    let near = 0, far = 0, n = 0;
+    for (let a = 0; a < 32; a++) {
+      const ang = (a / 32) * Math.PI * 2;
+      near += luminance(texelAtWorld(px, size, px0 + Math.cos(ang) * 45, py0 + Math.sin(ang) * 45));
+      far  += luminance(texelAtWorld(px, size, px0 + Math.cos(ang) * 130, py0 + Math.sin(ang) * 130));
+      n++;
+    }
+    expect(far / n - near / n).toBeGreaterThan(3);
+  });
+
+  it('adds no grain while doing it', () => {
     expect(grainFraction(px, size)).toBeLessThan(0.03);
   });
 });

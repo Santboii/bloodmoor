@@ -5,7 +5,7 @@
 //
 // DOM- and WebGL-free so it stays unit-testable in node, same rule as
 // pixelation.ts. The CanvasTexture wrapper lives in AssetLoader.
-import { ARENA_SIZE } from '@arena/shared';
+import { ARENA_SIZE, PILLARS } from '@arena/shared';
 
 /** Unchanged from the tiled floor: one 64-texel tile covered 200 world units.
  *  Sprite world sizes derive from this grid — do not drift from it. */
@@ -177,6 +177,29 @@ function carvePit(put: Put, size: number, mortar: RGB, opts: FloorOptions): void
   }
 }
 
+/** Ground worn and dirtied where players circle the pillars. A smooth radial
+ *  falloff modulated by low-frequency noise — deliberately not scattered
+ *  texels, which would reintroduce speckle. Operates on the buffer directly
+ *  because it tints what is already there rather than writing a colour. */
+function wearAroundPillars(px: Uint8ClampedArray, size: number): void {
+  const reach = Math.ceil(WEAR_REACH / UNITS_PER_TEXEL);
+  for (const p of PILLARS) {
+    const cx = Math.round(p.x / UNITS_PER_TEXEL), cy = Math.round(p.y / UNITS_PER_TEXEL);
+    const y0 = Math.max(0, cy - reach), y1 = Math.min(size - 1, cy + reach);
+    const x0 = Math.max(0, cx - reach), x1 = Math.min(size - 1, cx + reach);
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      const d = Math.hypot(tx * UNITS_PER_TEXEL - p.x, ty * UNITS_PER_TEXEL - p.y);
+      if (d > WEAR_REACH) continue;
+      const falloff = (1 - d / WEAR_REACH) * (0.45 + noise2(tx, ty, 26, 71) * 0.55);
+      const k = 1 - falloff * 0.16;
+      const o = (ty * size + tx) * 4;
+      px[o] = px[o] * k + 7 * falloff;
+      px[o + 1] = px[o + 1] * k + 5 * falloff;
+      px[o + 2] = px[o + 2] * k + 2 * falloff;
+    }
+  }
+}
+
 export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions = {}): Uint8ClampedArray {
   const px = new Uint8ClampedArray(size * size * 4);
   const put = makeWriter(px, size);
@@ -189,5 +212,6 @@ export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions =
 
   paveFlagstones(put, size, mortar);
   carvePit(put, size, mortar, opts);
+  wearAroundPillars(px, size);
   return px;
 }
