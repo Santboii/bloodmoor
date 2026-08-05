@@ -130,6 +130,53 @@ function paveFlagstones(put: Put, size: number, mortar: RGB): void {
   }
 }
 
+/** Carves the sand pit, its kerb ring, and the sand spilled over onto the
+ *  stone. Runs after paving, overwriting the flagstones it covers. */
+function carvePit(put: Put, size: number, mortar: RGB, opts: FloorOptions): void {
+  const sand = SAND_RAMP.map(hexToRgb);
+  const kerbStones = KERB_RAMP.map(hexToRgb);
+  const r0 = opts.pitRadius ?? PIT_RADIUS;
+  const kerbW = opts.kerbWidth ?? KERB_WIDTH;
+  const wobbleAmp = opts.edgeWobble ?? EDGE_WOBBLE;
+  const cx = ARENA_SIZE / 2, cy = ARENA_SIZE / 2;
+
+  for (let ty = 0; ty < size; ty++) for (let tx = 0; tx < size; tx++) {
+    const dx = tx * UNITS_PER_TEXEL - cx, dy = ty * UNITS_PER_TEXEL - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > r0 + kerbW + SPILL_REACH + wobbleAmp) continue;
+
+    const ang = Math.atan2(dy, dx);
+    // Sampling noise around a circle keeps the wobble continuous where the
+    // angle wraps, which a plain noise2(tx,ty) would not.
+    const wobble = (noise2(Math.cos(ang) * 60 + 300, Math.sin(ang) * 60 + 300, 22, 31) - 0.5) * wobbleAmp;
+    const r = r0 + wobble;
+
+    if (dist < r) {
+      // Broad patches plus a one-directional drag term. Nothing radially
+      // symmetric: concentric arcs centred here read as wood grain.
+      const n1 = noise2(tx, ty, 64, 41), n2 = noise2(tx, ty, 26, 42);
+      const drag = noise2(tx * 0.28, ty, 30, 43);
+      const wd = Math.hypot(dx + 70, dy - 40); // wear centre pulled off-centre
+      const wear = Math.max(0, 1 - wd / (r * 0.7)) * (0.10 + noise2(tx, ty, 90, 44) * 0.12);
+      const v = n1 * 0.52 + n2 * 0.33 + drag * 0.15 - wear;
+      put(tx, ty, sand[Math.max(0, Math.min(sand.length - 1, Math.floor(v * sand.length)))]);
+    } else if (dist < r + kerbW) {
+      const turns = ((ang + Math.PI) / (Math.PI * 2)) * 96;
+      const band = (dist - r) / kerbW;
+      const joint = turns % 1 < 0.1;
+      const stone = kerbStones[Math.floor(hash2(Math.floor(turns), 0, 51) * kerbStones.length)];
+      put(tx, ty, joint || band > 0.9 ? mortar : stone, band < 0.16 ? 10 : 0);
+    } else if (dist < r + kerbW + SPILL_REACH) {
+      // Thresholded low-frequency noise so sand banks in tongues. A per-texel
+      // coin flip here produced exactly the confetti this change removes.
+      const t = (dist - r - kerbW) / SPILL_REACH;
+      if (noise2(tx, ty, 11, 61) > 0.30 + t * 0.85) {
+        put(tx, ty, sand[1 + Math.floor(noise2(tx, ty, 5, 62) * 3)]);
+      }
+    }
+  }
+}
+
 export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions = {}): Uint8ClampedArray {
   const px = new Uint8ClampedArray(size * size * 4);
   const put = makeWriter(px, size);
@@ -141,5 +188,6 @@ export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions =
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) put(x, y, mortar);
 
   paveFlagstones(put, size, mortar);
+  carvePit(put, size, mortar, opts);
   return px;
 }
