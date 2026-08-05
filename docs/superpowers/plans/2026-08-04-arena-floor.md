@@ -689,16 +689,19 @@ If it is mirrored, set `tex.flipY = false` in `bakedFloorTexture` and re-check. 
 
 Confirm against `docs/superpowers/specs/2026-08-04-arena-floor-design.md`: no visible tiling seam anywhere, mortar reads as warm dark brown rather than black, the kerb is a clean arc, and the sand has no bullseye or wood-grain rings.
 
-- [ ] **Step 5: Remove the instrumentation and commit**
+- [ ] **Step 5: Remove the instrumentation and confirm a clean tree**
 
-Revert the `performance.now()` logging from Step 1, leaving `bakedFloorTexture` as it was after Task 4.
+Revert the `performance.now()` logging from Step 1, leaving `bakedFloorTexture` exactly as it was after Task 4.
+
+The instrumentation was never committed, so there is nothing to commit here — reverting it restores the committed state. Verify that:
 
 ```bash
-git add client/src/renderer/AssetLoader.ts
-git commit -m "chore(client): drop floor bake timing instrumentation"
+git status --porcelain client/src/renderer/AssetLoader.ts
 ```
 
-Record the measured bake time in the PR or commit body — the spec lists it as an open risk.
+Expected: empty output. If it is not empty, the revert was incomplete — diff against `HEAD` and finish it.
+
+Report the measured bake time in your task report: the spec lists it as an open risk and it needs to reach the branch summary.
 
 ---
 
