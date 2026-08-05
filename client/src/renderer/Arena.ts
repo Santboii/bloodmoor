@@ -38,8 +38,13 @@ export class Arena {
   }
 
   private buildFloor(tex: TextureSet): void {
-    const repeat = ARENA_SIZE / 200; // one tile per 200 world units
-    const mat = tiledPBR(tex, repeat, repeat);
+    // One baked image covers the whole arena, so this deliberately skips
+    // tiledPBR — its texture cloning and repeat wrapping are wrong here.
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex.map,
+      roughness: 1,
+      metalness: 0,
+    });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE), mat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(ARENA_SIZE / 2, 0, ARENA_SIZE / 2);
