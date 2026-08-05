@@ -23,11 +23,19 @@ export const KERB_WIDTH = 34;
 const EDGE_WOBBLE = 6;
 export const SPILL_REACH = 46;
 const WEAR_REACH = 110;
-const MORTAR = '#4a443a';
+/** Warmed against Scene.buildLighting()'s scene light, (0.520, 0.519, 0.899)
+ *  linear — blue outweighs red 1.73x. These hexes are solved backwards
+ *  through three.js's ACES tone mapping so the on-screen result reads warm
+ *  after that light multiplies them, not in isolation. */
+const MORTAR = '#564e3a';
 
-const STONE_RAMP = ['#57534c', '#615c53', '#6b665c', '#767065', '#807a6d', '#8a8376'] as const;
-const KERB_RAMP = ['#4b463d', '#544e44', '#5d564b'] as const;
-export const SAND_RAMP = ['#7f7053', '#8a7b5d', '#948566', '#9e8f70', '#a89979'] as const;
+/** The ramps below look oddly saturated/amber on their own — that's expected.
+ *  They're albedo values meant to be multiplied by a strongly blue scene
+ *  light (see MORTAR comment), so a warm on-screen result needs a more
+ *  amber input than intuition suggests. Judge these in the renderer, not the hex. */
+const STONE_RAMP = ['#645a44', '#71664c', '#7d7054', '#8a7a5c', '#978664', '#a3906c'] as const;
+const KERB_RAMP = ['#524c38', '#5c5440', '#675c46'] as const;
+export const SAND_RAMP = ['#917a58', '#a18860', '#ae9268', '#be9e70', '#cea876'] as const;
 
 export interface FloorOptions {
   pitRadius?: number;
