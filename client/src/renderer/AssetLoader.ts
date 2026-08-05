@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { posterizePixels } from './pixelation';
+import { bakeArenaFloor, FLOOR_TEXELS } from './arenaFloor';
 
 export interface TextureSet {
   map: THREE.Texture;
@@ -37,6 +38,27 @@ export function chunkifyTexture(tex: THREE.Texture, size = 64, levels = 8): THRE
   return out;
 }
 
+/**
+ * Bakes the arena floor and wraps it in a CanvasTexture. Clamped, never
+ * repeated: the image covers the floor plane exactly once, which is what
+ * removes the tiling seam the old 200-unit cobblestone tile had.
+ */
+export function bakedFloorTexture(): THREE.Texture {
+  const size = FLOOR_TEXELS;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.putImageData(new ImageData(bakeArenaFloor(size), size, size), 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestMipmapNearestFilter;
+  return tex;
+}
+
 function nearestFilter(tex: THREE.Texture): THREE.Texture {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestMipmapNearestFilter;
@@ -55,9 +77,8 @@ export class AssetLoader {
     const sRGB = THREE.SRGBColorSpace;
     const linear = THREE.LinearSRGBColorSpace;
 
-    const [floorDiff, stoneDiff, stoneNorm, stoneRough] =
+    const [stoneDiff, stoneNorm, stoneRough] =
       await Promise.all([
-        loadTex('/assets/textures/cobblestone/diffuse.jpg', sRGB),
         loadTex('/assets/textures/castle_stone/diffuse.jpg', sRGB),
         loadTex('/assets/textures/castle_stone/normal.jpg', linear),
         loadTex('/assets/textures/castle_stone/roughness.jpg', linear),
@@ -65,11 +86,11 @@ export class AssetLoader {
 
     return {
       textures: {
-        // Floor is diffuse-only: at 360p the normal/roughness maps read as
-        // per-pixel lighting speckle, not detail — flat-lit tiles look
-        // smooth like the Core Keeper reference.
+        // Floor is one baked image covering the whole arena — no photo, no
+        // tiling, and no normal/roughness maps (at this scale they read as
+        // per-pixel lighting speckle rather than detail).
         floor: {
-          map: chunkifyTexture(floorDiff, 64, 12),
+          map: bakedFloorTexture(),
         },
         stone: {
           map: chunkifyTexture(stoneDiff),

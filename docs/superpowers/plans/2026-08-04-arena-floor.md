@@ -308,8 +308,11 @@ describe('the sand pit', () => {
   const px = bakeArenaFloor(size);
   const centre = 1000;
 
+  // Sample points stay clear of every pillar's 110-unit wear halo, which
+  // tints texels off their exact ramp colour. (1000,1000) in particular is
+  // both a pillar footprint and hidden under that pillar in game.
   it('fills the middle of the arena with sand', () => {
-    expect(isSand(texelAtWorld(px, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(px, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(px, size, centre + 400, centre))).toBe(true);
   });
 
@@ -342,7 +345,7 @@ describe('the sand pit', () => {
 
   it('honours a custom pit radius', () => {
     const small = bakeArenaFloor(size, { pitRadius: 300 });
-    expect(isSand(texelAtWorld(small, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(small, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(small, size, centre + 500, centre))).toBe(false);
   });
 
@@ -530,6 +533,8 @@ Expected: PASS, 13 tests.
 
 Note: `wearAroundPillars` uses world positions from `PILLARS`, so it only lands correctly when `size === FLOOR_TEXELS`. That is the only size shipped; the smaller sizes in earlier tests exercise geometry, not wear.
 
+Note: wear tints texels off their exact ramp colour, and `isSand` matches exactly. Any test sampling for an exact ramp colour must stay more than `WEAR_REACH` (110) from every pillar — including the one at the arena centre, (1000, 1000). Task 2's two centre samples were moved to `(centre, centre + 200)` for this reason. Keep `isSand` exact: loosening it would weaken the "corners are stone" and "no sand past 783" assertions, and stone `#8a8376` sits only 25 apart from sand `#8a7b5d` on one channel.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -689,16 +694,19 @@ If it is mirrored, set `tex.flipY = false` in `bakedFloorTexture` and re-check. 
 
 Confirm against `docs/superpowers/specs/2026-08-04-arena-floor-design.md`: no visible tiling seam anywhere, mortar reads as warm dark brown rather than black, the kerb is a clean arc, and the sand has no bullseye or wood-grain rings.
 
-- [ ] **Step 5: Remove the instrumentation and commit**
+- [ ] **Step 5: Remove the instrumentation and confirm a clean tree**
 
-Revert the `performance.now()` logging from Step 1, leaving `bakedFloorTexture` as it was after Task 4.
+Revert the `performance.now()` logging from Step 1, leaving `bakedFloorTexture` exactly as it was after Task 4.
+
+The instrumentation was never committed, so there is nothing to commit here — reverting it restores the committed state. Verify that:
 
 ```bash
-git add client/src/renderer/AssetLoader.ts
-git commit -m "chore(client): drop floor bake timing instrumentation"
+git status --porcelain client/src/renderer/AssetLoader.ts
 ```
 
-Record the measured bake time in the PR or commit body — the spec lists it as an open risk.
+Expected: empty output. If it is not empty, the revert was incomplete — diff against `HEAD` and finish it.
+
+Report the measured bake time in your task report: the spec lists it as an open risk and it needs to reach the branch summary.
 
 ---
 
