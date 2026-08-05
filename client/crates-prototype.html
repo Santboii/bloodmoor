@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway spike, not part of the game build.
+     Question: does sliding-AABB crate physics + cosmetic tumble feel good?
+     Run: cd client && npm run dev, then open /crates-prototype.html -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PROTOTYPE — crate physics spike</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #0a0a12; }
+    #hud {
+      position: fixed; top: 10px; left: 10px; color: #cdd;
+      font: 12px/1.5 monospace; background: rgba(0,0,0,0.55);
+      padding: 10px 14px; border: 1px solid #445; pointer-events: none;
+      white-space: pre;
+    }
+    #banner {
+      position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+      color: #fa5; font: bold 13px monospace; background: rgba(0,0,0,0.55);
+      padding: 6px 12px; border: 1px solid #a53; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+  <div id="banner">PROTOTYPE — sliding AABB + cosmetic tumble</div>
+  <script type="module" src="/src/prototype/cratesPrototype.ts"></script>
+</body>
+</html>
