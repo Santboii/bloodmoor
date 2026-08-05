@@ -382,7 +382,10 @@ export const WITHERING_VENOM_MANA_DRAIN = 10;  // mana/sec
 export const EVADE_MAX_CHARGES = 2;
 
 // ── Gladiator constants ────────────────────────────────────────────────────
-export const JAB_RANGE = 90;               // line hitbox length, world units
+// Effective reach is JAB_RANGE + PLAYER_HALF_SIZE (see firstJabTarget), so 120
+// lets the gladiator open on someone ~136 units out — a polearm's worth of
+// standoff rather than the shoulder-to-shoulder 90 it started at.
+export const JAB_RANGE = 120;              // line hitbox length, world units
 export const JAB_WIDTH = 40;               // line hitbox width
 export const SPEAR_SPEED = 500;
 export const SPEAR_RADIUS = 8;
@@ -422,7 +425,9 @@ export const DUST_DURATION_TICKS = 5 * TICK_RATE;  // 300
 export const VANISH_TICKS = Math.round(0.5 * TICK_RATE);         // 30
 export const FLURRY_HITS = 5;
 export const FLURRY_HIT_INTERVAL_TICKS = 12;
-export const FLURRY_CONE_RANGE = 100;
+// Matches JAB_RANGE: same spear, same arms, so the committed burst must not
+// reach shorter than the basic attack it is built on.
+export const FLURRY_CONE_RANGE = 120;
 export const FLURRY_CONE_HALF_ANGLE = Math.PI / 4;               // 90° cone
 export const FLURRY_HIT_DAMAGE_MIN = 30;
 export const FLURRY_HIT_DAMAGE_MAX = 45;

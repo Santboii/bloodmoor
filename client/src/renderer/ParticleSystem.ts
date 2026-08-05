@@ -328,6 +328,131 @@ export class ParticleSystem {
     }
   }
 
+  /** Thrown spear in flight: a thin wake of pale motes shed sideways off the
+   * shaft. Deliberately sparse and cold — the throw is a physical weapon, and
+   * a fire-orange plume would read as a fireball. */
+  emitSpearWake(x: number, y: number, z: number, dirX: number, dirZ: number): void {
+    if (this.activeCount >= SOFT_CAP) return;
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      if (this.activeCount >= POOL_SIZE) return;
+      const idx = this.activeCount;
+      this.spawn(
+        x + (Math.random() - 0.5) * 5,
+        y + (Math.random() - 0.5) * 6,
+        z + (Math.random() - 0.5) * 5,
+        -dirX * (25 + Math.random() * 25) + (Math.random() - 0.5) * 20,
+        (Math.random() - 0.5) * 20,
+        -dirZ * (25 + Math.random() * 25) + (Math.random() - 0.5) * 20,
+        0.18 + Math.random() * 0.12,
+        5 + Math.random() * 4,
+        0.2,
+      );
+      this.colorR[idx] = 0.72;
+      this.colorG[idx] = 0.82;
+      this.colorB[idx] = 1.0;
+    }
+  }
+
+  /** A thrown spear landing (`power` 1) or leaving the hand (`power` ~0.35).
+   * Sparks spray BACKWARDS off the point of contact — the reverse of the
+   * heading, in a wide fan — which is what sells a strike as something that
+   * stopped hard rather than something that faded out. Struck-steel white,
+   * full gravity so they arc down like real debris. */
+  emitSpearImpact(x: number, y: number, z: number, dirX: number, dirZ: number, power = 1): void {
+    if (this.activeCount >= SOFT_CAP) return;
+    const count = Math.max(3, Math.round((22 + Math.floor(Math.random() * 10)) * power));
+    for (let i = 0; i < count; i++) {
+      if (this.activeCount >= POOL_SIZE) return;
+      // Rotate the reversed heading by up to ±75° in the XZ plane: a fan off
+      // the surface, not a cone straight back down the flight path.
+      const a = (Math.random() - 0.5) * 2.6;
+      const cos = Math.cos(a), sin = Math.sin(a);
+      const bx = -dirX * cos + dirZ * sin;
+      const bz = -dirX * sin - dirZ * cos;
+      const speed = (80 + Math.random() * 130) * (0.5 + power * 0.5);
+      const idx = this.activeCount;
+      this.spawn(
+        x + (Math.random() - 0.5) * 8,
+        y + (Math.random() - 0.5) * 10,
+        z + (Math.random() - 0.5) * 8,
+        bx * speed,
+        40 + Math.random() * 90,
+        bz * speed,
+        0.22 + Math.random() * 0.18,
+        6 + Math.random() * 7,
+      );
+      // Hot white core cooling to a steel blue-white at the fan's edges.
+      const heat = Math.random();
+      this.colorR[idx] = 1.5;
+      this.colorG[idx] = 1.25 + heat * 0.3;
+      this.colorB[idx] = 0.75 + heat * 0.6;
+    }
+  }
+
+  /** Spear Flurry: embers thrown off a jab at the top of its thrust — a tight
+   * forward spray along (dirX, dirZ). Hotter, faster and shorter-lived than
+   * emitTrail's plume: this is a strike, not a wake. Low gravity so the
+   * embers hang in the air for the next jab to sweep through instead of
+   * dropping like debris. */
+  emitFlurrySparks(x: number, y: number, z: number, dirX: number, dirZ: number): void {
+    if (this.activeCount >= SOFT_CAP) return;
+    const count = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < count; i++) {
+      if (this.activeCount >= POOL_SIZE) return;
+      // Scatter each ember around the jab's heading by rotating the direction
+      // vector in the XZ plane — no trig on the caller's angle needed.
+      const a = (Math.random() - 0.5) * 1.1;
+      const cos = Math.cos(a), sin = Math.sin(a);
+      const fx = dirX * cos - dirZ * sin;
+      const fz = dirX * sin + dirZ * cos;
+      const speed = 70 + Math.random() * 90;
+      const idx = this.activeCount;
+      this.spawn(
+        x + (Math.random() - 0.5) * 6,
+        y + (Math.random() - 0.5) * 8,
+        z + (Math.random() - 0.5) * 6,
+        fx * speed,
+        20 + Math.random() * 50,
+        fz * speed,
+        0.16 + Math.random() * 0.12,
+        7 + Math.random() * 6,
+        0.45,
+      );
+      // White-hot at the center of the spray, cooling to ember orange at its
+      // edges — a flat color reads as confetti at this size.
+      const heat = Math.random();
+      this.colorR[idx] = 1.6;
+      this.colorG[idx] = 0.35 + heat * 0.85;
+      this.colorB[idx] = 0.05 + heat * 0.5;
+    }
+  }
+
+  /** The caster's own body during a Flurry: a slow, continuous lick of embers
+   * boiling up off them for the burst's duration, so the jab storm has a
+   * visible source. Called once per continuous-emit frame, hence the tiny
+   * per-call count. */
+  emitFlurryEmbers(x: number, y: number, z: number): void {
+    if (this.activeCount >= SOFT_CAP) return;
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      if (this.activeCount >= POOL_SIZE) return;
+      const theta = Math.random() * Math.PI * 2;
+      const r = Math.random() * 14;
+      this.spawn(
+        x + Math.cos(theta) * r,
+        y - 14 + Math.random() * 20,
+        z + Math.sin(theta) * r,
+        Math.cos(theta) * 10,
+        30 + Math.random() * 35,
+        Math.sin(theta) * 10,
+        0.3 + Math.random() * 0.2,
+        6 + Math.random() * 5,
+        0.25,
+      );
+    }
+  }
+
   emitTeleportSparks(x: number, y: number, z: number): void {
     const count = 10 + Math.floor(Math.random() * 6);
     for (let i = 0; i < count; i++) {

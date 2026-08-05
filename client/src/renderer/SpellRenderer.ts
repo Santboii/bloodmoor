@@ -3,7 +3,8 @@ import {
   GameState, METEOR_DELAY_TICKS, METEOR_AOE_RADIUS, RAIN_DELAY_TICKS,
   iceRayRamp, ICE_RAY_HALF_WIDTH_START, ICE_RAY_HALF_WIDTH_FULL, PLAYER_HALF_SIZE,
   aurasForGear, type AuraAnchor, type Vec2,
-  WAR_CRY_RADIUS, FLURRY_CONE_HALF_ANGLE, FLURRY_HIT_INTERVAL_TICKS,
+  WAR_CRY_RADIUS, FLURRY_CONE_HALF_ANGLE, FLURRY_HIT_INTERVAL_TICKS, TICK_RATE, JAB_RANGE,
+  FLURRY_CONE_RANGE,
 } from '@arena/shared';
 import type { FireWallState, PlayerState } from '@arena/shared';
 import { ParticleSystem } from './ParticleSystem';
@@ -13,7 +14,25 @@ import * as sfx from '../audio/sfx';
 
 type MeteorEntry = { ring: THREE.Mesh; rock: THREE.Mesh; target: { x: number; y: number }; spawnTime: number; sizeScale: number };
 type ArrowEntry = { mesh: THREE.Group };
-type SpearEntry = { mesh: THREE.Group };
+// `spinner` holds the shaft and head and rolls about the spear's length axis;
+// the streak hangs off `mesh` instead so it doesn't roll with them. `born`
+// drives the roll off elapsedTime, keeping it frame-rate independent.
+type SpearEntry = { mesh: THREE.Group; spinner: THREE.Group; born: number };
+// One strike per Jab cast, anchored where it was thrown rather than tracking
+// the caster: a stab lands where you swung it. `sparked` latches the impact
+// burst at full extension.
+type JabStrikeEntry = {
+  mesh: THREE.Mesh;
+  material: THREE.MeshBasicMaterial;
+  angle: number;
+  origin: Vec2;
+  born: number;
+  sparked: boolean;
+};
+// Expanding shock ring marking a landed hit — same spawn-and-fade shape as
+// WarCryRingEntry, but a camera-facing sprite (see getImpactShockTexture).
+// Shared by the thrown spear's landing and the basic jab's strike.
+type ImpactShockEntry = { sprite: THREE.Sprite; material: THREE.SpriteMaterial; spawnTime: number };
 // Harpoon head+shaft mirrors SpearEntry's mesh; `chain` is a separate object
 // so it can stretch independently between the (moving) caster and the head.
 type HarpoonEntry = { mesh: THREE.Group; chain: THREE.Mesh };
@@ -30,7 +49,18 @@ type DustEntry = {
   heights: number[];
   phase: number;
 };
-type FlurryJab = { group: THREE.Group; angle: number; born: number };
+// `born` is when the jab starts thrusting, which is *after* the wave that
+// created it (see FLURRY_JAB_STAGGER) — the mesh exists but stays hidden until
+// then. `sparked` latches the one-shot ember burst at the top of the thrust.
+type FlurryJab = {
+  group: THREE.Group;
+  flame: THREE.Mesh;
+  angle: number;
+  born: number;
+  reach: number;
+  height: number;
+  sparked: boolean;
+};
 type FlurryEntry = { jabs: FlurryJab[]; lastSpawnTick: number };
 type WarCryRingEntry = { mesh: THREE.Mesh; spawnTime: number };
 type BlockShieldEntry = { mesh: THREE.Mesh };
@@ -109,10 +139,89 @@ const BLOCK_SHIELD_GEO = new THREE.RingGeometry(20, 26, 12, 1, -Math.PI / 2, Mat
 // shaft/tip shapes) that dart out from the caster and retract — see
 // syncFlurryJabs. Life is the full out-and-back duration in seconds; the
 // spawn count and reach are per-jab, independent of FLURRY_JABS_PER_HIT.
-const FLURRY_JAB_LIFE = 0.18;
-const FLURRY_JABS_PER_HIT = 3;
-const FLURRY_JAB_MIN_EXT = 40;
-const FLURRY_JAB_MAX_EXT = 90;
+const FLURRY_JAB_LIFE = 0.15;
+const FLURRY_JABS_PER_HIT = 5;
+const FLURRY_JAB_MIN_EXT = 34;
+// Per-jab reach is randomized in this band rather than fixed, so no two stabs
+// in a wave land on the same arc. Derived from FLURRY_CONE_RANGE rather than
+// hardcoded, so the fan can never promise reach the server won't swing at —
+// the shortest stab covers ~70% of the cone, the longest all but its last few
+// units.
+const FLURRY_JAB_MAX_EXT_MIN = FLURRY_CONE_RANGE * 0.7;
+const FLURRY_JAB_MAX_EXT_MAX = FLURRY_CONE_RANGE * 0.98;
+// A wave's jabs fire in sequence, not all at once: spacing them evenly across
+// the server's hit interval turns each wave from a single three-pronged poke
+// into a continuous run of stabs, with the next wave arriving as the last of
+// this one retracts.
+const FLURRY_JAB_STAGGER = FLURRY_HIT_INTERVAL_TICKS / TICK_RATE / FLURRY_JABS_PER_HIT;
+const FLURRY_JAB_HEIGHT = 30;
+const FLURRY_JAB_HEIGHT_JITTER = 13;
+// Fraction of a jab's life spent thrusting out. Well under half, so the stab
+// snaps to full reach and then drifts back — a symmetric triangle read as a
+// polite poke in both directions.
+const FLURRY_THRUST_FRAC = 0.34;
+// Flame streaming back off a jab: unit cone scaled per-frame to
+// (length, width, width). rotateZ(+90°) is the mirror of the spear shapes'
+// bake-in above, putting the apex on local -X so the flame tapers backwards
+// from the blade instead of ahead of it.
+const FLURRY_FLAME_GEO = new THREE.ConeGeometry(1, 1, 6).rotateZ(Math.PI / 2);
+const FLURRY_FLAME_MIN_LEN = 16;
+const FLURRY_FLAME_MAX_LEN = 60;
+const FLURRY_FLAME_WIDTH = 6;
+// The outer haze is a child of the flame, so these are scales *relative* to
+// it (same trick as ICE_RAY_GLOW_REL_SCALE_*): fatter and slightly shorter,
+// which blurs the core cone's hard silhouette into something that reads as
+// fire instead of a paper dart. Constant, so set once at creation.
+const FLURRY_HAZE_REL_LEN = 0.8;
+const FLURRY_HAZE_REL_WIDTH = 2.4;
+// Bigger than the 1.3 a thrown spear renders at: the weapon has to stay
+// legible as a weapon next to a flame several times its length.
+const FLURRY_SPEAR_SCALE = 1.15;
+// ── Basic Jab ───────────────────────────────────────────────────────────────
+// The character sprite already swings the real weapon (SpriteCharacter's
+// 'thrust' cast animation for gladiators), so this draws only the STRIKE: a
+// lance of force driven down the thrust line, plus the hit at the end of it.
+// Spawning a spear mesh here the way the flurry does would put a second,
+// offset spear on top of the one the sprite is already thrusting.
+// Unit cone with the apex on +X (the same bake-in as SPEAR_TIP_GEO, mirroring
+// the flurry flame's) so the strike tapers to a point at the far end and is
+// widest at the caster — force travelling outward, not a comet.
+const JAB_STRIKE_GEO = new THREE.ConeGeometry(1, 1, 8).rotateZ(-Math.PI / 2);
+const JAB_STRIKE_LIFE = 0.2;
+const JAB_STRIKE_WIDTH = 8;
+// Matches the flurry's asymmetric curve — the user-facing thrust motion is
+// deliberately the same shape, just one heavier stab instead of five.
+const JAB_THRUST_FRAC = 0.3;
+// ── Thrown spear ────────────────────────────────────────────────────────────
+// The weapon renders larger than its 26u shaft geometry and the head is
+// stretched into a longer blade: from this top-down camera a 1:1 cylinder is
+// a few pixels of stick, which is not what a 70-100 damage throw should look
+// like. The stretch is applied along the blade only, so it tapers rather than
+// fattening.
+const THROWN_SPEAR_SCALE = 1.3;
+const THROWN_SPEAR_BLADE_STRETCH = 2.4;
+// Turns per second about the spear's own length axis. The shaft is a 6-sided
+// cylinder, so each face catches the light differently and a slow roll reads
+// as a weapon in flight rather than a decal sliding over the ground.
+const THROWN_SPEAR_SPIN_RATE = 5.5;
+// Air-tear streak dragged behind the head — the same unit cone as the flurry
+// flame (apex on local -X), but steel-pale rather than fire, so a throw reads
+// as speed instead of as a second fire spell.
+const THROWN_SPEAR_STREAK_LEN = 40;
+const THROWN_SPEAR_STREAK_WIDTH = 2.4;
+// Fat end sits behind the shaft's midpoint, toward the butt of the weapon, so
+// the streak trails the spear instead of laying over it — additive white on
+// top of the haft erases the haft (the same mistake the flurry flame made).
+const THROWN_SPEAR_STREAK_ANCHOR_X = -8;
+// Impact shock: a ring punched perpendicular to travel where the spear
+// stopped. A spear only ever despawns by hitting a player, a pillar or a wall
+// — isSpearExpired has no timeout branch — so every despawn is a real hit and
+// always earns the burst.
+const SPEAR_IMPACT_RING_DURATION = 0.22;
+const SPEAR_IMPACT_RING_RADIUS = 34;
+// The flame's fat end sits at the shaft's midpoint, so the leading half of the
+// spear and its head stay clear of the fire instead of being swallowed by it.
+const FLURRY_FLAME_ANCHOR_X = 0;
 // Unit-scale seed ring scaled up to WAR_CRY_RADIUS over its lifetime —
 // TeleportEffect's ringGeometry(radius 1)/scale.setScalar(RING_MAX_RADIUS*t)
 // pattern exactly: the geometry's own radius must stay ~1 so `scale.setScalar`
@@ -141,6 +250,21 @@ const METEOR_ROCK_MAT = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const WALL_SEGMENT_MAT = new THREE.LineBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.4 });
 const SPEAR_SHAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x9a8866 });
 const SPEAR_TIP_MAT = new THREE.MeshBasicMaterial({ color: 0xcfcfd8 });
+// Steel-white and additive, like the thrown spear's streak — the basic jab is
+// a physical strike, and the fire palette is the flurry's signature. This is a
+// TEMPLATE: each strike clones it so it can fade on its own clock, and the
+// clone (not being in sharedMaterials) is freed with its mesh.
+const JAB_STRIKE_MAT_TEMPLATE = new THREE.MeshBasicMaterial({
+  color: new THREE.Color(1.7, 1.9, 2.4), transparent: true, opacity: 0.52,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+});
+// Reuses FLURRY_FLAME_GEO's unit cone. Cold steel-white so the throw is not
+// mistaken for the (fire-lit) flurry, and additive/depth-write-off so it
+// layers over the shaft the way the flurry flame does.
+const THROWN_SPEAR_STREAK_MAT = new THREE.MeshBasicMaterial({
+  color: new THREE.Color(0.72, 0.84, 1.05), transparent: true, opacity: 0.16,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+});
 const HARPOON_HEAD_MAT = new THREE.MeshBasicMaterial({ color: 0xcfd6e0 });
 const HARPOON_CHAIN_MAT = new THREE.MeshBasicMaterial({ color: 0x777788 });
 const BLOCK_SHIELD_MAT = new THREE.MeshBasicMaterial({
@@ -153,6 +277,37 @@ const BLOCK_SHIELD_MAT = new THREE.MeshBasicMaterial({
 const REFLECT_RING_MAT = new THREE.MeshBasicMaterial({
   color: 0xd9f0ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
 });
+
+// The jab's own weapon, read against its flame. The flame is additive and
+// depth-tested over the shaft, so the shaft's color is *summed* with the fire
+// wherever they overlap — a warm-orange shaft (the first pass) simply
+// disappeared into it. Pale hot steel survives that sum as a distinctly
+// whiter line inside the orange, which is what keeps the spear visible as a
+// spear. The head goes further, HDR-bright (>1 channels survive into the
+// half-float composer buffer like FIREBALL_CORE_MAT's do) so bloom picks out
+// a white-hot point at the business end.
+const FLURRY_SHAFT_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.95, 0.88, 0.78) });
+const FLURRY_TIP_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.9, 1.2) });
+// Four flame materials instead of one, assigned to jabs round-robin: the
+// per-frame opacity flicker below is phase-offset per material, so adjacent
+// flames burn out of step. One shared material would pulse the whole fan in
+// lockstep, which reads as a light switch rather than fire.
+const FLURRY_FLAME_MATS = Array.from({ length: 4 }, () => new THREE.MeshBasicMaterial({
+  color: new THREE.Color(1.9, 0.5, 0.08),
+  transparent: true,
+  opacity: 0.5,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+}));
+// Deeper, dimmer red for the haze wrapped around each flame — same count and
+// indexing as the cores above so a jab's two layers flicker together.
+const FLURRY_HAZE_MATS = Array.from({ length: 4 }, () => new THREE.MeshBasicMaterial({
+  color: new THREE.Color(1.3, 0.2, 0.03),
+  transparent: true,
+  opacity: 0.2,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+}));
 
 const ICE_BOLT_MAT = new THREE.MeshBasicMaterial({ color: 0xbfe9ff });
 const FROZEN_ORB_CORE_MAT = new THREE.MeshBasicMaterial({ color: 0xaee9ff });
@@ -219,13 +374,15 @@ const sharedGeometries = new Set<THREE.BufferGeometry>([
   FIREBALL_GEO, ARROW_SHAFT_GEO, ARROW_TRAIL_GEO, FALLING_ARROW_GEO, METEOR_RING_GEO, METEOR_ROCK_GEO,
   SPEAR_SHAFT_GEO, SPEAR_TIP_GEO, BLOCK_SHIELD_GEO, REFLECT_RING_GEO,
   ICE_BOLT_GEO, FALLING_SHARD_GEO, ICE_RAY_BEAM_GEO,
-  HARPOON_CHAIN_GEO, WAR_CRY_RING_GEO,
+  HARPOON_CHAIN_GEO, WAR_CRY_RING_GEO, FLURRY_FLAME_GEO, JAB_STRIKE_GEO,
 ]);
 const sharedMaterials = new Set<THREE.Material>([
   FIREBALL_CORE_MAT, FIREBALL_GLOW_MAT, METEOR_ROCK_MAT, WALL_SEGMENT_MAT,
   SPEAR_SHAFT_MAT, SPEAR_TIP_MAT, BLOCK_SHIELD_MAT, REFLECT_RING_MAT,
   ICE_BOLT_MAT, FROZEN_ORB_CORE_MAT, FROZEN_ORB_GLOW_MAT,
   HARPOON_HEAD_MAT, HARPOON_CHAIN_MAT,
+  FLURRY_SHAFT_MAT, FLURRY_TIP_MAT, ...FLURRY_FLAME_MATS, ...FLURRY_HAZE_MATS,
+  THROWN_SPEAR_STREAK_MAT,
 ]);
 
 // Stun stars are the one effect with no existing texture-based visual in
@@ -285,6 +442,37 @@ function getDustSpriteTexture(): THREE.CanvasTexture {
     dustSpriteTexture = new THREE.CanvasTexture(canvas);
   }
   return dustSpriteTexture;
+}
+
+// Shock ring for a landed hit. Same lazy-canvas approach as the stun star
+// and dust puff above. It is a SPRITE, not a ring mesh, deliberately: a mesh
+// ring has to be oriented, and every orientation is wrong somewhere — laid
+// flat it reads as a halo floating at chest height, stood perpendicular to
+// the spear's travel it collapses to an edge-on sliver for any throw that
+// crosses the camera's axis. A sprite always faces the viewer, so an impact
+// reads identically no matter which way the spear was going.
+let impactShockTexture: THREE.CanvasTexture | null = null;
+function getImpactShockTexture(): THREE.CanvasTexture {
+  if (!impactShockTexture) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const r = size / 2;
+    // Hollow: transparent center, a hard bright band, then a fast falloff —
+    // an expanding shell, not a disc.
+    const gradient = ctx.createRadialGradient(r, r, 0, r, r, r);
+    gradient.addColorStop(0, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.62, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.78, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.9, 'rgba(255,255,255,0.35)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    impactShockTexture = new THREE.CanvasTexture(canvas);
+  }
+  return impactShockTexture;
 }
 
 const arrowShaftMats = new Map<number, THREE.MeshBasicMaterial>();
@@ -419,6 +607,15 @@ export class SpellRenderer {
   private traps = new Map<string, TrapEntry>();
   private particles: ParticleSystem;
   private prevFireballPositions = new Map<string, { x: number; y: number; z: number; radius: number }>();
+  // Last live position + heading per spear, so the impact burst can be thrown
+  // at the right place and angle on the frame the projectile disappears —
+  // exactly how prevFireballPositions feeds the fireball's explosion.
+  private prevSpearPositions = new Map<string, { x: number; z: number; dirX: number; dirZ: number }>();
+  private impactShocks: ImpactShockEntry[] = [];
+  private jabStrikes: JabStrikeEntry[] = [];
+  // Same single-tick-pulse edge-detection problem (and fix) as warCryLastTick
+  // — see its declaration for why a bare truthiness check repeats.
+  private jabLastTick = new Map<string, number>();
   private clock = new THREE.Clock();
   private elapsedTime = 0;
   private teleportEffects: TeleportEffect[] = [];
@@ -537,7 +734,11 @@ export class SpellRenderer {
     this.syncIceRays(state, delta);
     this.syncTraps(state);
     this.syncGladiatorStatus(state);
+    this.syncJabStrikes(state);
     this.syncFlurryJabs(state);
+    // Shared by the thrown spear's landing and the jab's strike, so it ticks
+    // here rather than inside either one's sync pass.
+    this.updateImpactShocks();
     this.syncWarCryRings(state);
     this.syncUniqueAuras(state, selfPosition);
     this.particles.update(delta);
@@ -644,11 +845,22 @@ export class SpellRenderer {
     }
   }
 
+  /** Thrown spear: a spinning weapon dragging an air-tear streak and a wake of
+   *  sparks, which punches a shock ring and a spray of struck-steel sparks
+   *  into whatever stops it. The despawn burst mirrors syncFireballs' — the
+   *  projectile is simply gone on the frame it lands, so the last live
+   *  position and heading have to be carried forward in prevSpearPositions. */
   private syncSpears(state: GameState): void {
     const activeSpearIds = new Set(state.projectiles.filter(p => p.type === 'spear').map(p => p.id));
 
     for (const [id, entry] of this.spears) {
       if (!activeSpearIds.has(id)) {
+        const last = this.prevSpearPositions.get(id);
+        if (last) {
+          this.particles.emitSpearImpact(last.x, 30, last.z, last.dirX, last.dirZ, 1);
+          this.spawnImpactShock(last.x, 30, last.z);
+        }
+        this.prevSpearPositions.delete(id);
         this.scene.remove(entry.mesh);
         disposeObject3D(entry.mesh);
         this.spears.delete(id);
@@ -658,33 +870,86 @@ export class SpellRenderer {
     for (const spear of state.projectiles) {
       if (spear.type !== 'spear') continue;
 
-      if (!this.spears.has(spear.id)) {
-        const group = new THREE.Group();
-        const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
-        group.add(shaft);
-        // Tip sits at the shaft's forward end (half its 26u length), pointing
-        // further out — see SPEAR_TIP_GEO's rotateZ comment for why local +X
-        // is "forward" here.
-        const tip = new THREE.Mesh(SPEAR_TIP_GEO, SPEAR_TIP_MAT);
-        tip.position.x = 13;
-        group.add(tip);
-        this.scene.add(group);
-        this.spears.set(spear.id, { mesh: group });
-      }
-
-      const entry = this.spears.get(spear.id)!;
-      const wx = spear.position.x;
-      const wy = 30;
-      const wz = spear.position.y;
-      entry.mesh.position.set(wx, wy, wz);
-
       // Orient along velocity vector (X-Z plane in world space) — identical
       // to syncArrows; see SPEAR_SHAFT_GEO's comment for why this formula
       // works for a cylinder too.
       const vx = spear.velocity.x;
       const vz = spear.velocity.y;
+      const vlen = Math.sqrt(vx * vx + vz * vz) || 1;
+      const dirX = vx / vlen, dirZ = vz / vlen;
       const angle = Math.atan2(vz, vx);
+      const wx = spear.position.x;
+      const wy = 30;
+      const wz = spear.position.y;
+
+      if (!this.spears.has(spear.id)) {
+        const group = new THREE.Group();
+        const spinner = new THREE.Group();
+        const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
+        spinner.add(shaft);
+        // Tip sits at the shaft's forward end (half its 26u length), pointing
+        // further out — see SPEAR_TIP_GEO's rotateZ comment for why local +X
+        // is "forward" here. Only the blade's length is stretched, so the head
+        // gets meaner without getting fatter.
+        const tip = new THREE.Mesh(SPEAR_TIP_GEO, SPEAR_TIP_MAT);
+        tip.scale.set(THROWN_SPEAR_BLADE_STRETCH, 1, 1);
+        tip.position.x = 13;
+        spinner.add(tip);
+        group.add(spinner);
+        // Streak hangs off the group, not the spinner, so the roll below
+        // doesn't wobble it. Fat end at the shaft's midpoint, tapering back.
+        const streak = new THREE.Mesh(FLURRY_FLAME_GEO, THROWN_SPEAR_STREAK_MAT);
+        streak.scale.set(THROWN_SPEAR_STREAK_LEN, THROWN_SPEAR_STREAK_WIDTH, THROWN_SPEAR_STREAK_WIDTH);
+        streak.position.x = THROWN_SPEAR_STREAK_ANCHOR_X - THROWN_SPEAR_STREAK_LEN / 2;
+        group.add(streak);
+        group.scale.setScalar(THROWN_SPEAR_SCALE);
+        this.scene.add(group);
+        this.spears.set(spear.id, { mesh: group, spinner, born: this.elapsedTime });
+        // The throw itself: a light spray off the caster's hand, at a
+        // fraction of the strength the landing gets.
+        this.particles.emitSpearImpact(wx, wy, wz, dirX, dirZ, 0.35);
+      }
+
+      const entry = this.spears.get(spear.id)!;
+      entry.mesh.position.set(wx, wy, wz);
       entry.mesh.rotation.set(-Math.PI / 2, 0, -angle);
+      entry.spinner.rotation.x = (this.elapsedTime - entry.born) * THROWN_SPEAR_SPIN_RATE * Math.PI * 2;
+
+      if (this.shouldEmitContinuous) this.particles.emitSpearWake(wx, wy, wz, dirX, dirZ);
+      this.prevSpearPositions.set(spear.id, { x: wx, z: wz, dirX, dirZ });
+    }
+  }
+
+  /** Camera-facing shock ring where a hit landed. */
+  private spawnImpactShock(x: number, y: number, z: number): void {
+    const material = new THREE.SpriteMaterial({
+      map: getImpactShockTexture(), color: 0xe6f0ff, transparent: true,
+      opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(x, y, z);
+    sprite.scale.setScalar(1);
+    this.scene.add(sprite);
+    this.impactShocks.push({ sprite, material, spawnTime: this.elapsedTime });
+  }
+
+  private updateImpactShocks(): void {
+    for (let i = this.impactShocks.length - 1; i >= 0; i--) {
+      const entry = this.impactShocks[i];
+      const t = (this.elapsedTime - entry.spawnTime) / SPEAR_IMPACT_RING_DURATION;
+      if (t >= 1) {
+        // Remove + dispose the material only. Sprites share one internal
+        // geometry across every instance in three.js, so disposeObject3D
+        // would tear it out from under the stun stars and dust puffs too.
+        this.scene.remove(entry.sprite);
+        entry.material.dispose();
+        this.impactShocks.splice(i, 1);
+        continue;
+      }
+      // Snaps open and eases out, rather than expanding at a constant rate —
+      // the ring has to feel struck, not inflated.
+      entry.sprite.scale.setScalar(Math.max(1, (1 - (1 - t) ** 2) * SPEAR_IMPACT_RING_RADIUS * 2));
+      entry.material.opacity = 0.9 * (1 - t);
     }
   }
 
@@ -1343,13 +1608,22 @@ export class SpellRenderer {
    *  `flurryUntil` holds, flashing bright right after each hit resolves and
    *  fading out over the interval until the next one — same hidden/corpse
    *  guards as syncGladiatorStatus above. */
-  /** Flurry: a fan of jab spears bursts out from and retracts back to the
-   *  caster once per hit interval, rather than a single lingering cone —
-   *  each jab is a short-lived spear mesh (reusing SPEAR_SHAFT/TIP) animated
-   *  out-and-back along its own randomized angle within the cone. Spawning
-   *  is keyed to the server's hit-interval tick phase (not elapsedTime) so
-   *  render fps can't spawn more waves than the server actually swings. */
+  /** Flurry: a storm of fire-lit jab spears rather than a single lingering
+   *  cone — each jab is a short-lived spear mesh (reusing SPEAR_SHAFT/TIP,
+   *  but in ember colors) trailing a flame, animated out-and-back along its
+   *  own randomized angle and reach within the cone. A wave's jabs fire in
+   *  staggered sequence so the stabbing is continuous rather than pulsed, and
+   *  each throws a burst of embers at the top of its thrust. Spawning is keyed
+   *  to the server's hit-interval tick phase (not elapsedTime) so render fps
+   *  can't spawn more waves than the server actually swings. */
   private syncFlurryJabs(state: GameState): void {
+    // One flicker pass for every flame on screen — the materials are shared
+    // round-robin across jabs, so this is 4 writes, not one per jab.
+    for (let i = 0; i < FLURRY_FLAME_MATS.length; i++) {
+      const flicker = Math.sin(this.elapsedTime * 27 + i * 1.9);
+      FLURRY_FLAME_MATS[i].opacity = 0.5 + flicker * 0.22;
+      FLURRY_HAZE_MATS[i].opacity = 0.2 + flicker * 0.1;
+    }
     const viewer = state.players[this.myId];
     const hidden = (p: PlayerState | undefined): boolean =>
       !p || p.hp <= 0 || isConcealedFromViewer(p, viewer, state.fireWalls, state.tick);
@@ -1391,28 +1665,146 @@ export class SpellRenderer {
         for (let i = 0; i < FLURRY_JABS_PER_HIT; i++) {
           const angle = p.facing + (Math.random() * 2 - 1) * FLURRY_CONE_HALF_ANGLE;
           const group = new THREE.Group();
-          const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, SPEAR_SHAFT_MAT);
-          shaft.scale.setScalar(0.7);
-          const tip = new THREE.Mesh(SPEAR_TIP_GEO, SPEAR_TIP_MAT);
-          tip.scale.setScalar(0.7);
-          tip.position.x = 13 * 0.7;
-          group.add(shaft, tip);
+          const shaft = new THREE.Mesh(SPEAR_SHAFT_GEO, FLURRY_SHAFT_MAT);
+          shaft.scale.setScalar(FLURRY_SPEAR_SCALE);
+          const tip = new THREE.Mesh(SPEAR_TIP_GEO, FLURRY_TIP_MAT);
+          tip.scale.setScalar(FLURRY_SPEAR_SCALE);
+          tip.position.x = 13 * FLURRY_SPEAR_SCALE;
+          const mat = i % FLURRY_FLAME_MATS.length;
+          const flame = new THREE.Mesh(FLURRY_FLAME_GEO, FLURRY_FLAME_MATS[mat]);
+          const haze = new THREE.Mesh(FLURRY_FLAME_GEO, FLURRY_HAZE_MATS[mat]);
+          haze.scale.set(FLURRY_HAZE_REL_LEN, FLURRY_HAZE_REL_WIDTH, FLURRY_HAZE_REL_WIDTH);
+          flame.add(haze); // rides the flame's per-frame length/width scaling
+          group.add(shaft, tip, flame);
+          group.visible = false; // until this jab's staggered start (below)
           this.scene.add(group);
-          entry.jabs.push({ group, angle, born: this.elapsedTime });
+          entry.jabs.push({
+            group,
+            flame,
+            angle,
+            born: this.elapsedTime + i * FLURRY_JAB_STAGGER,
+            reach: FLURRY_JAB_MAX_EXT_MIN + Math.random() * (FLURRY_JAB_MAX_EXT_MAX - FLURRY_JAB_MAX_EXT_MIN),
+            height: FLURRY_JAB_HEIGHT + (Math.random() * 2 - 1) * FLURRY_JAB_HEIGHT_JITTER,
+            sparked: false,
+          });
         }
       }
 
-      // Animate: extend then retract along each jab's own fixed angle.
+      // Embers boiling off the caster for the whole burst, so the storm reads
+      // as coming from them rather than from thin air.
+      if (this.shouldEmitContinuous) {
+        this.particles.emitFlurryEmbers(p.position.x, FLURRY_JAB_HEIGHT, p.position.y);
+      }
+
+      // Animate: stab out then recover along each jab's own fixed angle.
       for (const j of entry.jabs) {
-        const t = Math.min(1, (this.elapsedTime - j.born) / FLURRY_JAB_LIFE);
-        const outback = t < 0.5 ? t * 2 : (1 - t) * 2; // 0 -> 1 -> 0
-        const ext = FLURRY_JAB_MIN_EXT + (FLURRY_JAB_MAX_EXT - FLURRY_JAB_MIN_EXT) * outback;
-        j.group.position.set(
-          p.position.x + Math.cos(j.angle) * ext, 30, p.position.y + Math.sin(j.angle) * ext,
-        );
+        const age = this.elapsedTime - j.born;
+        if (age < 0) continue; // staggered start not reached yet
+        j.group.visible = true;
+        const t = Math.min(1, age / FLURRY_JAB_LIFE);
+        // 0 -> 1 -> 0, but asymmetric: an eased sprint out to full reach in
+        // FLURRY_THRUST_FRAC of the life, then a linear drag back.
+        const outback = t < FLURRY_THRUST_FRAC
+          ? 1 - (1 - t / FLURRY_THRUST_FRAC) ** 2
+          : 1 - (t - FLURRY_THRUST_FRAC) / (1 - FLURRY_THRUST_FRAC);
+        const ext = FLURRY_JAB_MIN_EXT + (j.reach - FLURRY_JAB_MIN_EXT) * outback;
+        const wx = p.position.x + Math.cos(j.angle) * ext;
+        const wz = p.position.y + Math.sin(j.angle) * ext;
+        j.group.position.set(wx, j.height, wz);
+        // The flame stretches with the thrust: longest at full extension,
+        // stubby as the jab recovers. Sits behind the blade — the geometry's
+        // apex is on local -X, and shifting it back by half its length puts
+        // the fat end on FLURRY_FLAME_ANCHOR_X rather than straddling the tip.
+        const flameLen = FLURRY_FLAME_MIN_LEN + (FLURRY_FLAME_MAX_LEN - FLURRY_FLAME_MIN_LEN) * outback;
+        j.flame.scale.set(flameLen, FLURRY_FLAME_WIDTH, FLURRY_FLAME_WIDTH);
+        j.flame.position.x = FLURRY_FLAME_ANCHOR_X - flameLen / 2;
+        // One ember burst per jab, thrown off the spearhead at the top of the
+        // thrust — where the hit would land.
+        if (!j.sparked && t >= FLURRY_THRUST_FRAC) {
+          j.sparked = true;
+          this.particles.emitFlurrySparks(wx, j.height, wz, Math.cos(j.angle), Math.sin(j.angle));
+        }
         // Same orientation convention as syncSpears — SPEAR_SHAFT_GEO's local
         // +X is "forward" after the geometry's own rotateZ(-PI/2) bake-in.
         j.group.rotation.set(-Math.PI / 2, 0, -j.angle);
+      }
+    }
+  }
+
+  /** Basic Jab: one strike per cast, edge-detected on `castingSpell` exactly
+   *  like syncWarCryRings below (same repeated-snapshot caveat — see
+   *  warCryLastTick's declaration). The thrust motion is deliberately the same
+   *  curve the flurry's jabs use, just one heavier stab instead of five, and
+   *  it reaches exactly JAB_RANGE so the visual doesn't promise a hitbox the
+   *  server won't swing. */
+  private syncJabStrikes(state: GameState): void {
+    const viewer = state.players[this.myId];
+    for (const player of Object.values(state.players)) {
+      if (player.castingSpell !== 13) continue;
+      if (this.jabLastTick.get(player.id) === state.tick) continue;
+      this.jabLastTick.set(player.id, state.tick);
+      if (player.hp <= 0 || isConcealedFromViewer(player, viewer, state.fireWalls, state.tick)) continue;
+
+      const material = JAB_STRIKE_MAT_TEMPLATE.clone();
+      const mesh = new THREE.Mesh(JAB_STRIKE_GEO, material);
+      mesh.rotation.set(-Math.PI / 2, 0, -player.facing);
+      mesh.scale.set(0.01, JAB_STRIKE_WIDTH, JAB_STRIKE_WIDTH);
+      mesh.position.set(player.position.x, 30, player.position.y);
+      this.scene.add(mesh);
+      this.jabStrikes.push({
+        mesh, material,
+        angle: player.facing,
+        origin: { x: player.position.x, y: player.position.y },
+        born: this.elapsedTime,
+        sparked: false,
+      });
+    }
+    // Same bookkeeping cleanup as warCryLastTick's, for the same reason.
+    for (const id of this.jabLastTick.keys()) {
+      if (!(id in state.players)) this.jabLastTick.delete(id);
+    }
+
+    for (let i = this.jabStrikes.length - 1; i >= 0; i--) {
+      const s = this.jabStrikes[i];
+      const t = (this.elapsedTime - s.born) / JAB_STRIKE_LIFE;
+      if (t >= 1) {
+        this.scene.remove(s.mesh);
+        disposeObject3D(s.mesh);
+        this.jabStrikes.splice(i, 1);
+        continue;
+      }
+      const outback = t < JAB_THRUST_FRAC
+        ? 1 - (1 - t / JAB_THRUST_FRAC) ** 2
+        : 1 - (t - JAB_THRUST_FRAC) / (1 - JAB_THRUST_FRAC);
+      const len = Math.max(0.01, JAB_RANGE * outback);
+      s.mesh.scale.set(len, JAB_STRIKE_WIDTH, JAB_STRIKE_WIDTH);
+      // The cone straddles its own origin with the point on local +X, so
+      // pushing it forward by half its length seats the base on the caster
+      // and puts the point exactly at the hitbox's reach.
+      s.mesh.position.set(
+        s.origin.x + Math.cos(s.angle) * (len / 2), 30,
+        s.origin.y + Math.sin(s.angle) * (len / 2),
+      );
+      // Brightness rides the thrust, not the clock: a time-based fade is
+      // already a third spent by the time the stab reaches full reach, which
+      // left the strike dimmest exactly when it should flash hardest.
+      s.material.opacity = 0.52 * outback;
+
+      // A light scatter off the point at full extension. Deliberately NOT the
+      // shock ring the thrown spear gets: a spear despawns only on a real hit,
+      // but a jab swings whether or not it connects, and the client has no
+      // per-swing hit signal to key off (the only "damage happened" cue
+      // anywhere on the client is an enemy's hp dropping, which HUD.ts reads,
+      // and which no swing owns). A confirmation burst on every whiff would
+      // read as landing hits that never landed — so this stays at the
+      // strength of air being torn, not steel meeting armor.
+      if (!s.sparked && t >= JAB_THRUST_FRAC) {
+        s.sparked = true;
+        this.particles.emitSpearImpact(
+          s.origin.x + Math.cos(s.angle) * JAB_RANGE, 30,
+          s.origin.y + Math.sin(s.angle) * JAB_RANGE,
+          Math.cos(s.angle), Math.sin(s.angle), 0.25,
+        );
       }
     }
   }
@@ -1689,6 +2081,8 @@ export class SpellRenderer {
       for (const j of entry.jabs) { this.scene.remove(j.group); disposeObject3D(j.group); }
     }
     for (const entry of this.warCryRings) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
+    for (const entry of this.impactShocks) { this.scene.remove(entry.sprite); entry.material.dispose(); }
+    for (const entry of this.jabStrikes) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.blockShields.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.reflectShimmers.values()) { this.scene.remove(entry.mesh); disposeObject3D(entry.mesh); }
     for (const entry of this.stunStars.values()) { for (const sprite of entry.sprites) this.scene.remove(sprite); }
@@ -1715,6 +2109,10 @@ export class SpellRenderer {
     this.fireballs.clear();
     this.arrows.clear();
     this.spears.clear();
+    this.prevSpearPositions.clear();
+    this.impactShocks.length = 0;
+    this.jabStrikes.length = 0;
+    this.jabLastTick.clear();
     this.harpoons.clear();
     this.dragHarpoons.clear();
     this.dustClouds.clear();
