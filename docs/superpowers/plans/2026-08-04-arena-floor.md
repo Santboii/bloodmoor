@@ -308,8 +308,11 @@ describe('the sand pit', () => {
   const px = bakeArenaFloor(size);
   const centre = 1000;
 
+  // Sample points stay clear of every pillar's 110-unit wear halo, which
+  // tints texels off their exact ramp colour. (1000,1000) in particular is
+  // both a pillar footprint and hidden under that pillar in game.
   it('fills the middle of the arena with sand', () => {
-    expect(isSand(texelAtWorld(px, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(px, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(px, size, centre + 400, centre))).toBe(true);
   });
 
@@ -342,7 +345,7 @@ describe('the sand pit', () => {
 
   it('honours a custom pit radius', () => {
     const small = bakeArenaFloor(size, { pitRadius: 300 });
-    expect(isSand(texelAtWorld(small, size, centre, centre))).toBe(true);
+    expect(isSand(texelAtWorld(small, size, centre, centre + 200))).toBe(true);
     expect(isSand(texelAtWorld(small, size, centre + 500, centre))).toBe(false);
   });
 
@@ -529,6 +532,8 @@ Run: `npm run test --workspace=client -- tests/arenaFloor.test.ts`
 Expected: PASS, 13 tests.
 
 Note: `wearAroundPillars` uses world positions from `PILLARS`, so it only lands correctly when `size === FLOOR_TEXELS`. That is the only size shipped; the smaller sizes in earlier tests exercise geometry, not wear.
+
+Note: wear tints texels off their exact ramp colour, and `isSand` matches exactly. Any test sampling for an exact ramp colour must stay more than `WEAR_REACH` (110) from every pillar — including the one at the arena centre, (1000, 1000). Task 2's two centre samples were moved to `(centre, centre + 200)` for this reason. Keep `isSand` exact: loosening it would weaken the "corners are stone" and "no sand past 783" assertions, and stone `#8a8376` sits only 25 apart from sand `#8a7b5d` on one channel.
 
 - [ ] **Step 5: Commit**
 
