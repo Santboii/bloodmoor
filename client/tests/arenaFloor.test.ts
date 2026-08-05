@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { bakeArenaFloor, FLOOR_TEXELS, UNITS_PER_TEXEL } from '../src/renderer/arenaFloor';
+import {
+  bakeArenaFloor, FLOOR_TEXELS, UNITS_PER_TEXEL,
+  PIT_RADIUS, KERB_WIDTH, SPILL_REACH, SAND_RAMP,
+} from '../src/renderer/arenaFloor';
 
 /** Fraction of texels that are a local luminance extremum against both
  *  horizontal neighbours. This is the grain metric: the old photo-derived
@@ -31,8 +34,8 @@ describe('bakeArenaFloor', () => {
   });
 
   it('is deterministic', () => {
-    const a = bakeArenaFloor(128);
-    const b = bakeArenaFloor(128);
+    const a = bakeArenaFloor();
+    const b = bakeArenaFloor();
     expect(Array.from(a)).toEqual(Array.from(b));
   });
 
@@ -49,10 +52,6 @@ describe('bakeArenaFloor', () => {
     expect(grainFraction(bakeArenaFloor(FLOOR_TEXELS), FLOOR_TEXELS)).toBeLessThan(0.03);
   });
 });
-
-import {
-  PIT_RADIUS, KERB_WIDTH, SPILL_REACH, SAND_RAMP,
-} from '../src/renderer/arenaFloor';
 
 /** Reads one texel by world position, in the bake's own coordinates:
  *  texel (tx,ty) sits at world (tx * UNITS_PER_TEXEL, ty * UNITS_PER_TEXEL). */
@@ -116,7 +115,7 @@ describe('the sand pit', () => {
     expect(isSand(texelAtWorld(small, size, centre + 500, centre))).toBe(false);
   });
 
-  it('is still not grainy with the pit carved', () => {
+  it('stays under the grain threshold on the full pipeline (redundant with the top-level grain guard)', () => {
     expect(grainFraction(px, size)).toBeLessThan(0.03);
   });
 });
@@ -142,7 +141,7 @@ describe('pillar wear', () => {
     expect(far / n - near / n).toBeGreaterThan(3);
   });
 
-  it('adds no grain while doing it', () => {
+  it('stays under the grain threshold on the full pipeline (redundant with the other grain guards)', () => {
     expect(grainFraction(px, size)).toBeLessThan(0.03);
   });
 });

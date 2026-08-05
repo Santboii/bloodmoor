@@ -49,11 +49,7 @@ export function bakedFloorTexture(): THREE.Texture {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  // Re-wrap: bakeArenaFloor's declared return type is the bare
-  // Uint8ClampedArray (ArrayBufferLike-backed), but ImageData's constructor
-  // requires the ArrayBuffer-backed generic — TS 5.7+ typed array generics.
-  const pixels = new Uint8ClampedArray(bakeArenaFloor(size));
-  ctx.putImageData(new ImageData(pixels, size, size), 0, 0);
+  ctx.putImageData(new ImageData(bakeArenaFloor(size), size, size), 0, 0);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

@@ -8,7 +8,10 @@
 import { ARENA_SIZE, PILLARS } from '@arena/shared';
 
 /** Unchanged from the tiled floor: one 64-texel tile covered 200 world units.
- *  Sprite world sizes derive from this grid — do not drift from it. */
+ *  That is the scale the old tiled floor used, and it is preserved here so
+ *  the baked floor keeps its authored visual proportion against the sprites
+ *  — sprites are sized from their own separate grid, worldUnitsPerTexel() in
+ *  pixelation.ts, and do not derive from this constant. */
 export const UNITS_PER_TEXEL = 200 / 64;
 export const FLOOR_TEXELS = Math.round(ARENA_SIZE / UNITS_PER_TEXEL);
 
@@ -17,13 +20,13 @@ export const KERB_WIDTH = 34;
 /** Small on purpose: at r700 a large wobble reads as an unsteady line rather
  *  than as erosion. The sand spilled over the kerb is what keeps the drafted
  *  circle from looking machined. */
-export const EDGE_WOBBLE = 6;
+const EDGE_WOBBLE = 6;
 export const SPILL_REACH = 46;
-export const WEAR_REACH = 110;
-export const MORTAR = '#4a443a';
+const WEAR_REACH = 110;
+const MORTAR = '#4a443a';
 
-export const STONE_RAMP = ['#57534c', '#615c53', '#6b665c', '#767065', '#807a6d', '#8a8376'] as const;
-export const KERB_RAMP = ['#4b463d', '#544e44', '#5d564b'] as const;
+const STONE_RAMP = ['#57534c', '#615c53', '#6b665c', '#767065', '#807a6d', '#8a8376'] as const;
+const KERB_RAMP = ['#4b463d', '#544e44', '#5d564b'] as const;
 export const SAND_RAMP = ['#7f7053', '#8a7b5d', '#948566', '#9e8f70', '#a89979'] as const;
 
 export interface FloorOptions {
@@ -200,7 +203,12 @@ function wearAroundPillars(px: Uint8ClampedArray, size: number): void {
   }
 }
 
-export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions = {}): Uint8ClampedArray {
+/** `size` crops rather than rescales: paveFlagstones fills whatever buffer
+ *  it's given, but carvePit and wearAroundPillars convert texels to world
+ *  coordinates via the fixed UNITS_PER_TEXEL grid, so a size below
+ *  FLOOR_TEXELS yields the arena's top-left corner at full detail and omits
+ *  the pit and pillar wear entirely. */
+export function bakeArenaFloor(size: number = FLOOR_TEXELS, opts: FloorOptions = {}) {
   const px = new Uint8ClampedArray(size * size * 4);
   const put = makeWriter(px, size);
   const mortar = hexToRgb(opts.mortar ?? MORTAR);
